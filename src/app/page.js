@@ -2,7 +2,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
-import { FIELD_MODIFIERS } from '../lib/modifiers'
 
 const makeId = () => Math.random().toString(36).slice(2,10)
 
@@ -36,16 +35,13 @@ function Btn({onClick,children,color=C.accent,outline=false,small=false,disabled
 // ── ASSESSMENT FORM ───────────────────────────────────────────────────────────
 function AssessmentForm({ assessment, client, onComplete, onBack }) {
   const [answers, setAnswers] = useState({})
-  const [summary, setSummary] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [done, setDone] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
 
   useEffect(() => {
     if (client.assessments?.[assessment.id]) {
-      const d = client.assessments[assessment.id]
-      setAnswers(d)
-      setSummary(d._summary || '')
-      setDone(true)
+      setAnswers(client.assessments[assessment.id])
+      setSaved(true)
     }
   }, [assessment.id, client.assessments])
 
@@ -54,28 +50,17 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
   const progress = Math.round((answered / allFields.length) * 100)
   const set = (id, val) => setAnswers(a => ({ ...a, [id]: val }))
 
-  const generateSummary = async () => {
-    setLoading(true)
-    setDone(true)
-    const qa = allFields.map(f => {
-      const base = `${f.label}: ${answers[f.id] || '(not recorded)'}`
-      const rating = answers[`${f.id}_rating`]
-      const modifier = answers[`${f.id}_modifier`]
-      const confirmed = answers[`${f.id}_mod_confirmed`]
-      const ratingStr = rating ? ` | Rating: ${rating}/10 ${parseInt(rating) <= 7 ? '(FAIL)' : '(PASS)'}` : ''
-      const modStr = modifier ? ` | Modifier tried: ${modifier}${confirmed === 'yes' ? ' ✓ CONFIRMED WORKING' : confirmed === 'no' ? ' ✗ did not help' : ''}` : ''
-      return base + ratingStr + modStr
-    }).join('\n')
+  const saveAssessmentData = async () => {
+    setSaving(true)
     try {
-      const s = await callClaude([{ role: 'user', content: `You are an expert personal trainer reviewing a completed ${assessment.name} assessment for client: ${client.name}.\n\nResults:\n${qa}\n\nProvide a structured clinical summary: 1) Key findings & red flags 2) Areas that tested strong/normal 3) Priority correctives & protocols to assign 4) Recommended training modifications 5) Suggested breakout assessments. Be specific and practical.` }], 1000)
-      setSummary(s)
-      const completed = { ...answers, _summary: s, _completedAt: new Date().toISOString() }
-      await saveAssessment(client.id, assessment.id, answers, s)
+      const completed = { ...answers, _completedAt: new Date().toISOString() }
+      await saveAssessment(client.id, assessment.id, answers, '')
       onComplete(assessment.id, completed)
+      setSaved(true)
     } catch (e) {
-      setSummary('Error generating summary: ' + e.message)
+      alert('Error saving: ' + e.message)
     }
-    setLoading(false)
+    setSaving(false)
   }
 
   const renderField = (f) => {
@@ -104,7 +89,6 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
     const rating = answers[ratingKey]
     const modifier = answers[modKey]
     const modConfirmed = answers[modConfirmedKey]
-    const modifiers = FIELD_MODIFIERS[f.id]
     const ratingNum = parseInt(rating)
     const isFail = rating && ratingNum <= 7
     const isPass = rating && ratingNum >= 8
@@ -113,9 +97,9 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
     return (
       <div style={{ marginTop: 10, background: C.faint, borderRadius: 10, padding: '12px 14px', border: `1px solid ${C.border}` }}>
 
-        {/* STEP 1 — Rate */}
+        {/* Rate this test */}
         <div style={{ marginBottom: rating ? 12 : 0 }}>
-          <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Step 1 — Rate this test</div>
+          <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Step 1 — Rate this test (1–10)</div>
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
             {[1,2,3,4,5,6,7,8,9,10].map(n => {
               const isSelected = ratingNum === n
@@ -123,7 +107,6 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
               return (
                 <button key={n} onClick={() => {
                   set(ratingKey, n.toString())
-                  // Reset downstream if rating changes
                   set(modKey, '')
                   set(modConfirmedKey, '')
                 }} style={{
@@ -144,51 +127,61 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
           )}
         </div>
 
-        {/* STEP 2 — Modifier (only if fail and modifiers exist) */}
-        {isFail && modifiers && modifiers.length > 0 && (
+        {/* FAIL NOTES — clinical decision notes from uploaded protocols */}
+        {isFail && f.failNotes && (
+          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: 12 }}>
+            <div style={{ fontSize: 10, color: C.orange, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 What To Do Next</div>
+            <div style={{ background: C.orange + '08', border: `1px solid ${C.orange}22`, borderRadius: 10, padding: '12px 16px' }}>
+              <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{f.failNotes}</pre>
+            </div>
+          </div>
+        )}
+
+        {/* MODIFIER DROPDOWN — select which modifier helped */}
+        {isFail && f.modifiers && f.modifiers.length > 0 && (
           <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: modifier ? 12 : 0 }}>
-            <div style={{ fontSize: 10, color: C.red, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Step 2 — Try a modifier. Which one helped?</div>
+            <div style={{ fontSize: 10, color: C.red, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Step 2 — Which modifier helped?</div>
             <select value={modifier || ''} onChange={e => {
               set(modKey, e.target.value)
-              set(modConfirmedKey, '') // reset confirmation if modifier changes
+              set(modConfirmedKey, '')
             }} style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${modifier ? C.accent : C.red + '66'}`, background: 'white', color: modifier ? C.text : C.sub, fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', cursor: 'pointer' }}>
-              <option value="">— Select a modifier to try —</option>
-              {modifiers.map(m => <option key={m} value={m}>{m}</option>)}
+              <option value="">— Select the modifier that helped —</option>
+              {f.modifiers.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
           </div>
         )}
 
-        {/* STEP 3 — Confirm (only if modifier selected and not "No modifier worked") */}
-        {isFail && modifier && modifier !== 'No modifier worked' && (
+        {/* CONFIRM — did it work? (only if modifier selected and not "No modifier helped") */}
+        {isFail && modifier && modifier !== 'No modifier helped' && (
           <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
-            <div style={{ fontSize: 10, color: C.accent, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>Step 3 — Did <span style={{ color: C.accent }}>{modifier}</span> improve the test?</div>
+            <div style={{ fontSize: 10, color: C.accent, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>Step 3 — Did <span style={{ color: C.accent }}>{modifier.split('→')[0].trim()}</span> improve the test?</div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => set(modConfirmedKey, 'yes')} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1.5px solid ${modConfirmed === 'yes' ? C.green : C.border}`, background: modConfirmed === 'yes' ? C.green : 'white', color: modConfirmed === 'yes' ? 'white' : C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>✓ Yes — it worked</button>
               <button onClick={() => set(modConfirmedKey, 'no')} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1.5px solid ${modConfirmed === 'no' ? C.red : C.border}`, background: modConfirmed === 'no' ? C.red : 'white', color: modConfirmed === 'no' ? 'white' : C.red, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>✗ No — try another</button>
             </div>
             {modConfirmed === 'yes' && (
               <div style={{ marginTop: 8, padding: '8px 12px', background: C.green + '12', borderRadius: 8, border: `1px solid ${C.green}44`, fontSize: 11, color: C.green, fontWeight: 700 }}>
-                ✓ Recorded: <strong>{modifier}</strong> confirmed as corrective for this test
+                ✓ Recorded: <strong>{modifier}</strong>
               </div>
             )}
             {modConfirmed === 'no' && (
               <div style={{ marginTop: 8, padding: '8px 12px', background: C.orange + '12', borderRadius: 8, border: `1px solid ${C.orange}44`, fontSize: 11, color: C.orange, fontWeight: 700 }}>
-                Try selecting a different modifier above ↑
+                Select a different modifier above ↑
               </div>
             )}
           </div>
         )}
 
-        {/* No modifier worked — record it */}
-        {isFail && modifier === 'No modifier worked' && (
+        {/* No modifier helped — flag it */}
+        {isFail && modifier === 'No modifier helped' && (
           <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
             <div style={{ padding: '8px 12px', background: C.red + '10', borderRadius: 8, border: `1px solid ${C.red}33`, fontSize: 11, color: C.red, fontWeight: 700 }}>
-              ✗ Recorded: No modifier improved this test — flag for deeper investigation
+              ✗ Recorded: No modifier helped — flag for deeper investigation / breakout assessments
             </div>
           </div>
         )}
 
-        {/* Pass — no modifier needed */}
+        {/* Pass — no corrective needed */}
         {isPass && (
           <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
             <div style={{ fontSize: 11, color: C.green, fontWeight: 700 }}>✓ Pass — no corrective needed for this test</div>
@@ -220,30 +213,36 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
               <label style={{ display: 'block', fontSize: 12, color: C.sub, marginBottom: 6, fontWeight: 600 }}>{f.label}</label>
               {renderField(f)}
               {renderRatingAndModifier(f)}
+              {f.type === 'scale' && f.failNotes && answers[f.id] && (
+                <div style={{ marginTop: 10, background: parseInt(answers[f.id]) >= 7 ? C.red + '08' : C.accent + '08', border: `1px solid ${parseInt(answers[f.id]) >= 7 ? C.red : C.accent}22`, borderRadius: 10, padding: '12px 16px' }}>
+                  <div style={{ fontSize: 10, color: parseInt(answers[f.id]) >= 7 ? C.red : C.accent, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 Trainer Script</div>
+                  <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{f.failNotes}</pre>
+                </div>
+              )}
+              {f.type === 'textarea' && f.failNotes && (
+                <div style={{ marginTop: 10, background: C.accent + '08', border: `1px solid ${C.accent}22`, borderRadius: 10, padding: '12px 16px' }}>
+                  <div style={{ fontSize: 10, color: C.accent, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 Trainer Script</div>
+                  <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{f.failNotes}</pre>
+                </div>
+              )}
             </div>
           ))}
         </div>
       ))}
 
       <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 8 }}>
-        <Btn onClick={generateSummary} disabled={loading}>{loading ? 'Generating...' : done ? '↺ Regenerate Summary' : '⚡ Generate AI Summary'}</Btn>
+        <Btn onClick={saveAssessmentData} disabled={saving}>{saving ? 'Saving...' : saved ? '✓ Saved — Tap to Re-save' : '💾 Save Assessment'}</Btn>
       </div>
-
-      {loading && <Spinner />}
-
-      {summary && (
-        <div style={{ marginTop: 24, background: C.accent + '08', border: `1px solid ${C.accent}33`, borderRadius: 12, padding: '20px 22px' }}>
-          <div style={{ fontWeight: 800, fontSize: 12, color: C.accent, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 12 }}>AI Summary</div>
-          <pre style={{ fontSize: 12, lineHeight: 1.8, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif' }}>{summary}</pre>
-        </div>
-      )}
     </div>
   )
 }
 
 // ── WORKOUT GENERATOR ─────────────────────────────────────────────────────────
 function WorkoutGenerator({ client, onBack }) {
-  const [prompt, setPrompt] = useState('')
+  const [equipment, setEquipment] = useState(client.equipment || '')
+  const [movements, setMovements] = useState('')
+  const [programDetails, setProgramDetails] = useState('')
+  const [blockMonths, setBlockMonths] = useState('1-3')
   const [workout, setWorkout] = useState('')
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
@@ -259,15 +258,133 @@ function WorkoutGenerator({ client, onBack }) {
     const a = ALL_ASSESSMENTS[id]
     if (!a) return ''
     const fields = a.sections.flatMap(s => s.fields)
-    const qa = fields.map(f => `  ${f.label}: ${data[f.id] || '(not recorded)'}`).join('\n')
-    return `${a.name}:\n${qa}${data._summary ? '\n  SUMMARY: ' + data._summary : ''}`
+    const qa = fields.map(f => {
+      const base = `  ${f.label}: ${data[f.id] || '(not recorded)'}`
+      const rating = data[`${f.id}_rating`]
+      const modifier = data[`${f.id}_modifier`]
+      const confirmed = data[`${f.id}_mod_confirmed`]
+      const ratingStr = rating ? ` | Rating: ${rating}/10 ${parseInt(rating) <= 7 ? '(FAIL)' : '(PASS)'}` : ''
+      const modStr = modifier ? ` | Modifier: ${modifier}${confirmed === 'yes' ? ' [CONFIRMED WORKING]' : confirmed === 'no' ? ' [DID NOT HELP]' : ''}` : ''
+      return base + ratingStr + modStr
+    }).join('\n')
+    return `${a.name}:\n${qa}`
   }).filter(Boolean).join('\n\n') || 'No assessments completed yet.'
 
+  const EQUIPMENT_OPTIONS = [
+    'Barbell', 'Dumbbells', 'Kettlebells', 'Cable Machine', 'Resistance Bands',
+    'TRX / Suspension', 'Smith Machine', 'Leg Press', 'Pull-up Bar',
+    'Bench (flat/incline)', 'Foam Roller', 'Stability Ball', 'Medicine Ball',
+    'Bodyweight Only', 'Landmine', 'Trap Bar'
+  ]
+
+  const MOVEMENT_OPTIONS = [
+    'Squat Pattern', 'Hip Hinge', 'Lunge / Split Stance', 'Push (horizontal)',
+    'Push (vertical)', 'Pull (horizontal)', 'Pull (vertical)', 'Carry / Loaded Walk',
+    'Rotation / Anti-rotation', 'Single-Leg Balance', 'Core / Bracing',
+    'Plyometrics', 'Corrective / Mobility'
+  ]
+
+  const toggleChip = (current, setCurrent, value) => {
+    const arr = current ? current.split(', ').filter(Boolean) : []
+    if (arr.includes(value)) setCurrent(arr.filter(v => v !== value).join(', '))
+    else setCurrent([...arr, value].join(', '))
+  }
+
+  const isSelected = (current, value) => {
+    const arr = current ? current.split(', ') : []
+    return arr.includes(value)
+  }
+
   const generate = async () => {
-    if (!prompt.trim()) { setError('Please describe the workout you want.'); return }
+    if (!movements.trim() && !programDetails.trim()) { setError('Select at least some movements or add program details.'); return }
     setGenerating(true); setError(''); setWorkout('')
     try {
-      const text = await callClaude([{ role: 'user', content: `You are an expert personal trainer. Generate a detailed workout for:\nCLIENT: ${client.name}\nGOAL: ${client.goal || 'Not specified'}\nEQUIPMENT: ${client.equipment || 'Not specified'}\n\nASSESSMENT FINDINGS:\n${assessmentContext}\n\nTRAINER REQUEST: ${prompt}\n\nFormat with: WORKOUT TITLE, CLIENT NOTES, CORRECTIVE WARM-UP (from assessment findings), MAIN WORKOUT (days/blocks with sets x reps x rest + cues), COOL DOWN, TRAINER NOTES (INTERNAL). Be specific, reference the actual findings.` }], 4000)
+      const text = await callClaude([{ role: 'user', content: `You are an expert personal trainer. Generate a detailed, well-organized training block for:
+
+CLIENT: ${client.name}
+GOAL: ${client.goal || 'Not specified'}
+TRAINING BLOCK: Months ${blockMonths} (3-month block)
+
+═══ EQUIPMENT AVAILABLE ═══
+${equipment || 'Not specified'}
+
+═══ FUNCTIONAL MOVEMENTS REQUESTED ═══
+${movements || 'Trainer discretion based on assessment findings'}
+
+═══ PROGRAM REQUESTS ═══
+${programDetails || 'Trainer discretion'}
+
+═══ ASSESSMENT FINDINGS & CONFIRMED MODIFIERS ═══
+${assessmentContext}
+
+IMPORTANT INSTRUCTIONS:
+- Use the assessment findings to shape the program. If a test FAILED, reference the confirmed modifier/protocol in the corrective warm-up.
+- If a modifier was confirmed working, prescribe it as a warm-up exercise with sets x reps.
+- Flag any contraindications or pain from the assessments.
+- Do NOT invent findings — only reference what is in the data above.
+
+FORMAT THE OUTPUT EXACTLY LIKE THIS — clean, spaced out, organized:
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TRAINING BLOCK: MONTHS ${blockMonths}
+Client: ${client.name}
+Goal: ${client.goal || 'General fitness'}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CLIENT NOTES
+(Any contraindications, pain flags, or movement restrictions from assessments — written for the client to understand)
+
+───────────────────────────────────
+CORRECTIVE WARM-UP (Every Session)
+───────────────────────────────────
+(Pull directly from confirmed modifiers/protocols in assessment findings. List each with sets x reps x tempo.)
+
+For each training day, format like this:
+
+═══════════════════════════════════
+DAY 1 — [Day Name]
+═══════════════════════════════════
+
+WARM-UP ACTIVATION
+  1. Exercise Name
+     → Sets x Reps | Tempo | Rest
+     → Cue: [coaching cue]
+
+MAIN WORK
+  A1. Exercise Name
+      → Sets x Reps | Load guidance | Rest
+      → Cue: [coaching cue]
+      → Why: [brief reason from assessment]
+
+  A2. Exercise Name (superset with A1)
+      → Sets x Reps | Load guidance | Rest
+
+ACCESSORY WORK
+  B1. Exercise Name
+      → Sets x Reps | Rest
+  B2. Exercise Name
+      → Sets x Reps | Rest
+
+FINISHER / CONDITIONING
+  → Description | Duration
+
+───────────────────────────────────
+
+(Repeat for each training day)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PROGRESSION PLAN (Over the 3 months)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Month 1: [focus]
+Month 2: [progression]
+Month 3: [target]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TRAINER NOTES (INTERNAL — DO NOT SHOW CLIENT)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(Flags, concerns, reassessment notes, things to watch for)
+
+Be specific. Reference actual assessment findings and confirmed protocols. Make it print-ready.` }], 6000)
       setWorkout(text)
     } catch (e) { setError('Error: ' + e.message) }
     setGenerating(false)
@@ -275,7 +392,8 @@ function WorkoutGenerator({ client, onBack }) {
 
   const saveCurrentWorkout = async () => {
     if (!workout) return
-    await saveWorkout(client.id, workout, prompt)
+    const promptSummary = `Block: Months ${blockMonths} | Equipment: ${equipment} | Movements: ${movements} | Details: ${programDetails}`
+    await saveWorkout(client.id, workout, promptSummary)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
     const updated = await getWorkoutsForClient(client.id)
@@ -283,6 +401,10 @@ function WorkoutGenerator({ client, onBack }) {
   }
 
   const printWorkout = () => window.print()
+
+  const inputBox = { width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: '14px 16px', color: C.text, fontSize: 13, fontFamily: 'Montserrat,sans-serif', outline: 'none', resize: 'vertical' }
+  const sectionLabel = { display: 'block', fontSize: 10, color: C.sub, letterSpacing: 2, textTransform: 'uppercase', fontWeight: 700, marginBottom: 10 }
+  const chipStyle = (selected) => ({ padding: '7px 14px', borderRadius: 20, border: `1.5px solid ${selected ? C.accent : C.border}`, background: selected ? C.accent + '18' : 'white', color: selected ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 600, fontSize: 11, cursor: 'pointer', transition: 'all .15s' })
 
   return (
     <div style={{ maxWidth: 860, margin: '0 auto', padding: '32px 24px' }}>
@@ -292,7 +414,7 @@ function WorkoutGenerator({ client, onBack }) {
 
       {Object.keys(client.assessments || {}).length > 0 && (
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 18px', marginBottom: 20 }}>
-          <div style={{ fontSize: 10, color: C.sub, letterSpacing: 2, textTransform: 'uppercase', fontWeight: 700, marginBottom: 8 }}>AI will use these assessments</div>
+          <div style={{ fontSize: 10, color: C.sub, letterSpacing: 2, textTransform: 'uppercase', fontWeight: 700, marginBottom: 8 }}>Assessments on File</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {Object.keys(client.assessments || {}).map(id => {
               const a = ALL_ASSESSMENTS[id]
@@ -302,41 +424,99 @@ function WorkoutGenerator({ client, onBack }) {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '22px 24px', marginBottom: 16 }}>
-        <label style={{ display: 'block', fontSize: 11, color: C.sub, letterSpacing: 2, textTransform: 'uppercase', fontWeight: 700, marginBottom: 10 }}>Describe the workout you want</label>
-        <textarea value={prompt} onChange={e => setPrompt(e.target.value)} rows={4} placeholder="e.g. 3 day push/pull/legs, full gym, 45 mins per session" style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: '14px 16px', color: C.text, fontSize: 13, fontFamily: 'Montserrat,sans-serif', outline: 'none', resize: 'vertical' }} />
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14 }}>
-          <div style={{ fontSize: 11, color: C.sub }}>AI will read all assessment findings and shape the workout around them</div>
-          <Btn onClick={generate} disabled={generating}>{generating ? '⏳ Generating...' : '⚡ Generate Workout'}</Btn>
+      {/* BLOCK SELECTOR */}
+      <div style={{ background: C.card, border: `1px solid ${C.accent}44`, borderRadius: 14, padding: '22px 24px', marginBottom: 16 }}>
+        <label style={sectionLabel}>Training Block</label>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {[
+            { value: '1-3', label: 'Months 1–3', sublabel: 'Foundation' },
+            { value: '4-6', label: 'Months 4–6', sublabel: 'Development' },
+            { value: '7-9', label: 'Months 7–9', sublabel: 'Performance' },
+            { value: '10-12', label: 'Months 10–12', sublabel: 'Peak' },
+          ].map(b => (
+            <button key={b.value} onClick={() => setBlockMonths(b.value)} style={{
+              flex: '1 1 120px', padding: '12px 16px', borderRadius: 10,
+              border: `2px solid ${blockMonths === b.value ? C.accent : C.border}`,
+              background: blockMonths === b.value ? C.accent + '12' : 'white',
+              cursor: 'pointer', textAlign: 'left'
+            }}>
+              <div style={{ fontWeight: 800, fontSize: 13, color: blockMonths === b.value ? C.accent : C.text, letterSpacing: 1 }}>{b.label}</div>
+              <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>{b.sublabel}</div>
+            </button>
+          ))}
         </div>
       </div>
 
+      {/* EQUIPMENT BOX */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '22px 24px', marginBottom: 16 }}>
+        <label style={sectionLabel}>Equipment Available</label>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+          {EQUIPMENT_OPTIONS.map(eq => (
+            <button key={eq} onClick={() => toggleChip(equipment, setEquipment, eq)} style={chipStyle(isSelected(equipment, eq))}>{eq}</button>
+          ))}
+        </div>
+        <input type="text" value={equipment} onChange={e => setEquipment(e.target.value)} placeholder="Or type custom equipment..." style={{ ...inputBox, resize: 'none', padding: '10px 14px' }} />
+      </div>
+
+      {/* MOVEMENTS BOX */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '22px 24px', marginBottom: 16 }}>
+        <label style={sectionLabel}>Main Functional Movements</label>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+          {MOVEMENT_OPTIONS.map(mv => (
+            <button key={mv} onClick={() => toggleChip(movements, setMovements, mv)} style={chipStyle(isSelected(movements, mv))}>{mv}</button>
+          ))}
+        </div>
+        <input type="text" value={movements} onChange={e => setMovements(e.target.value)} placeholder="Or type custom movements..." style={{ ...inputBox, resize: 'none', padding: '10px 14px' }} />
+      </div>
+
+      {/* PROGRAM REQUESTS BOX */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '22px 24px', marginBottom: 16 }}>
+        <label style={sectionLabel}>Program Requests</label>
+        <div style={{ fontSize: 11, color: C.sub, marginBottom: 10 }}>Sets, reps, tempo, accessories, session duration, training days per week, or anything else important</div>
+        <textarea value={programDetails} onChange={e => setProgramDetails(e.target.value)} rows={4} placeholder="e.g. 4 sets x 8-12 reps, 60s rest, include face pulls as accessory, 3 days/week, 45 min sessions, superset format..." style={inputBox} />
+      </div>
+
+      {/* GENERATE */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, padding: '0 4px' }}>
+        <div style={{ fontSize: 11, color: C.sub }}>Uses your assessment findings, confirmed modifiers & protocol notes to build the program</div>
+        <Btn onClick={generate} disabled={generating}>{generating ? '⏳ Generating...' : '⚡ Generate Training Block'}</Btn>
+      </div>
+
       {error && <div style={{ background: C.red + '12', border: `1px solid ${C.red}44`, borderRadius: 10, padding: '12px 16px', fontSize: 13, color: C.red, marginBottom: 16 }}>{error}</div>}
-      {generating && <Spinner />}
+      {generating && <><Spinner /><div style={{ textAlign: 'center', fontSize: 12, color: C.sub, marginTop: 4 }}>Building your training block from assessment data...</div></>}
 
       {workout && (
         <div style={{ background: C.card, border: `2px solid ${C.accent}44`, borderRadius: 14, overflow: 'hidden' }}>
           <div style={{ background: `linear-gradient(135deg,${C.accent}18,${C.accent}08)`, borderBottom: `1px solid ${C.accent}33`, padding: '16px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-            <div style={{ fontWeight: 800, fontSize: 14, letterSpacing: 2, color: C.accent }}>WORKOUT GENERATED</div>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 14, letterSpacing: 2, color: C.accent }}>TRAINING BLOCK — MONTHS {blockMonths}</div>
+              <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>{client.name} · Generated {new Date().toLocaleDateString()}</div>
+            </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <Btn onClick={saveCurrentWorkout} outline small color={C.accent}>{saved ? '✓ Saved' : '💾 Save'}</Btn>
               <Btn onClick={printWorkout} small>🖨 Print / PDF</Btn>
             </div>
           </div>
           <div style={{ padding: 24 }}>
-            <textarea value={workout} onChange={e => setWorkout(e.target.value)} rows={35} style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: 16, color: C.text, fontSize: 12, fontFamily: 'Courier New,monospace', lineHeight: 1.8, outline: 'none', resize: 'vertical' }} />
+            <pre style={{ fontSize: 12, lineHeight: 2, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{workout}</pre>
+          </div>
+          <div style={{ borderTop: `1px solid ${C.border}`, padding: '14px 22px', background: C.faint }}>
+            <details>
+              <summary style={{ fontSize: 11, color: C.sub, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', fontWeight: 600 }}>Edit raw output</summary>
+              <textarea value={workout} onChange={e => setWorkout(e.target.value)} rows={30} style={{ width: '100%', background: 'white', border: `1px solid ${C.border}`, borderRadius: 10, padding: 16, color: C.text, fontSize: 12, fontFamily: 'Courier New,monospace', lineHeight: 1.8, outline: 'none', resize: 'vertical', marginTop: 10 }} />
+            </details>
           </div>
         </div>
       )}
 
       {pastWorkouts.length > 0 && (
         <div style={{ marginTop: 24 }}>
-          <button onClick={() => setShowPast(!showPast)} style={{ background: 'none', border: 'none', color: C.sub, fontSize: 12, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>{showPast ? '▼' : '▶'} Past Workouts ({pastWorkouts.length})</button>
+          <button onClick={() => setShowPast(!showPast)} style={{ background: 'none', border: 'none', color: C.sub, fontSize: 12, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', fontWeight: 600 }}>{showPast ? '▼' : '▶'} Past Training Blocks ({pastWorkouts.length})</button>
           {showPast && pastWorkouts.map(w => (
-            <div key={w.id} style={{ marginTop: 10, background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: '12px 16px' }}>
-              <div style={{ fontSize: 11, color: C.sub, marginBottom: 6 }}>{new Date(w.generated_at).toLocaleDateString()} · {w.prompt}</div>
-              <pre style={{ fontSize: 11, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', lineHeight: 1.7 }}>{w.content.slice(0, 300)}...</pre>
-              <button onClick={() => setWorkout(w.content)} style={{ marginTop: 8, background: 'none', border: `1px solid ${C.accent}`, color: C.accent, borderRadius: 6, padding: '4px 12px', fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Load this workout</button>
+            <div key={w.id} style={{ marginTop: 10, background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: '14px 18px' }}>
+              <div style={{ fontSize: 11, color: C.sub, marginBottom: 6, fontWeight: 600 }}>{new Date(w.generated_at).toLocaleDateString()} · {w.prompt}</div>
+              <pre style={{ fontSize: 11, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', lineHeight: 1.7, margin: 0 }}>{w.content.slice(0, 400)}...</pre>
+              <button onClick={() => setWorkout(w.content)} style={{ marginTop: 10, background: 'none', border: `1px solid ${C.accent}`, color: C.accent, borderRadius: 6, padding: '5px 14px', fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', fontWeight: 600 }}>Load this block</button>
             </div>
           ))}
         </div>
@@ -369,13 +549,21 @@ function ProgramBuilder({ client, onBack, onSave }) {
     const a = ALL_ASSESSMENTS[id]
     if (!a) return ''
     const fields = a.sections.flatMap(s => s.fields)
-    const qa = fields.map(f => `${f.label}: ${data[f.id] || '(not recorded)'}`).join('\n')
-    return `\n=== ${a.name} ===\n${qa}${data._summary ? '\nSUMMARY: ' + data._summary : ''}`
+    const qa = fields.map(f => {
+      const base = `${f.label}: ${data[f.id] || '(not recorded)'}`
+      const rating = data[`${f.id}_rating`]
+      const modifier = data[`${f.id}_modifier`]
+      const confirmed = data[`${f.id}_mod_confirmed`]
+      const ratingStr = rating ? ` | Rating: ${rating}/10 ${parseInt(rating) <= 7 ? '(FAIL)' : '(PASS)'}` : ''
+      const modStr = modifier ? ` | Modifier: ${modifier}${confirmed === 'yes' ? ' [CONFIRMED]' : confirmed === 'no' ? ' [DID NOT HELP]' : ''}` : ''
+      return base + ratingStr + modStr
+    }).join('\n')
+    return `\n=== ${a.name} ===\n${qa}`
   }).filter(Boolean).join('\n\n')
 
   const buildProgram = async () => {
     setGenerating(true)
-    const promptText = `You are an expert personal trainer. Build a complete 12-month program.\n\nCLIENT: ${client.name}\nGOAL: ${client.goal || 'Not specified'}\nEQUIPMENT: ${client.equipment || 'Not specified'}\n\nASSESSMENT DATA:\n${assessmentSummaries || 'No assessments yet'}\n\nCreate THREE phases. Each phase needs: PHASE FOCUS, CORRECTIVE PROTOCOLS (sets/reps), WEEKLY STRUCTURE (days with warm-up/main/accessory), PROGRESSIONS & MILESTONES, CONTRAINDICATIONS.\n\nRespond with JSON only — no markdown:\n{"p1":{"program":"...","equipment":"...","trainerNotes":"..."},"p2":{"program":"...","equipment":"...","trainerNotes":"..."},"p3":{"program":"...","equipment":"...","trainerNotes":"..."}}`
+    const promptText = `You are an expert personal trainer. Build a complete 12-month program.\n\nCLIENT: ${client.name}\nGOAL: ${client.goal || 'Not specified'}\nEQUIPMENT: ${client.equipment || 'Not specified'}\n\nASSESSMENT DATA & CONFIRMED MODIFIERS:\n${assessmentSummaries || 'No assessments yet'}\n\nIMPORTANT: Use confirmed modifiers/protocols from the assessment data as corrective exercises. Do NOT invent findings.\n\nCreate THREE phases. Each phase needs: PHASE FOCUS, CORRECTIVE PROTOCOLS (from confirmed modifiers, with sets/reps), WEEKLY STRUCTURE (days with warm-up/main/accessory), PROGRESSIONS & MILESTONES, CONTRAINDICATIONS.\n\nRespond with JSON only — no markdown:\n{"p1":{"program":"...","equipment":"...","trainerNotes":"..."},"p2":{"program":"...","equipment":"...","trainerNotes":"..."},"p3":{"program":"...","equipment":"...","trainerNotes":"..."}}`
     try {
       const raw = await callClaude([{ role: 'user', content: promptText }], 8000)
       const clean = raw.replace(/```json|```/g, '').trim()
@@ -388,6 +576,14 @@ function ProgramBuilder({ client, onBack, onSave }) {
       setSaved(true); setTimeout(() => setSaved(false), 2000)
     } catch (e) { alert('Error: ' + e.message) }
     setGenerating(false)
+  }
+
+  const saveCurrentProgram = async () => {
+    try {
+      await saveProgram(client.id, program.phases)
+      setProgram(p => ({ ...p, generatedAt: new Date().toISOString() }))
+      setSaved(true); setTimeout(() => setSaved(false), 2000)
+    } catch (e) { alert('Error saving: ' + e.message) }
   }
 
   const update = (pid, field, val) => setProgram(p => ({ ...p, phases: { ...p.phases, [pid]: { ...p.phases[pid], [field]: val } } }))
@@ -404,11 +600,12 @@ function ProgramBuilder({ client, onBack, onSave }) {
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {program.generatedAt && <Btn onClick={printProgram} outline small>🖨 Print / PDF</Btn>}
-          <Btn onClick={buildProgram} disabled={generating}>{generating ? '⏳ Building...' : '🤖 Build 12-Month Program'}</Btn>
+          <Btn onClick={saveCurrentProgram} outline small>{saved ? '✓ Saved' : '💾 Save'}</Btn>
+          <Btn onClick={buildProgram} disabled={generating}>{generating ? '⏳ Building...' : '⚡ Build 12-Month Program'}</Btn>
         </div>
       </div>
 
-      {generating && <><Spinner /><div style={{ textAlign: 'center', fontSize: 13, color: C.sub, marginTop: 8 }}>Building your 12-month program... this takes ~30 seconds</div></>}
+      {generating && <><Spinner /><div style={{ textAlign: 'center', fontSize: 13, color: C.sub, marginTop: 8 }}>Building your 12-month program from assessment data...</div></>}
 
       {PHASES.map(ph => (
         <div key={ph.id} style={{ background: C.card, border: `1px solid ${expanded === ph.id ? ph.color + '66' : C.border}`, borderRadius: 14, marginBottom: 12, overflow: 'hidden' }}>
@@ -552,6 +749,9 @@ function ClientRoster({ onSelectClient }) {
 
   return (
     <div style={{ maxWidth: 700, margin: '0 auto', padding: '40px 24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 32, background: '#FFFFFF', padding: '20px 0' }}>
+        <img src="/logo.svg" alt="FreddyFit — Visualize · Do · Become" style={{ maxWidth: 360, width: '100%', height: 'auto' }} />
+      </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
         <div>
           <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 4, color: C.text }}>CLIENT ROSTER</div>
