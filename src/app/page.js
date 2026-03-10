@@ -18,6 +18,14 @@ async function callClaude(messages, maxTokens = 1000) {
 }
 
 // ── SHARED UI ─────────────────────────────────────────────────────────────────
+function LogoHeader() {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', background: '#FFFFFF', padding: '16px 0', marginBottom: 16, borderBottom: `1px solid ${C.border}` }}>
+      <img src="/logo.png" alt="FreddyFit" style={{ maxWidth: 240, width: '100%', height: 'auto' }} />
+    </div>
+  )
+}
+
 function Spinner() {
   return <div style={{display:'flex',justifyContent:'center',padding:40}}>
     <div style={{width:32,height:32,border:`3px solid ${C.border}`,borderTop:`3px solid ${C.accent}`,borderRadius:'50%',animation:'spin 0.8s linear infinite'}}/>
@@ -192,7 +200,8 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
   }
 
   return (
-    <div style={{ maxWidth: 720, margin: '0 auto', padding: '32px 24px' }}>
+    <div style={{ maxWidth: 720, margin: '0 auto', padding: '0 24px 32px' }}>
+      <LogoHeader />
       <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 24 }}>← Back</button>
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 8 }}>
         <span style={{ fontSize: 32 }}>{assessment.icon}</span>
@@ -407,7 +416,8 @@ Be specific. Reference actual assessment findings and confirmed protocols. Make 
   const chipStyle = (selected) => ({ padding: '7px 14px', borderRadius: 20, border: `1.5px solid ${selected ? C.accent : C.border}`, background: selected ? C.accent + '18' : 'white', color: selected ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 600, fontSize: 11, cursor: 'pointer', transition: 'all .15s' })
 
   return (
-    <div style={{ maxWidth: 860, margin: '0 auto', padding: '32px 24px' }}>
+    <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 24px 32px' }}>
+      <LogoHeader />
       <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 24 }}>← Back to Client</button>
       <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 3, color: C.text, marginBottom: 4 }}>{client.name}</div>
       <div style={{ fontSize: 12, color: C.sub, marginBottom: 24 }}>Workout Generator · {Object.keys(client.assessments || {}).length} assessments on file</div>
@@ -591,7 +601,8 @@ function ProgramBuilder({ client, onBack, onSave }) {
   const printProgram = () => window.print()
 
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto', padding: '32px 24px' }}>
+    <div style={{ maxWidth: 900, margin: '0 auto', padding: '0 24px 32px' }}>
+      <LogoHeader />
       <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 24 }}>← Back to Client</button>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16, marginBottom: 28 }}>
         <div>
@@ -657,7 +668,8 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
   ]
 
   return (
-    <div style={{ maxWidth: 860, margin: '0 auto', padding: '32px 24px' }}>
+    <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 24px 32px' }}>
+      <LogoHeader />
       <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 24 }}>← All Clients</button>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16, marginBottom: 24 }}>
@@ -748,10 +760,8 @@ function ClientRoster({ onSelectClient }) {
   const filtered = clients.filter(c => c.name.toLowerCase().includes(search.toLowerCase()))
 
   return (
-    <div style={{ maxWidth: 700, margin: '0 auto', padding: '40px 24px' }}>
-      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 32, background: '#FFFFFF', padding: '20px 0' }}>
-        <img src="/logo.png" alt="FreddyFit — Visualize · Do · Become" style={{ maxWidth: 360, width: '100%', height: 'auto' }} />
-      </div>
+    <div style={{ maxWidth: 700, margin: '0 auto', padding: '0 24px 40px' }}>
+      <LogoHeader />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
         <div>
           <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 4, color: C.text }}>CLIENT ROSTER</div>
