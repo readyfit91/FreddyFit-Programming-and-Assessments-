@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 200" width="800" height="200">
+  <rect width="800" height="200" fill="#FFFFFF"/>
+  <!-- FREDDY in gray -->
+  <text x="30" y="120" font-family="Arial, Helvetica, sans-serif" font-size="100" font-weight="700" fill="#9CA3AF" letter-spacing="4">FREDDY</text>
+  <!-- FIT in blue -->
+  <text x="435" y="120" font-family="Arial, Helvetica, sans-serif" font-size="100" font-weight="700" fill="#2BAADF" letter-spacing="4">FIT</text>
+  <!-- Vertical separator line -->
+  <line x1="590" y1="30" x2="590" y2="140" stroke="#C0C0C0" stroke-width="1.5"/>
+  <!-- Circular icon -->
+  <circle cx="660" cy="80" r="55" fill="#2BAADF"/>
+  <!-- F icon inside circle -->
+  <path d="M635 58 h38 v10 h-26 v14 h22 v10 h-22 v20 h-12 z" fill="white"/>
+  <!-- Stylized arrow/swoosh through the F -->
+  <path d="M640 88 h40 l-12 -10 h-28 z" fill="white"/>
+  <!-- Tagline -->
+  <text x="248" y="175" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#2BAADF" letter-spacing="8" text-anchor="middle">VISUALIZE</text>
+  <text x="400" y="175" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#2BAADF">·</text>
+  <text x="435" y="175" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#2BAADF" letter-spacing="8" text-anchor="middle">DO</text>
+  <text x="480" y="175" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#2BAADF">·</text>
+  <text x="570" y="175" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="400" fill="#2BAADF" letter-spacing="8" text-anchor="middle">BECOME</text>
+</svg>
