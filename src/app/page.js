@@ -5,6 +5,18 @@ import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
 
 const makeId = () => Math.random().toString(36).slice(2,10)
 
+// ── HELPERS ──────────────────────────────────────────────────────────────────
+async function callClaude(messages, maxTokens = 1000) {
+  const res = await fetch('/api/claude', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ messages, maxTokens })
+  })
+  const data = await res.json()
+  if (data.error) throw new Error(data.error)
+  return data.text
+}
+
 // ── SHARED UI ─────────────────────────────────────────────────────────────────
 function Spinner() {
   return <div style={{display:'flex',justifyContent:'center',padding:40}}>
@@ -232,6 +244,7 @@ function WorkoutGenerator({ client, onBack }) {
   const [programDetails, setProgramDetails] = useState('')
   const [blockMonths, setBlockMonths] = useState('1-3')
   const [workout, setWorkout] = useState('')
+  const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
   const [pastWorkouts, setPastWorkouts] = useState([])
@@ -248,8 +261,11 @@ function WorkoutGenerator({ client, onBack }) {
     const qa = fields.map(f => {
       const base = `  ${f.label}: ${data[f.id] || '(not recorded)'}`
       const rating = data[`${f.id}_rating`]
+      const modifier = data[`${f.id}_modifier`]
+      const confirmed = data[`${f.id}_mod_confirmed`]
       const ratingStr = rating ? ` | Rating: ${rating}/10 ${parseInt(rating) <= 7 ? '(FAIL)' : '(PASS)'}` : ''
-      return base + ratingStr
+      const modStr = modifier ? ` | Modifier: ${modifier}${confirmed === 'yes' ? ' [CONFIRMED WORKING]' : confirmed === 'no' ? ' [DID NOT HELP]' : ''}` : ''
+      return base + ratingStr + modStr
     }).join('\n')
     return `${a.name}:\n${qa}`
   }).filter(Boolean).join('\n\n') || 'No assessments completed yet.'
@@ -279,68 +295,99 @@ function WorkoutGenerator({ client, onBack }) {
     return arr.includes(value)
   }
 
-  const startBlank = () => {
+  const generate = async () => {
     if (!movements.trim() && !programDetails.trim()) { setError('Select at least some movements or add program details.'); return }
-    setError('')
-    setWorkout(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    setGenerating(true); setError(''); setWorkout('')
+    try {
+      const text = await callClaude([{ role: 'user', content: `You are an expert personal trainer. Generate a detailed, well-organized training block for:
+
+CLIENT: ${client.name}
+GOAL: ${client.goal || 'Not specified'}
+TRAINING BLOCK: Months ${blockMonths} (3-month block)
+
+═══ EQUIPMENT AVAILABLE ═══
+${equipment || 'Not specified'}
+
+═══ FUNCTIONAL MOVEMENTS REQUESTED ═══
+${movements || 'Trainer discretion based on assessment findings'}
+
+═══ PROGRAM REQUESTS ═══
+${programDetails || 'Trainer discretion'}
+
+═══ ASSESSMENT FINDINGS & CONFIRMED MODIFIERS ═══
+${assessmentContext}
+
+IMPORTANT INSTRUCTIONS:
+- Use the assessment findings to shape the program. If a test FAILED, reference the confirmed modifier/protocol in the corrective warm-up.
+- If a modifier was confirmed working, prescribe it as a warm-up exercise with sets x reps.
+- Flag any contraindications or pain from the assessments.
+- Do NOT invent findings — only reference what is in the data above.
+
+FORMAT THE OUTPUT EXACTLY LIKE THIS — clean, spaced out, organized:
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 TRAINING BLOCK: MONTHS ${blockMonths}
 Client: ${client.name}
 Goal: ${client.goal || 'General fitness'}
-Equipment: ${equipment || 'Not specified'}
-Movements: ${movements || 'Not specified'}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 CLIENT NOTES
-
+(Any contraindications, pain flags, or movement restrictions from assessments — written for the client to understand)
 
 ───────────────────────────────────
 CORRECTIVE WARM-UP (Every Session)
 ───────────────────────────────────
+(Pull directly from confirmed modifiers/protocols in assessment findings. List each with sets x reps x tempo.)
 
-
-═══════════════════════════════════
-DAY 1 —
-═══════════════════════════════════
-
-WARM-UP ACTIVATION
-
-
-MAIN WORK
-
-
-ACCESSORY WORK
-
-
-FINISHER / CONDITIONING
-
+For each training day, format like this:
 
 ═══════════════════════════════════
-DAY 2 —
+DAY 1 — [Day Name]
 ═══════════════════════════════════
 
 WARM-UP ACTIVATION
-
+  1. Exercise Name
+     → Sets x Reps | Tempo | Rest
+     → Cue: [coaching cue]
 
 MAIN WORK
+  A1. Exercise Name
+      → Sets x Reps | Load guidance | Rest
+      → Cue: [coaching cue]
+      → Why: [brief reason from assessment]
 
+  A2. Exercise Name (superset with A1)
+      → Sets x Reps | Load guidance | Rest
 
 ACCESSORY WORK
-
+  B1. Exercise Name
+      → Sets x Reps | Rest
+  B2. Exercise Name
+      → Sets x Reps | Rest
 
 FINISHER / CONDITIONING
+  → Description | Duration
 
+───────────────────────────────────
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PROGRESSION PLAN
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Month 1:
-Month 2:
-Month 3:
+(Repeat for each training day)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-TRAINER NOTES (INTERNAL)
+PROGRESSION PLAN (Over the 3 months)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${programDetails || ''}`)
+Month 1: [focus]
+Month 2: [progression]
+Month 3: [target]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TRAINER NOTES (INTERNAL — DO NOT SHOW CLIENT)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(Flags, concerns, reassessment notes, things to watch for)
+
+Be specific. Reference actual assessment findings and confirmed protocols. Make it print-ready.` }], 6000)
+      setWorkout(text)
+    } catch (e) { setError('Error: ' + e.message) }
+    setGenerating(false)
   }
 
   const saveCurrentWorkout = async () => {
@@ -429,13 +476,14 @@ ${programDetails || ''}`)
         <textarea value={programDetails} onChange={e => setProgramDetails(e.target.value)} rows={4} placeholder="e.g. 4 sets x 8-12 reps, 60s rest, include face pulls as accessory, 3 days/week, 45 min sessions, superset format..." style={inputBox} />
       </div>
 
-      {/* CREATE BLANK TEMPLATE */}
+      {/* GENERATE */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, padding: '0 4px' }}>
-        <div style={{ fontSize: 11, color: C.sub }}>Creates a blank training block template you can fill in manually</div>
-        <Btn onClick={startBlank}>📝 Create Training Block</Btn>
+        <div style={{ fontSize: 11, color: C.sub }}>Uses your assessment findings, confirmed modifiers & protocol notes to build the program</div>
+        <Btn onClick={generate} disabled={generating}>{generating ? '⏳ Generating...' : '⚡ Generate Training Block'}</Btn>
       </div>
 
       {error && <div style={{ background: C.red + '12', border: `1px solid ${C.red}44`, borderRadius: 10, padding: '12px 16px', fontSize: 13, color: C.red, marginBottom: 16 }}>{error}</div>}
+      {generating && <><Spinner /><div style={{ textAlign: 'center', fontSize: 12, color: C.sub, marginTop: 4 }}>Building your training block from assessment data...</div></>}
 
       {workout && (
         <div style={{ background: C.card, border: `2px solid ${C.accent}44`, borderRadius: 14, overflow: 'hidden' }}>
@@ -487,6 +535,7 @@ function ProgramBuilder({ client, onBack, onSave }) {
     { id: 'p3', label: 'MONTHS 7–12', sublabel: 'Performance', color: C.orange },
   ]
   const [program, setProgram] = useState({ phases: { p1: { equipment: '', program: '', trainerNotes: '' }, p2: { equipment: '', program: '', trainerNotes: '' }, p3: { equipment: '', program: '', trainerNotes: '' } }, generatedAt: null })
+  const [generating, setGenerating] = useState(false)
   const [expanded, setExpanded] = useState('p1')
   const [saved, setSaved] = useState(false)
 
@@ -495,6 +544,39 @@ function ProgramBuilder({ client, onBack, onSave }) {
       if (p) setProgram({ phases: p.phases, generatedAt: p.generated_at })
     }).catch(() => {})
   }, [client.id])
+
+  const assessmentSummaries = Object.entries(client.assessments || {}).map(([id, data]) => {
+    const a = ALL_ASSESSMENTS[id]
+    if (!a) return ''
+    const fields = a.sections.flatMap(s => s.fields)
+    const qa = fields.map(f => {
+      const base = `${f.label}: ${data[f.id] || '(not recorded)'}`
+      const rating = data[`${f.id}_rating`]
+      const modifier = data[`${f.id}_modifier`]
+      const confirmed = data[`${f.id}_mod_confirmed`]
+      const ratingStr = rating ? ` | Rating: ${rating}/10 ${parseInt(rating) <= 7 ? '(FAIL)' : '(PASS)'}` : ''
+      const modStr = modifier ? ` | Modifier: ${modifier}${confirmed === 'yes' ? ' [CONFIRMED]' : confirmed === 'no' ? ' [DID NOT HELP]' : ''}` : ''
+      return base + ratingStr + modStr
+    }).join('\n')
+    return `\n=== ${a.name} ===\n${qa}`
+  }).filter(Boolean).join('\n\n')
+
+  const buildProgram = async () => {
+    setGenerating(true)
+    const promptText = `You are an expert personal trainer. Build a complete 12-month program.\n\nCLIENT: ${client.name}\nGOAL: ${client.goal || 'Not specified'}\nEQUIPMENT: ${client.equipment || 'Not specified'}\n\nASSESSMENT DATA & CONFIRMED MODIFIERS:\n${assessmentSummaries || 'No assessments yet'}\n\nIMPORTANT: Use confirmed modifiers/protocols from the assessment data as corrective exercises. Do NOT invent findings.\n\nCreate THREE phases. Each phase needs: PHASE FOCUS, CORRECTIVE PROTOCOLS (from confirmed modifiers, with sets/reps), WEEKLY STRUCTURE (days with warm-up/main/accessory), PROGRESSIONS & MILESTONES, CONTRAINDICATIONS.\n\nRespond with JSON only — no markdown:\n{"p1":{"program":"...","equipment":"...","trainerNotes":"..."},"p2":{"program":"...","equipment":"...","trainerNotes":"..."},"p3":{"program":"...","equipment":"...","trainerNotes":"..."}}`
+    try {
+      const raw = await callClaude([{ role: 'user', content: promptText }], 8000)
+      const clean = raw.replace(/```json|```/g, '').trim()
+      let parsed
+      try { parsed = JSON.parse(clean) }
+      catch { parsed = { p1: { program: raw, equipment: client.equipment || '', trainerNotes: '' }, p2: { program: '', equipment: '', trainerNotes: '' }, p3: { program: '', equipment: '', trainerNotes: '' } } }
+      const newProg = { phases: { p1: { ...program.phases.p1, ...parsed.p1 }, p2: { ...program.phases.p2, ...parsed.p2 }, p3: { ...program.phases.p3, ...parsed.p3 } }, generatedAt: new Date().toISOString() }
+      setProgram(newProg)
+      await saveProgram(client.id, newProg.phases)
+      setSaved(true); setTimeout(() => setSaved(false), 2000)
+    } catch (e) { alert('Error: ' + e.message) }
+    setGenerating(false)
+  }
 
   const saveCurrentProgram = async () => {
     try {
@@ -518,9 +600,12 @@ function ProgramBuilder({ client, onBack, onSave }) {
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {program.generatedAt && <Btn onClick={printProgram} outline small>🖨 Print / PDF</Btn>}
-          <Btn onClick={saveCurrentProgram}>{saved ? '✓ Saved' : '💾 Save Program'}</Btn>
+          <Btn onClick={saveCurrentProgram} outline small>{saved ? '✓ Saved' : '💾 Save'}</Btn>
+          <Btn onClick={buildProgram} disabled={generating}>{generating ? '⏳ Building...' : '⚡ Build 12-Month Program'}</Btn>
         </div>
       </div>
+
+      {generating && <><Spinner /><div style={{ textAlign: 'center', fontSize: 13, color: C.sub, marginTop: 8 }}>Building your 12-month program from assessment data...</div></>}
 
       {PHASES.map(ph => (
         <div key={ph.id} style={{ background: C.card, border: `1px solid ${expanded === ph.id ? ph.color + '66' : C.border}`, borderRadius: 14, marginBottom: 12, overflow: 'hidden' }}>
