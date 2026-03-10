@@ -243,7 +243,10 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
 
 // ── WORKOUT GENERATOR ─────────────────────────────────────────────────────────
 function WorkoutGenerator({ client, onBack }) {
-  const [prompt, setPrompt] = useState('')
+  const [equipment, setEquipment] = useState(client.equipment || '')
+  const [movements, setMovements] = useState('')
+  const [programDetails, setProgramDetails] = useState('')
+  const [blockMonths, setBlockMonths] = useState('1-3')
   const [workout, setWorkout] = useState('')
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
@@ -259,15 +262,127 @@ function WorkoutGenerator({ client, onBack }) {
     const a = ALL_ASSESSMENTS[id]
     if (!a) return ''
     const fields = a.sections.flatMap(s => s.fields)
-    const qa = fields.map(f => `  ${f.label}: ${data[f.id] || '(not recorded)'}`).join('\n')
+    const qa = fields.map(f => {
+      const base = `  ${f.label}: ${data[f.id] || '(not recorded)'}`
+      const rating = data[`${f.id}_rating`]
+      const modifier = data[`${f.id}_modifier`]
+      const confirmed = data[`${f.id}_mod_confirmed`]
+      const ratingStr = rating ? ` | Rating: ${rating}/10 ${parseInt(rating) <= 7 ? '(FAIL)' : '(PASS)'}` : ''
+      const modStr = modifier ? ` | Corrective: ${modifier}${confirmed === 'yes' ? ' [CONFIRMED]' : confirmed === 'no' ? ' [DID NOT HELP]' : ''}` : ''
+      return base + ratingStr + modStr
+    }).join('\n')
     return `${a.name}:\n${qa}${data._summary ? '\n  SUMMARY: ' + data._summary : ''}`
   }).filter(Boolean).join('\n\n') || 'No assessments completed yet.'
 
+  const EQUIPMENT_OPTIONS = [
+    'Barbell', 'Dumbbells', 'Kettlebells', 'Cable Machine', 'Resistance Bands',
+    'TRX / Suspension', 'Smith Machine', 'Leg Press', 'Pull-up Bar',
+    'Bench (flat/incline)', 'Foam Roller', 'Stability Ball', 'Medicine Ball',
+    'Bodyweight Only', 'Landmine', 'Trap Bar'
+  ]
+
+  const MOVEMENT_OPTIONS = [
+    'Squat Pattern', 'Hip Hinge', 'Lunge / Split Stance', 'Push (horizontal)',
+    'Push (vertical)', 'Pull (horizontal)', 'Pull (vertical)', 'Carry / Loaded Walk',
+    'Rotation / Anti-rotation', 'Single-Leg Balance', 'Core / Bracing',
+    'Plyometrics', 'Corrective / Mobility'
+  ]
+
+  const toggleChip = (current, setCurrent, value) => {
+    const arr = current ? current.split(', ').filter(Boolean) : []
+    if (arr.includes(value)) setCurrent(arr.filter(v => v !== value).join(', '))
+    else setCurrent([...arr, value].join(', '))
+  }
+
+  const isSelected = (current, value) => {
+    const arr = current ? current.split(', ') : []
+    return arr.includes(value)
+  }
+
   const generate = async () => {
-    if (!prompt.trim()) { setError('Please describe the workout you want.'); return }
+    if (!movements.trim() && !programDetails.trim()) { setError('Select at least some movements or add program details.'); return }
     setGenerating(true); setError(''); setWorkout('')
     try {
-      const text = await callClaude([{ role: 'user', content: `You are an expert personal trainer. Generate a detailed workout for:\nCLIENT: ${client.name}\nGOAL: ${client.goal || 'Not specified'}\nEQUIPMENT: ${client.equipment || 'Not specified'}\n\nASSESSMENT FINDINGS:\n${assessmentContext}\n\nTRAINER REQUEST: ${prompt}\n\nFormat with: WORKOUT TITLE, CLIENT NOTES, CORRECTIVE WARM-UP (from assessment findings), MAIN WORKOUT (days/blocks with sets x reps x rest + cues), COOL DOWN, TRAINER NOTES (INTERNAL). Be specific, reference the actual findings.` }], 4000)
+      const text = await callClaude([{ role: 'user', content: `You are an expert personal trainer. Generate a detailed, well-organized training block for:
+
+CLIENT: ${client.name}
+GOAL: ${client.goal || 'Not specified'}
+TRAINING BLOCK: Months ${blockMonths} (3-month block)
+
+═══ EQUIPMENT AVAILABLE ═══
+${equipment || 'Not specified'}
+
+═══ FUNCTIONAL MOVEMENTS REQUESTED ═══
+${movements || 'Trainer discretion based on assessment findings'}
+
+═══ PROGRAM REQUESTS ═══
+${programDetails || 'Trainer discretion'}
+
+═══ ASSESSMENT FINDINGS (use these to shape the program) ═══
+${assessmentContext}
+
+FORMAT THE OUTPUT EXACTLY LIKE THIS — clean, spaced out, organized:
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TRAINING BLOCK: MONTHS ${blockMonths}
+Client: ${client.name}
+Goal: ${client.goal || 'General fitness'}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CLIENT NOTES
+(Any contraindications, pain flags, or movement restrictions from assessments — written for the client to understand)
+
+───────────────────────────────────
+CORRECTIVE WARM-UP (Every Session)
+───────────────────────────────────
+(Pull directly from confirmed correctives in assessment findings. List each with sets x reps x tempo. If a modifier was confirmed working, prescribe it here.)
+
+For each training day, format like this:
+
+═══════════════════════════════════
+DAY 1 — [Day Name]
+═══════════════════════════════════
+
+WARM-UP ACTIVATION
+  1. Exercise Name
+     → Sets x Reps | Tempo | Rest
+     → Cue: [coaching cue]
+
+MAIN WORK
+  A1. Exercise Name
+      → Sets x Reps | Load guidance | Rest
+      → Cue: [coaching cue]
+      → Why: [brief reason from assessment]
+
+  A2. Exercise Name (superset with A1)
+      → Sets x Reps | Load guidance | Rest
+
+ACCESSORY WORK
+  B1. Exercise Name
+      → Sets x Reps | Rest
+  B2. Exercise Name
+      → Sets x Reps | Rest
+
+FINISHER / CONDITIONING
+  → Description | Duration
+
+───────────────────────────────────
+
+(Repeat for each training day)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PROGRESSION PLAN (Over the 3 months)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Month 1: [focus]
+Month 2: [progression]
+Month 3: [target]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TRAINER NOTES (INTERNAL — DO NOT SHOW CLIENT)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(Flags, concerns, reassessment notes, things to watch for)
+
+Be specific. Reference actual assessment findings. Use confirmed correctives as prescribed warm-up exercises. Make it print-ready.` }], 6000)
       setWorkout(text)
     } catch (e) { setError('Error: ' + e.message) }
     setGenerating(false)
@@ -275,7 +390,8 @@ function WorkoutGenerator({ client, onBack }) {
 
   const saveCurrentWorkout = async () => {
     if (!workout) return
-    await saveWorkout(client.id, workout, prompt)
+    const promptSummary = `Block: Months ${blockMonths} | Equipment: ${equipment} | Movements: ${movements} | Details: ${programDetails}`
+    await saveWorkout(client.id, workout, promptSummary)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
     const updated = await getWorkoutsForClient(client.id)
@@ -283,6 +399,10 @@ function WorkoutGenerator({ client, onBack }) {
   }
 
   const printWorkout = () => window.print()
+
+  const inputBox = { width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: '14px 16px', color: C.text, fontSize: 13, fontFamily: 'Montserrat,sans-serif', outline: 'none', resize: 'vertical' }
+  const sectionLabel = { display: 'block', fontSize: 10, color: C.sub, letterSpacing: 2, textTransform: 'uppercase', fontWeight: 700, marginBottom: 10 }
+  const chipStyle = (selected) => ({ padding: '7px 14px', borderRadius: 20, border: `1.5px solid ${selected ? C.accent : C.border}`, background: selected ? C.accent + '18' : 'white', color: selected ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 600, fontSize: 11, cursor: 'pointer', transition: 'all .15s' })
 
   return (
     <div style={{ maxWidth: 860, margin: '0 auto', padding: '32px 24px' }}>
@@ -302,41 +422,99 @@ function WorkoutGenerator({ client, onBack }) {
         </div>
       )}
 
-      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '22px 24px', marginBottom: 16 }}>
-        <label style={{ display: 'block', fontSize: 11, color: C.sub, letterSpacing: 2, textTransform: 'uppercase', fontWeight: 700, marginBottom: 10 }}>Describe the workout you want</label>
-        <textarea value={prompt} onChange={e => setPrompt(e.target.value)} rows={4} placeholder="e.g. 3 day push/pull/legs, full gym, 45 mins per session" style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: '14px 16px', color: C.text, fontSize: 13, fontFamily: 'Montserrat,sans-serif', outline: 'none', resize: 'vertical' }} />
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14 }}>
-          <div style={{ fontSize: 11, color: C.sub }}>AI will read all assessment findings and shape the workout around them</div>
-          <Btn onClick={generate} disabled={generating}>{generating ? '⏳ Generating...' : '⚡ Generate Workout'}</Btn>
+      {/* BLOCK SELECTOR */}
+      <div style={{ background: C.card, border: `1px solid ${C.accent}44`, borderRadius: 14, padding: '22px 24px', marginBottom: 16 }}>
+        <label style={sectionLabel}>Training Block</label>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {[
+            { value: '1-3', label: 'Months 1–3', sublabel: 'Foundation' },
+            { value: '4-6', label: 'Months 4–6', sublabel: 'Development' },
+            { value: '7-9', label: 'Months 7–9', sublabel: 'Performance' },
+            { value: '10-12', label: 'Months 10–12', sublabel: 'Peak' },
+          ].map(b => (
+            <button key={b.value} onClick={() => setBlockMonths(b.value)} style={{
+              flex: '1 1 120px', padding: '12px 16px', borderRadius: 10,
+              border: `2px solid ${blockMonths === b.value ? C.accent : C.border}`,
+              background: blockMonths === b.value ? C.accent + '12' : 'white',
+              cursor: 'pointer', textAlign: 'left'
+            }}>
+              <div style={{ fontWeight: 800, fontSize: 13, color: blockMonths === b.value ? C.accent : C.text, letterSpacing: 1 }}>{b.label}</div>
+              <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>{b.sublabel}</div>
+            </button>
+          ))}
         </div>
       </div>
 
+      {/* EQUIPMENT BOX */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '22px 24px', marginBottom: 16 }}>
+        <label style={sectionLabel}>Equipment Available</label>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+          {EQUIPMENT_OPTIONS.map(eq => (
+            <button key={eq} onClick={() => toggleChip(equipment, setEquipment, eq)} style={chipStyle(isSelected(equipment, eq))}>{eq}</button>
+          ))}
+        </div>
+        <input type="text" value={equipment} onChange={e => setEquipment(e.target.value)} placeholder="Or type custom equipment..." style={{ ...inputBox, resize: 'none', padding: '10px 14px' }} />
+      </div>
+
+      {/* MOVEMENTS BOX */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '22px 24px', marginBottom: 16 }}>
+        <label style={sectionLabel}>Main Functional Movements</label>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+          {MOVEMENT_OPTIONS.map(mv => (
+            <button key={mv} onClick={() => toggleChip(movements, setMovements, mv)} style={chipStyle(isSelected(movements, mv))}>{mv}</button>
+          ))}
+        </div>
+        <input type="text" value={movements} onChange={e => setMovements(e.target.value)} placeholder="Or type custom movements..." style={{ ...inputBox, resize: 'none', padding: '10px 14px' }} />
+      </div>
+
+      {/* PROGRAM REQUESTS BOX */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '22px 24px', marginBottom: 16 }}>
+        <label style={sectionLabel}>Program Requests</label>
+        <div style={{ fontSize: 11, color: C.sub, marginBottom: 10 }}>Sets, reps, tempo, accessories, session duration, training days per week, or anything else important</div>
+        <textarea value={programDetails} onChange={e => setProgramDetails(e.target.value)} rows={4} placeholder="e.g. 4 sets x 8-12 reps, 60s rest, include face pulls as accessory, 3 days/week, 45 min sessions, superset format..." style={inputBox} />
+      </div>
+
+      {/* GENERATE */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, padding: '0 4px' }}>
+        <div style={{ fontSize: 11, color: C.sub }}>AI will pull from all assessments, confirmed correctives, and your inputs above</div>
+        <Btn onClick={generate} disabled={generating}>{generating ? '⏳ Generating...' : '⚡ Generate Training Block'}</Btn>
+      </div>
+
       {error && <div style={{ background: C.red + '12', border: `1px solid ${C.red}44`, borderRadius: 10, padding: '12px 16px', fontSize: 13, color: C.red, marginBottom: 16 }}>{error}</div>}
-      {generating && <Spinner />}
+      {generating && <><Spinner /><div style={{ textAlign: 'center', fontSize: 12, color: C.sub, marginTop: 4 }}>Building your training block... this may take a moment</div></>}
 
       {workout && (
         <div style={{ background: C.card, border: `2px solid ${C.accent}44`, borderRadius: 14, overflow: 'hidden' }}>
           <div style={{ background: `linear-gradient(135deg,${C.accent}18,${C.accent}08)`, borderBottom: `1px solid ${C.accent}33`, padding: '16px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-            <div style={{ fontWeight: 800, fontSize: 14, letterSpacing: 2, color: C.accent }}>WORKOUT GENERATED</div>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 14, letterSpacing: 2, color: C.accent }}>TRAINING BLOCK — MONTHS {blockMonths}</div>
+              <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>{client.name} · Generated {new Date().toLocaleDateString()}</div>
+            </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <Btn onClick={saveCurrentWorkout} outline small color={C.accent}>{saved ? '✓ Saved' : '💾 Save'}</Btn>
               <Btn onClick={printWorkout} small>🖨 Print / PDF</Btn>
             </div>
           </div>
           <div style={{ padding: 24 }}>
-            <textarea value={workout} onChange={e => setWorkout(e.target.value)} rows={35} style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: 16, color: C.text, fontSize: 12, fontFamily: 'Courier New,monospace', lineHeight: 1.8, outline: 'none', resize: 'vertical' }} />
+            <pre style={{ fontSize: 12, lineHeight: 2, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{workout}</pre>
+          </div>
+          <div style={{ borderTop: `1px solid ${C.border}`, padding: '14px 22px', background: C.faint }}>
+            <details>
+              <summary style={{ fontSize: 11, color: C.sub, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', fontWeight: 600 }}>Edit raw output</summary>
+              <textarea value={workout} onChange={e => setWorkout(e.target.value)} rows={30} style={{ width: '100%', background: 'white', border: `1px solid ${C.border}`, borderRadius: 10, padding: 16, color: C.text, fontSize: 12, fontFamily: 'Courier New,monospace', lineHeight: 1.8, outline: 'none', resize: 'vertical', marginTop: 10 }} />
+            </details>
           </div>
         </div>
       )}
 
       {pastWorkouts.length > 0 && (
         <div style={{ marginTop: 24 }}>
-          <button onClick={() => setShowPast(!showPast)} style={{ background: 'none', border: 'none', color: C.sub, fontSize: 12, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>{showPast ? '▼' : '▶'} Past Workouts ({pastWorkouts.length})</button>
+          <button onClick={() => setShowPast(!showPast)} style={{ background: 'none', border: 'none', color: C.sub, fontSize: 12, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', fontWeight: 600 }}>{showPast ? '▼' : '▶'} Past Training Blocks ({pastWorkouts.length})</button>
           {showPast && pastWorkouts.map(w => (
-            <div key={w.id} style={{ marginTop: 10, background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: '12px 16px' }}>
-              <div style={{ fontSize: 11, color: C.sub, marginBottom: 6 }}>{new Date(w.generated_at).toLocaleDateString()} · {w.prompt}</div>
-              <pre style={{ fontSize: 11, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', lineHeight: 1.7 }}>{w.content.slice(0, 300)}...</pre>
-              <button onClick={() => setWorkout(w.content)} style={{ marginTop: 8, background: 'none', border: `1px solid ${C.accent}`, color: C.accent, borderRadius: 6, padding: '4px 12px', fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Load this workout</button>
+            <div key={w.id} style={{ marginTop: 10, background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: '14px 18px' }}>
+              <div style={{ fontSize: 11, color: C.sub, marginBottom: 6, fontWeight: 600 }}>{new Date(w.generated_at).toLocaleDateString()} · {w.prompt}</div>
+              <pre style={{ fontSize: 11, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', lineHeight: 1.7, margin: 0 }}>{w.content.slice(0, 400)}...</pre>
+              <button onClick={() => setWorkout(w.content)} style={{ marginTop: 10, background: 'none', border: `1px solid ${C.accent}`, color: C.accent, borderRadius: 6, padding: '5px 14px', fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', fontWeight: 600 }}>Load this block</button>
             </div>
           ))}
         </div>
