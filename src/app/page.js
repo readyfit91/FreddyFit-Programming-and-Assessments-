@@ -807,10 +807,74 @@ function ClientRoster({ onSelectClient }) {
 }
 
 // ── ROOT APP ──────────────────────────────────────────────────────────────────
+// ── LOGIN SCREEN ─────────────────────────────────────────────────────────────
+function LoginScreen({ onLogin }) {
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!password.trim()) return
+    setLoading(true)
+    setError('')
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ password })
+      })
+      const data = await res.json()
+      if (data.success) {
+        sessionStorage.setItem('ff_auth', 'true')
+        onLogin()
+      } else {
+        setError(data.error || 'Wrong password')
+        setPassword('')
+      }
+    } catch {
+      setError('Connection error — try again')
+    }
+    setLoading(false)
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: C.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <form onSubmit={handleSubmit} style={{ background: C.panel, borderRadius: 16, padding: '40px 32px', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', border: `1px solid ${C.border}`, maxWidth: 360, width: '100%', textAlign: 'center' }}>
+        <img src="/logo.png" alt="FreddyFit" style={{ maxWidth: 200, width: '100%', height: 'auto', marginBottom: 24 }} />
+        <div style={{ fontSize: 13, color: C.sub, marginBottom: 20, fontFamily: 'Montserrat,sans-serif' }}>Enter your password to continue</div>
+        <input
+          type="password"
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          placeholder="Password"
+          autoFocus
+          style={{ width: '100%', padding: '12px 14px', borderRadius: 8, border: `1.5px solid ${error ? C.red : C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 14, outline: 'none', background: C.faint, marginBottom: 12, boxSizing: 'border-box' }}
+        />
+        {error && <div style={{ fontSize: 12, color: C.red, fontWeight: 600, marginBottom: 10, fontFamily: 'Montserrat,sans-serif' }}>{error}</div>}
+        <button type="submit" disabled={loading || !password.trim()} style={{ width: '100%', padding: '12px 0', borderRadius: 8, border: 'none', background: loading ? '#CBD5E0' : C.accent, color: '#000', fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 14, cursor: loading ? 'not-allowed' : 'pointer', letterSpacing: 0.5 }}>
+          {loading ? 'Checking...' : 'Log In'}
+        </button>
+      </form>
+    </div>
+  )
+}
+
+// ── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App() {
+  const [authed, setAuthed] = useState(false)
+  const [checkingAuth, setCheckingAuth] = useState(true)
   const [view, setView] = useState('roster')
   const [client, setClient] = useState(null)
   const [assessment, setAssessment] = useState(null)
+
+  useEffect(() => {
+    if (sessionStorage.getItem('ff_auth') === 'true') setAuthed(true)
+    setCheckingAuth(false)
+  }, [])
+
+  if (checkingAuth) return null
+  if (!authed) return <LoginScreen onLogin={() => setAuthed(true)} />
 
   const goToClient = (c) => { setClient(c); setView('client') }
   const updateClient = (c) => setClient(c)
