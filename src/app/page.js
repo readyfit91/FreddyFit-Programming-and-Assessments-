@@ -750,7 +750,7 @@ function ClientRoster({ onSelectClient }) {
   return (
     <div style={{ maxWidth: 700, margin: '0 auto', padding: '40px 24px' }}>
       <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 32, background: '#FFFFFF', padding: '20px 0' }}>
-        <img src="/logo.svg" alt="FreddyFit — Visualize · Do · Become" style={{ maxWidth: 360, width: '100%', height: 'auto' }} />
+        <img src="/logo.png" alt="FreddyFit — Visualize · Do · Become" style={{ maxWidth: 360, width: '100%', height: 'auto' }} />
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
         <div>
