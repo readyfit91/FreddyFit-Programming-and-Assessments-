@@ -72,7 +72,11 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
   const renderRatingAndModifier = (f) => {
     if (f.type === 'textarea' || f.type === 'scale') return null
     const ratingKey = `${f.id}_rating`
+    const modKey = `${f.id}_modifier`
+    const modConfirmedKey = `${f.id}_mod_confirmed`
     const rating = answers[ratingKey]
+    const modifier = answers[modKey]
+    const modConfirmed = answers[modConfirmedKey]
     const ratingNum = parseInt(rating)
     const isFail = rating && ratingNum <= 7
     const isPass = rating && ratingNum >= 8
@@ -83,13 +87,17 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
 
         {/* Rate this test */}
         <div style={{ marginBottom: rating ? 12 : 0 }}>
-          <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Rate this test (1–10)</div>
+          <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Step 1 — Rate this test (1–10)</div>
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
             {[1,2,3,4,5,6,7,8,9,10].map(n => {
               const isSelected = ratingNum === n
               const btnFail = n <= 7
               return (
-                <button key={n} onClick={() => set(ratingKey, n.toString())} style={{
+                <button key={n} onClick={() => {
+                  set(ratingKey, n.toString())
+                  set(modKey, '')
+                  set(modConfirmedKey, '')
+                }} style={{
                   width: 32, height: 32, borderRadius: 7,
                   border: `1.5px solid ${isSelected ? (btnFail ? C.red : C.green) : C.border}`,
                   background: isSelected ? (btnFail ? C.red : C.green) : 'white',
@@ -109,10 +117,54 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
 
         {/* FAIL NOTES — clinical decision notes from uploaded protocols */}
         {isFail && f.failNotes && (
-          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
+          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: 12 }}>
             <div style={{ fontSize: 10, color: C.orange, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 What To Do Next</div>
             <div style={{ background: C.orange + '08', border: `1px solid ${C.orange}22`, borderRadius: 10, padding: '12px 16px' }}>
               <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{f.failNotes}</pre>
+            </div>
+          </div>
+        )}
+
+        {/* MODIFIER DROPDOWN — select which modifier helped */}
+        {isFail && f.modifiers && f.modifiers.length > 0 && (
+          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: modifier ? 12 : 0 }}>
+            <div style={{ fontSize: 10, color: C.red, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Step 2 — Which modifier helped?</div>
+            <select value={modifier || ''} onChange={e => {
+              set(modKey, e.target.value)
+              set(modConfirmedKey, '')
+            }} style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${modifier ? C.accent : C.red + '66'}`, background: 'white', color: modifier ? C.text : C.sub, fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', cursor: 'pointer' }}>
+              <option value="">— Select the modifier that helped —</option>
+              {f.modifiers.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+        )}
+
+        {/* CONFIRM — did it work? (only if modifier selected and not "No modifier helped") */}
+        {isFail && modifier && modifier !== 'No modifier helped' && (
+          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
+            <div style={{ fontSize: 10, color: C.accent, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>Step 3 — Did <span style={{ color: C.accent }}>{modifier.split('→')[0].trim()}</span> improve the test?</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => set(modConfirmedKey, 'yes')} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1.5px solid ${modConfirmed === 'yes' ? C.green : C.border}`, background: modConfirmed === 'yes' ? C.green : 'white', color: modConfirmed === 'yes' ? 'white' : C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>✓ Yes — it worked</button>
+              <button onClick={() => set(modConfirmedKey, 'no')} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1.5px solid ${modConfirmed === 'no' ? C.red : C.border}`, background: modConfirmed === 'no' ? C.red : 'white', color: modConfirmed === 'no' ? 'white' : C.red, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>✗ No — try another</button>
+            </div>
+            {modConfirmed === 'yes' && (
+              <div style={{ marginTop: 8, padding: '8px 12px', background: C.green + '12', borderRadius: 8, border: `1px solid ${C.green}44`, fontSize: 11, color: C.green, fontWeight: 700 }}>
+                ✓ Recorded: <strong>{modifier}</strong>
+              </div>
+            )}
+            {modConfirmed === 'no' && (
+              <div style={{ marginTop: 8, padding: '8px 12px', background: C.orange + '12', borderRadius: 8, border: `1px solid ${C.orange}44`, fontSize: 11, color: C.orange, fontWeight: 700 }}>
+                Select a different modifier above ↑
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* No modifier helped — flag it */}
+        {isFail && modifier === 'No modifier helped' && (
+          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
+            <div style={{ padding: '8px 12px', background: C.red + '10', borderRadius: 8, border: `1px solid ${C.red}33`, fontSize: 11, color: C.red, fontWeight: 700 }}>
+              ✗ Recorded: No modifier helped — flag for deeper investigation / breakout assessments
             </div>
           </div>
         )}
