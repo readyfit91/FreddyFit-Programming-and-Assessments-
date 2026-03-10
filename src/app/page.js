@@ -2,21 +2,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
-import { FIELD_MODIFIERS } from '../lib/modifiers'
 
 const makeId = () => Math.random().toString(36).slice(2,10)
-
-// ── HELPERS ──────────────────────────────────────────────────────────────────
-async function callClaude(messages, maxTokens = 1000) {
-  const res = await fetch('/api/claude', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ messages, maxTokens })
-  })
-  const data = await res.json()
-  if (data.error) throw new Error(data.error)
-  return data.text
-}
 
 // ── SHARED UI ─────────────────────────────────────────────────────────────────
 function Spinner() {
@@ -36,16 +23,13 @@ function Btn({onClick,children,color=C.accent,outline=false,small=false,disabled
 // ── ASSESSMENT FORM ───────────────────────────────────────────────────────────
 function AssessmentForm({ assessment, client, onComplete, onBack }) {
   const [answers, setAnswers] = useState({})
-  const [summary, setSummary] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [done, setDone] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
 
   useEffect(() => {
     if (client.assessments?.[assessment.id]) {
-      const d = client.assessments[assessment.id]
-      setAnswers(d)
-      setSummary(d._summary || '')
-      setDone(true)
+      setAnswers(client.assessments[assessment.id])
+      setSaved(true)
     }
   }, [assessment.id, client.assessments])
 
@@ -54,28 +38,17 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
   const progress = Math.round((answered / allFields.length) * 100)
   const set = (id, val) => setAnswers(a => ({ ...a, [id]: val }))
 
-  const generateSummary = async () => {
-    setLoading(true)
-    setDone(true)
-    const qa = allFields.map(f => {
-      const base = `${f.label}: ${answers[f.id] || '(not recorded)'}`
-      const rating = answers[`${f.id}_rating`]
-      const modifier = answers[`${f.id}_modifier`]
-      const confirmed = answers[`${f.id}_mod_confirmed`]
-      const ratingStr = rating ? ` | Rating: ${rating}/10 ${parseInt(rating) <= 7 ? '(FAIL)' : '(PASS)'}` : ''
-      const modStr = modifier ? ` | Modifier tried: ${modifier}${confirmed === 'yes' ? ' ✓ CONFIRMED WORKING' : confirmed === 'no' ? ' ✗ did not help' : ''}` : ''
-      return base + ratingStr + modStr
-    }).join('\n')
+  const saveAssessmentData = async () => {
+    setSaving(true)
     try {
-      const s = await callClaude([{ role: 'user', content: `You are an expert personal trainer reviewing a completed ${assessment.name} assessment for client: ${client.name}.\n\nResults:\n${qa}\n\nProvide a structured clinical summary: 1) Key findings & red flags 2) Areas that tested strong/normal 3) Priority correctives & protocols to assign 4) Recommended training modifications 5) Suggested breakout assessments. Be specific and practical.` }], 1000)
-      setSummary(s)
-      const completed = { ...answers, _summary: s, _completedAt: new Date().toISOString() }
-      await saveAssessment(client.id, assessment.id, answers, s)
+      const completed = { ...answers, _completedAt: new Date().toISOString() }
+      await saveAssessment(client.id, assessment.id, answers, '')
       onComplete(assessment.id, completed)
+      setSaved(true)
     } catch (e) {
-      setSummary('Error generating summary: ' + e.message)
+      alert('Error saving: ' + e.message)
     }
-    setLoading(false)
+    setSaving(false)
   }
 
   const renderField = (f) => {
@@ -99,12 +72,7 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
   const renderRatingAndModifier = (f) => {
     if (f.type === 'textarea' || f.type === 'scale') return null
     const ratingKey = `${f.id}_rating`
-    const modKey = `${f.id}_modifier`
-    const modConfirmedKey = `${f.id}_mod_confirmed`
     const rating = answers[ratingKey]
-    const modifier = answers[modKey]
-    const modConfirmed = answers[modConfirmedKey]
-    const modifiers = FIELD_MODIFIERS[f.id]
     const ratingNum = parseInt(rating)
     const isFail = rating && ratingNum <= 7
     const isPass = rating && ratingNum >= 8
@@ -113,20 +81,15 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
     return (
       <div style={{ marginTop: 10, background: C.faint, borderRadius: 10, padding: '12px 14px', border: `1px solid ${C.border}` }}>
 
-        {/* STEP 1 — Rate */}
+        {/* Rate this test */}
         <div style={{ marginBottom: rating ? 12 : 0 }}>
-          <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Step 1 — Rate this test</div>
+          <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Rate this test (1–10)</div>
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
             {[1,2,3,4,5,6,7,8,9,10].map(n => {
               const isSelected = ratingNum === n
               const btnFail = n <= 7
               return (
-                <button key={n} onClick={() => {
-                  set(ratingKey, n.toString())
-                  // Reset downstream if rating changes
-                  set(modKey, '')
-                  set(modConfirmedKey, '')
-                }} style={{
+                <button key={n} onClick={() => set(ratingKey, n.toString())} style={{
                   width: 32, height: 32, borderRadius: 7,
                   border: `1.5px solid ${isSelected ? (btnFail ? C.red : C.green) : C.border}`,
                   background: isSelected ? (btnFail ? C.red : C.green) : 'white',
@@ -144,9 +107,9 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
           )}
         </div>
 
-        {/* FAIL NOTES — clinical decision notes (what to do next) */}
+        {/* FAIL NOTES — clinical decision notes from uploaded protocols */}
         {isFail && f.failNotes && (
-          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: 12 }}>
+          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
             <div style={{ fontSize: 10, color: C.orange, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 What To Do Next</div>
             <div style={{ background: C.orange + '08', border: `1px solid ${C.orange}22`, borderRadius: 10, padding: '12px 16px' }}>
               <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{f.failNotes}</pre>
@@ -154,51 +117,7 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
           </div>
         )}
 
-        {/* STEP 2 — Modifier (only if fail and modifiers exist) */}
-        {isFail && modifiers && modifiers.length > 0 && (
-          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: modifier ? 12 : 0 }}>
-            <div style={{ fontSize: 10, color: C.red, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Step 2 — Try a modifier. Which one helped?</div>
-            <select value={modifier || ''} onChange={e => {
-              set(modKey, e.target.value)
-              set(modConfirmedKey, '') // reset confirmation if modifier changes
-            }} style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${modifier ? C.accent : C.red + '66'}`, background: 'white', color: modifier ? C.text : C.sub, fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', cursor: 'pointer' }}>
-              <option value="">— Select a modifier to try —</option>
-              {modifiers.map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
-          </div>
-        )}
-
-        {/* STEP 3 — Confirm (only if modifier selected and not "No modifier worked") */}
-        {isFail && modifier && modifier !== 'No modifier worked' && (
-          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
-            <div style={{ fontSize: 10, color: C.accent, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>Step 3 — Did <span style={{ color: C.accent }}>{modifier}</span> improve the test?</div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => set(modConfirmedKey, 'yes')} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1.5px solid ${modConfirmed === 'yes' ? C.green : C.border}`, background: modConfirmed === 'yes' ? C.green : 'white', color: modConfirmed === 'yes' ? 'white' : C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>✓ Yes — it worked</button>
-              <button onClick={() => set(modConfirmedKey, 'no')} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1.5px solid ${modConfirmed === 'no' ? C.red : C.border}`, background: modConfirmed === 'no' ? C.red : 'white', color: modConfirmed === 'no' ? 'white' : C.red, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>✗ No — try another</button>
-            </div>
-            {modConfirmed === 'yes' && (
-              <div style={{ marginTop: 8, padding: '8px 12px', background: C.green + '12', borderRadius: 8, border: `1px solid ${C.green}44`, fontSize: 11, color: C.green, fontWeight: 700 }}>
-                ✓ Recorded: <strong>{modifier}</strong> confirmed as corrective for this test
-              </div>
-            )}
-            {modConfirmed === 'no' && (
-              <div style={{ marginTop: 8, padding: '8px 12px', background: C.orange + '12', borderRadius: 8, border: `1px solid ${C.orange}44`, fontSize: 11, color: C.orange, fontWeight: 700 }}>
-                Try selecting a different modifier above ↑
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* No modifier worked — record it */}
-        {isFail && modifier === 'No modifier worked' && (
-          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
-            <div style={{ padding: '8px 12px', background: C.red + '10', borderRadius: 8, border: `1px solid ${C.red}33`, fontSize: 11, color: C.red, fontWeight: 700 }}>
-              ✗ Recorded: No modifier improved this test — flag for deeper investigation
-            </div>
-          </div>
-        )}
-
-        {/* Pass — no modifier needed */}
+        {/* Pass — no corrective needed */}
         {isPass && (
           <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
             <div style={{ fontSize: 11, color: C.green, fontWeight: 700 }}>✓ Pass — no corrective needed for this test</div>
@@ -248,17 +167,8 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
       ))}
 
       <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 8 }}>
-        <Btn onClick={generateSummary} disabled={loading}>{loading ? 'Generating...' : done ? '↺ Regenerate Summary' : '⚡ Generate AI Summary'}</Btn>
+        <Btn onClick={saveAssessmentData} disabled={saving}>{saving ? 'Saving...' : saved ? '✓ Saved — Tap to Re-save' : '💾 Save Assessment'}</Btn>
       </div>
-
-      {loading && <Spinner />}
-
-      {summary && (
-        <div style={{ marginTop: 24, background: C.accent + '08', border: `1px solid ${C.accent}33`, borderRadius: 12, padding: '20px 22px' }}>
-          <div style={{ fontWeight: 800, fontSize: 12, color: C.accent, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 12 }}>AI Summary</div>
-          <pre style={{ fontSize: 12, lineHeight: 1.8, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif' }}>{summary}</pre>
-        </div>
-      )}
     </div>
   )
 }
@@ -270,7 +180,6 @@ function WorkoutGenerator({ client, onBack }) {
   const [programDetails, setProgramDetails] = useState('')
   const [blockMonths, setBlockMonths] = useState('1-3')
   const [workout, setWorkout] = useState('')
-  const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
   const [pastWorkouts, setPastWorkouts] = useState([])
@@ -287,13 +196,10 @@ function WorkoutGenerator({ client, onBack }) {
     const qa = fields.map(f => {
       const base = `  ${f.label}: ${data[f.id] || '(not recorded)'}`
       const rating = data[`${f.id}_rating`]
-      const modifier = data[`${f.id}_modifier`]
-      const confirmed = data[`${f.id}_mod_confirmed`]
       const ratingStr = rating ? ` | Rating: ${rating}/10 ${parseInt(rating) <= 7 ? '(FAIL)' : '(PASS)'}` : ''
-      const modStr = modifier ? ` | Corrective: ${modifier}${confirmed === 'yes' ? ' [CONFIRMED]' : confirmed === 'no' ? ' [DID NOT HELP]' : ''}` : ''
-      return base + ratingStr + modStr
+      return base + ratingStr
     }).join('\n')
-    return `${a.name}:\n${qa}${data._summary ? '\n  SUMMARY: ' + data._summary : ''}`
+    return `${a.name}:\n${qa}`
   }).filter(Boolean).join('\n\n') || 'No assessments completed yet.'
 
   const EQUIPMENT_OPTIONS = [
@@ -321,93 +227,68 @@ function WorkoutGenerator({ client, onBack }) {
     return arr.includes(value)
   }
 
-  const generate = async () => {
+  const startBlank = () => {
     if (!movements.trim() && !programDetails.trim()) { setError('Select at least some movements or add program details.'); return }
-    setGenerating(true); setError(''); setWorkout('')
-    try {
-      const text = await callClaude([{ role: 'user', content: `You are an expert personal trainer. Generate a detailed, well-organized training block for:
-
-CLIENT: ${client.name}
-GOAL: ${client.goal || 'Not specified'}
-TRAINING BLOCK: Months ${blockMonths} (3-month block)
-
-═══ EQUIPMENT AVAILABLE ═══
-${equipment || 'Not specified'}
-
-═══ FUNCTIONAL MOVEMENTS REQUESTED ═══
-${movements || 'Trainer discretion based on assessment findings'}
-
-═══ PROGRAM REQUESTS ═══
-${programDetails || 'Trainer discretion'}
-
-═══ ASSESSMENT FINDINGS (use these to shape the program) ═══
-${assessmentContext}
-
-FORMAT THE OUTPUT EXACTLY LIKE THIS — clean, spaced out, organized:
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    setError('')
+    setWorkout(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 TRAINING BLOCK: MONTHS ${blockMonths}
 Client: ${client.name}
 Goal: ${client.goal || 'General fitness'}
+Equipment: ${equipment || 'Not specified'}
+Movements: ${movements || 'Not specified'}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 CLIENT NOTES
-(Any contraindications, pain flags, or movement restrictions from assessments — written for the client to understand)
+
 
 ───────────────────────────────────
 CORRECTIVE WARM-UP (Every Session)
 ───────────────────────────────────
-(Pull directly from confirmed correctives in assessment findings. List each with sets x reps x tempo. If a modifier was confirmed working, prescribe it here.)
 
-For each training day, format like this:
 
 ═══════════════════════════════════
-DAY 1 — [Day Name]
+DAY 1 —
 ═══════════════════════════════════
 
 WARM-UP ACTIVATION
-  1. Exercise Name
-     → Sets x Reps | Tempo | Rest
-     → Cue: [coaching cue]
+
 
 MAIN WORK
-  A1. Exercise Name
-      → Sets x Reps | Load guidance | Rest
-      → Cue: [coaching cue]
-      → Why: [brief reason from assessment]
 
-  A2. Exercise Name (superset with A1)
-      → Sets x Reps | Load guidance | Rest
 
 ACCESSORY WORK
-  B1. Exercise Name
-      → Sets x Reps | Rest
-  B2. Exercise Name
-      → Sets x Reps | Rest
+
 
 FINISHER / CONDITIONING
-  → Description | Duration
 
-───────────────────────────────────
 
-(Repeat for each training day)
+═══════════════════════════════════
+DAY 2 —
+═══════════════════════════════════
+
+WARM-UP ACTIVATION
+
+
+MAIN WORK
+
+
+ACCESSORY WORK
+
+
+FINISHER / CONDITIONING
+
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PROGRESSION PLAN (Over the 3 months)
+PROGRESSION PLAN
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Month 1: [focus]
-Month 2: [progression]
-Month 3: [target]
+Month 1:
+Month 2:
+Month 3:
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-TRAINER NOTES (INTERNAL — DO NOT SHOW CLIENT)
+TRAINER NOTES (INTERNAL)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-(Flags, concerns, reassessment notes, things to watch for)
-
-Be specific. Reference actual assessment findings. Use confirmed correctives as prescribed warm-up exercises. Make it print-ready.` }], 6000)
-      setWorkout(text)
-    } catch (e) { setError('Error: ' + e.message) }
-    setGenerating(false)
+${programDetails || ''}`)
   }
 
   const saveCurrentWorkout = async () => {
@@ -434,7 +315,7 @@ Be specific. Reference actual assessment findings. Use confirmed correctives as 
 
       {Object.keys(client.assessments || {}).length > 0 && (
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 18px', marginBottom: 20 }}>
-          <div style={{ fontSize: 10, color: C.sub, letterSpacing: 2, textTransform: 'uppercase', fontWeight: 700, marginBottom: 8 }}>AI will use these assessments</div>
+          <div style={{ fontSize: 10, color: C.sub, letterSpacing: 2, textTransform: 'uppercase', fontWeight: 700, marginBottom: 8 }}>Assessments on File</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {Object.keys(client.assessments || {}).map(id => {
               const a = ALL_ASSESSMENTS[id]
@@ -496,14 +377,13 @@ Be specific. Reference actual assessment findings. Use confirmed correctives as 
         <textarea value={programDetails} onChange={e => setProgramDetails(e.target.value)} rows={4} placeholder="e.g. 4 sets x 8-12 reps, 60s rest, include face pulls as accessory, 3 days/week, 45 min sessions, superset format..." style={inputBox} />
       </div>
 
-      {/* GENERATE */}
+      {/* CREATE BLANK TEMPLATE */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, padding: '0 4px' }}>
-        <div style={{ fontSize: 11, color: C.sub }}>AI will pull from all assessments, confirmed correctives, and your inputs above</div>
-        <Btn onClick={generate} disabled={generating}>{generating ? '⏳ Generating...' : '⚡ Generate Training Block'}</Btn>
+        <div style={{ fontSize: 11, color: C.sub }}>Creates a blank training block template you can fill in manually</div>
+        <Btn onClick={startBlank}>📝 Create Training Block</Btn>
       </div>
 
       {error && <div style={{ background: C.red + '12', border: `1px solid ${C.red}44`, borderRadius: 10, padding: '12px 16px', fontSize: 13, color: C.red, marginBottom: 16 }}>{error}</div>}
-      {generating && <><Spinner /><div style={{ textAlign: 'center', fontSize: 12, color: C.sub, marginTop: 4 }}>Building your training block... this may take a moment</div></>}
 
       {workout && (
         <div style={{ background: C.card, border: `2px solid ${C.accent}44`, borderRadius: 14, overflow: 'hidden' }}>
@@ -555,7 +435,6 @@ function ProgramBuilder({ client, onBack, onSave }) {
     { id: 'p3', label: 'MONTHS 7–12', sublabel: 'Performance', color: C.orange },
   ]
   const [program, setProgram] = useState({ phases: { p1: { equipment: '', program: '', trainerNotes: '' }, p2: { equipment: '', program: '', trainerNotes: '' }, p3: { equipment: '', program: '', trainerNotes: '' } }, generatedAt: null })
-  const [generating, setGenerating] = useState(false)
   const [expanded, setExpanded] = useState('p1')
   const [saved, setSaved] = useState(false)
 
@@ -565,29 +444,12 @@ function ProgramBuilder({ client, onBack, onSave }) {
     }).catch(() => {})
   }, [client.id])
 
-  const assessmentSummaries = Object.entries(client.assessments || {}).map(([id, data]) => {
-    const a = ALL_ASSESSMENTS[id]
-    if (!a) return ''
-    const fields = a.sections.flatMap(s => s.fields)
-    const qa = fields.map(f => `${f.label}: ${data[f.id] || '(not recorded)'}`).join('\n')
-    return `\n=== ${a.name} ===\n${qa}${data._summary ? '\nSUMMARY: ' + data._summary : ''}`
-  }).filter(Boolean).join('\n\n')
-
-  const buildProgram = async () => {
-    setGenerating(true)
-    const promptText = `You are an expert personal trainer. Build a complete 12-month program.\n\nCLIENT: ${client.name}\nGOAL: ${client.goal || 'Not specified'}\nEQUIPMENT: ${client.equipment || 'Not specified'}\n\nASSESSMENT DATA:\n${assessmentSummaries || 'No assessments yet'}\n\nCreate THREE phases. Each phase needs: PHASE FOCUS, CORRECTIVE PROTOCOLS (sets/reps), WEEKLY STRUCTURE (days with warm-up/main/accessory), PROGRESSIONS & MILESTONES, CONTRAINDICATIONS.\n\nRespond with JSON only — no markdown:\n{"p1":{"program":"...","equipment":"...","trainerNotes":"..."},"p2":{"program":"...","equipment":"...","trainerNotes":"..."},"p3":{"program":"...","equipment":"...","trainerNotes":"..."}}`
+  const saveCurrentProgram = async () => {
     try {
-      const raw = await callClaude([{ role: 'user', content: promptText }], 8000)
-      const clean = raw.replace(/```json|```/g, '').trim()
-      let parsed
-      try { parsed = JSON.parse(clean) }
-      catch { parsed = { p1: { program: raw, equipment: client.equipment || '', trainerNotes: '' }, p2: { program: '', equipment: '', trainerNotes: '' }, p3: { program: '', equipment: '', trainerNotes: '' } } }
-      const newProg = { phases: { p1: { ...program.phases.p1, ...parsed.p1 }, p2: { ...program.phases.p2, ...parsed.p2 }, p3: { ...program.phases.p3, ...parsed.p3 } }, generatedAt: new Date().toISOString() }
-      setProgram(newProg)
-      await saveProgram(client.id, newProg.phases)
+      await saveProgram(client.id, program.phases)
+      setProgram(p => ({ ...p, generatedAt: new Date().toISOString() }))
       setSaved(true); setTimeout(() => setSaved(false), 2000)
-    } catch (e) { alert('Error: ' + e.message) }
-    setGenerating(false)
+    } catch (e) { alert('Error saving: ' + e.message) }
   }
 
   const update = (pid, field, val) => setProgram(p => ({ ...p, phases: { ...p.phases, [pid]: { ...p.phases[pid], [field]: val } } }))
@@ -604,11 +466,9 @@ function ProgramBuilder({ client, onBack, onSave }) {
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {program.generatedAt && <Btn onClick={printProgram} outline small>🖨 Print / PDF</Btn>}
-          <Btn onClick={buildProgram} disabled={generating}>{generating ? '⏳ Building...' : '🤖 Build 12-Month Program'}</Btn>
+          <Btn onClick={saveCurrentProgram}>{saved ? '✓ Saved' : '💾 Save Program'}</Btn>
         </div>
       </div>
-
-      {generating && <><Spinner /><div style={{ textAlign: 'center', fontSize: 13, color: C.sub, marginTop: 8 }}>Building your 12-month program... this takes ~30 seconds</div></>}
 
       {PHASES.map(ph => (
         <div key={ph.id} style={{ background: C.card, border: `1px solid ${expanded === ph.id ? ph.color + '66' : C.border}`, borderRadius: 14, marginBottom: 12, overflow: 'hidden' }}>
