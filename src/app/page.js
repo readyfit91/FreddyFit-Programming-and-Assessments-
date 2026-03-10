@@ -144,6 +144,16 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
           )}
         </div>
 
+        {/* FAIL NOTES — clinical decision notes (what to do next) */}
+        {isFail && f.failNotes && (
+          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: 12 }}>
+            <div style={{ fontSize: 10, color: C.orange, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 What To Do Next</div>
+            <div style={{ background: C.orange + '08', border: `1px solid ${C.orange}22`, borderRadius: 10, padding: '12px 16px' }}>
+              <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{f.failNotes}</pre>
+            </div>
+          </div>
+        )}
+
         {/* STEP 2 — Modifier (only if fail and modifiers exist) */}
         {isFail && modifiers && modifiers.length > 0 && (
           <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: modifier ? 12 : 0 }}>
@@ -220,6 +230,12 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
               <label style={{ display: 'block', fontSize: 12, color: C.sub, marginBottom: 6, fontWeight: 600 }}>{f.label}</label>
               {renderField(f)}
               {renderRatingAndModifier(f)}
+              {f.type === 'scale' && f.failNotes && answers[f.id] && (
+                <div style={{ marginTop: 10, background: parseInt(answers[f.id]) >= 7 ? C.red + '08' : C.accent + '08', border: `1px solid ${parseInt(answers[f.id]) >= 7 ? C.red : C.accent}22`, borderRadius: 10, padding: '12px 16px' }}>
+                  <div style={{ fontSize: 10, color: parseInt(answers[f.id]) >= 7 ? C.red : C.accent, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 Trainer Script</div>
+                  <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{f.failNotes}</pre>
+                </div>
+              )}
             </div>
           ))}
         </div>
