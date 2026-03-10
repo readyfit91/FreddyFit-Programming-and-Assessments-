@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
+import { FIELD_MODIFIERS } from '../lib/modifiers'
 
 const makeId = () => Math.random().toString(36).slice(2,10)
 
@@ -56,7 +57,15 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
   const generateSummary = async () => {
     setLoading(true)
     setDone(true)
-    const qa = allFields.map(f => `${f.label}: ${answers[f.id] || '(not recorded)'}`).join('\n')
+    const qa = allFields.map(f => {
+      const base = `${f.label}: ${answers[f.id] || '(not recorded)'}`
+      const rating = answers[`${f.id}_rating`]
+      const modifier = answers[`${f.id}_modifier`]
+      const confirmed = answers[`${f.id}_mod_confirmed`]
+      const ratingStr = rating ? ` | Rating: ${rating}/10 ${parseInt(rating) <= 7 ? '(FAIL)' : '(PASS)'}` : ''
+      const modStr = modifier ? ` | Modifier tried: ${modifier}${confirmed === 'yes' ? ' ✓ CONFIRMED WORKING' : confirmed === 'no' ? ' ✗ did not help' : ''}` : ''
+      return base + ratingStr + modStr
+    }).join('\n')
     try {
       const s = await callClaude([{ role: 'user', content: `You are an expert personal trainer reviewing a completed ${assessment.name} assessment for client: ${client.name}.\n\nResults:\n${qa}\n\nProvide a structured clinical summary: 1) Key findings & red flags 2) Areas that tested strong/normal 3) Priority correctives & protocols to assign 4) Recommended training modifications 5) Suggested breakout assessments. Be specific and practical.` }], 1000)
       setSummary(s)
@@ -87,6 +96,108 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
     return <input type="text" value={val} onChange={e => set(f.id, e.target.value)} placeholder={f.placeholder || ''} style={base} />
   }
 
+  const renderRatingAndModifier = (f) => {
+    if (f.type === 'textarea' || f.type === 'scale') return null
+    const ratingKey = `${f.id}_rating`
+    const modKey = `${f.id}_modifier`
+    const modConfirmedKey = `${f.id}_mod_confirmed`
+    const rating = answers[ratingKey]
+    const modifier = answers[modKey]
+    const modConfirmed = answers[modConfirmedKey]
+    const modifiers = FIELD_MODIFIERS[f.id]
+    const ratingNum = parseInt(rating)
+    const isFail = rating && ratingNum <= 7
+    const isPass = rating && ratingNum >= 8
+    const ratingColor = !rating ? C.sub : isFail ? C.red : C.green
+
+    return (
+      <div style={{ marginTop: 10, background: C.faint, borderRadius: 10, padding: '12px 14px', border: `1px solid ${C.border}` }}>
+
+        {/* STEP 1 — Rate */}
+        <div style={{ marginBottom: rating ? 12 : 0 }}>
+          <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Step 1 — Rate this test</div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {[1,2,3,4,5,6,7,8,9,10].map(n => {
+              const isSelected = ratingNum === n
+              const btnFail = n <= 7
+              return (
+                <button key={n} onClick={() => {
+                  set(ratingKey, n.toString())
+                  // Reset downstream if rating changes
+                  set(modKey, '')
+                  set(modConfirmedKey, '')
+                }} style={{
+                  width: 32, height: 32, borderRadius: 7,
+                  border: `1.5px solid ${isSelected ? (btnFail ? C.red : C.green) : C.border}`,
+                  background: isSelected ? (btnFail ? C.red : C.green) : 'white',
+                  color: isSelected ? 'white' : btnFail ? C.red : C.green,
+                  fontFamily: 'Montserrat,sans-serif', fontWeight: 800, fontSize: 12,
+                  cursor: 'pointer'
+                }}>{n}</button>
+              )
+            })}
+          </div>
+          {rating && (
+            <div style={{ fontSize: 11, marginTop: 6, fontWeight: 800, color: ratingColor }}>
+              {isFail ? `✗ FAIL — ${rating}/10` : `✓ PASS — ${rating}/10`}
+            </div>
+          )}
+        </div>
+
+        {/* STEP 2 — Modifier (only if fail and modifiers exist) */}
+        {isFail && modifiers && modifiers.length > 0 && (
+          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: modifier ? 12 : 0 }}>
+            <div style={{ fontSize: 10, color: C.red, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Step 2 — Try a modifier. Which one helped?</div>
+            <select value={modifier || ''} onChange={e => {
+              set(modKey, e.target.value)
+              set(modConfirmedKey, '') // reset confirmation if modifier changes
+            }} style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${modifier ? C.accent : C.red + '66'}`, background: 'white', color: modifier ? C.text : C.sub, fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', cursor: 'pointer' }}>
+              <option value="">— Select a modifier to try —</option>
+              {modifiers.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+        )}
+
+        {/* STEP 3 — Confirm (only if modifier selected and not "No modifier worked") */}
+        {isFail && modifier && modifier !== 'No modifier worked' && (
+          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
+            <div style={{ fontSize: 10, color: C.accent, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>Step 3 — Did <span style={{ color: C.accent }}>{modifier}</span> improve the test?</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => set(modConfirmedKey, 'yes')} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1.5px solid ${modConfirmed === 'yes' ? C.green : C.border}`, background: modConfirmed === 'yes' ? C.green : 'white', color: modConfirmed === 'yes' ? 'white' : C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>✓ Yes — it worked</button>
+              <button onClick={() => set(modConfirmedKey, 'no')} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1.5px solid ${modConfirmed === 'no' ? C.red : C.border}`, background: modConfirmed === 'no' ? C.red : 'white', color: modConfirmed === 'no' ? 'white' : C.red, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>✗ No — try another</button>
+            </div>
+            {modConfirmed === 'yes' && (
+              <div style={{ marginTop: 8, padding: '8px 12px', background: C.green + '12', borderRadius: 8, border: `1px solid ${C.green}44`, fontSize: 11, color: C.green, fontWeight: 700 }}>
+                ✓ Recorded: <strong>{modifier}</strong> confirmed as corrective for this test
+              </div>
+            )}
+            {modConfirmed === 'no' && (
+              <div style={{ marginTop: 8, padding: '8px 12px', background: C.orange + '12', borderRadius: 8, border: `1px solid ${C.orange}44`, fontSize: 11, color: C.orange, fontWeight: 700 }}>
+                Try selecting a different modifier above ↑
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* No modifier worked — record it */}
+        {isFail && modifier === 'No modifier worked' && (
+          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
+            <div style={{ padding: '8px 12px', background: C.red + '10', borderRadius: 8, border: `1px solid ${C.red}33`, fontSize: 11, color: C.red, fontWeight: 700 }}>
+              ✗ Recorded: No modifier improved this test — flag for deeper investigation
+            </div>
+          </div>
+        )}
+
+        {/* Pass — no modifier needed */}
+        {isPass && (
+          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+            <div style={{ fontSize: 11, color: C.green, fontWeight: 700 }}>✓ Pass — no corrective needed for this test</div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div style={{ maxWidth: 720, margin: '0 auto', padding: '32px 24px' }}>
       <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 24 }}>← Back</button>
@@ -105,9 +216,10 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
         <div key={s.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '20px 22px', marginBottom: 16 }}>
           <div style={{ fontWeight: 700, fontSize: 13, color: assessment.color, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 16 }}>{s.title}</div>
           {s.fields.map(f => (
-            <div key={f.id} style={{ marginBottom: 16 }}>
+            <div key={f.id} style={{ marginBottom: 20, paddingBottom: 16, borderBottom: `1px solid ${C.faint}` }}>
               <label style={{ display: 'block', fontSize: 12, color: C.sub, marginBottom: 6, fontWeight: 600 }}>{f.label}</label>
               {renderField(f)}
+              {renderRatingAndModifier(f)}
             </div>
           ))}
         </div>
