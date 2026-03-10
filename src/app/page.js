@@ -236,6 +236,12 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
                   <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{f.failNotes}</pre>
                 </div>
               )}
+              {f.type === 'textarea' && f.failNotes && (
+                <div style={{ marginTop: 10, background: C.accent + '08', border: `1px solid ${C.accent}22`, borderRadius: 10, padding: '12px 16px' }}>
+                  <div style={{ fontSize: 10, color: C.accent, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 Trainer Script</div>
+                  <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{f.failNotes}</pre>
+                </div>
+              )}
             </div>
           ))}
         </div>
