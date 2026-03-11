@@ -337,6 +337,69 @@ export const ALL_ASSESSMENTS = {
       ]}
     ]
   },
+  bms5: {
+    id:"bms5", name:"BMS-5 Baseline Movement Screen", icon:"🏆",
+    color:C.green, colorDim:C.green+"12",
+    sections:[
+      { id:"bms_info", title:"Client Info", fields:[
+        { id:"bms_gender", label:"Gender (affects pushup scoring)", type:"passfail", options:["Male","Female"] },
+        { id:"bms_age_range", label:"Age Range", type:"passfail", options:["18–39","40–49","50–59","60+"] },
+        { id:"bms_shoes", label:"Footwear for testing", type:"text", placeholder:"e.g. exercise shoes, sock feet" },
+      ]},
+      { id:"bms_squat", title:"1. Overhead Squat — Squat Pattern", fields:[
+        { id:"bms_sq_score", label:"Overhead Squat Score (0–3)", type:"scale", min:0, max:3,
+          failNotes:"SCORING:\n• 3 Points: Perfect rep — arms overhead, palms forward. Hands don't pass feet, thighs below parallel, knees don't buckle, feet stay in footprint, no buttwink.\n• 2 Points: Perfect rep with arms held straight out front (not overhead).\n• 1 Point: Can't achieve perfect rep at all.\n• 0 Points: Pain ANYWHERE.\n\nINSTRUCTIONS:\n1. Wear exercise shoes. Don't test on rubber floor.\n2. Hop up and down to find natural foot placement.\n3. Arms straight overhead, palms forward, no elbow bend.\n4. \"Squat down as low as you can, keeping as upright as you can.\"\n5. Give 3 attempts, score best attempt.\n6. If can't do arms overhead (3 pts), try arms forward (2 pts). If can't do either, move to lying squat pose." },
+        { id:"bms_sq_compensations", label:"Compensations observed", type:"textarea",
+          failNotes:"COMMON COMPENSATIONS:\n• Knees buckle in: Poor movement strategy, tight adductors, inactive glutes. Cue \"pushing knees out\". Consider Bees Knees Knock Knee, groin stretches, glute exercises.\n• Poor Depth: Anterior posture tension, forward spine bend strategy. Cue \"hip hinge\".\n• Excess Forward Bend: Upper/lower crossed syndrome, tight calves, insufficient trunk stability. Promote belly breathing. Cue \"bracing abs\", hold in-breath on way down, \"hip hinge\".\n• Rotation/thigh tremble at bottom: Spinal compression or pelvic twist. Consider Great Decompression or Hip Hip Hooray. Don't squat with high load.\n• Feet turn out: Tibial torsion, tight external hip rotators, weak tibialis posterior/adductors. Consider Bees Knees Bowlegged or Pigeon Protocol. Cue \"foot slightly scrunched\". Try ball between knees.\n• Buttwink/low back hinge: Lack of hip mobility causing posterior pelvic tilt in flexion. Consider Rocky and Buttwinkel. Anterior core control exercises. Goblet Squats and Sit Down Squats are ideal choices." },
+        { id:"bms_sq_lying", label:"Lying Squat Pose needed?", type:"passfail", options:["Not needed","Yes — performed"] },
+        { id:"bms_sq_lying_arms", label:"Lying Squat — Arms flat on floor equally?", type:"passfail", options:["Yes","No — shoulders tight"],
+          failNotes:"If arms dangle up higher than toes, shoulders are a limitation. If one arm higher than the other, it will create uneven torsion (also a fail)." },
+        { id:"bms_sq_lying_knees", label:"Lying Squat — Knees flex past hips (>90°)?", type:"passfail", options:["Yes","No — posterior chain tight"],
+          failNotes:"Could be posterior chain tension (tight hamstrings) or hip flexor weakness. Consider Le Butte Posterior." },
+        { id:"bms_sq_lying_ankles", label:"Lying Squat — Feet dorsiflex ~10°?", type:"passfail", options:["Yes","No — tight calves"],
+          failNotes:"Tight calves and/or tibialis anterior dysfunction. Consider Calfzilla protocol." },
+        { id:"bms_sq_lying_result", label:"Lying Squat Result", type:"passfail", options:["Can do — stability limitation","Can't do — mobility limitation"],
+          failNotes:"CAN DO (stability limitation): Improper or insufficient muscle activation and movement strategy may be the limitation. Delayed transversus abdominis recruitment can cause other muscles to stiffen as compensation.\n\nCAN'T DO (mobility limitation): Flexibility of muscles or structural limitations are the probable limiting factor. Apply corrective protocols for limited areas." },
+        { id:"bms_sq_notes", label:"Squat notes", type:"textarea" },
+      ]},
+      { id:"bms_lunge", title:"2. Tightrope Lunge — Lunge Pattern", fields:[
+        { id:"bms_lu_score_left", label:"Tightrope Lunge Score — Left (0–3)", type:"scale", min:0, max:3,
+          failNotes:"SCORING:\n• 3 Points: Perfect rep with EYES CLOSED. Hands don't go past toes, no lateral torso movement, stay in footprint, looks easy.\n• 2 Points: Perfect rep with EYES OPEN.\n• 1 Point: Can't achieve movement without significant compensation (loss of balance, rotation, extreme forward bend). Or can't achieve/maintain start position.\n• 0 Points: Pain ANYWHERE.\n\nINSTRUCTIONS:\n1. Setup beside a wall for balance.\n2. Start at the bottom — kneel like proposing.\n3. In-line stance: front heel touching back knee, like standing on tightrope.\n4. Arms straight overhead, palms forward. This is start position.\n5. If can't achieve this position within 5 seconds = score of 1.\n6. Stand up tall, then lunge down until knee taps floor, return all the way up until front leg straight.\n7. 3 attempts per side. If perfect with eyes open, try eyes closed for 3 points." },
+        { id:"bms_lu_score_right", label:"Tightrope Lunge Score — Right (0–3)", type:"scale", min:0, max:3 },
+        { id:"bms_lu_compensations", label:"Compensations observed", type:"textarea",
+          failNotes:"COMMON COMPENSATIONS:\n• Lateral instability/wobble: General instability or lack of scissor stance stability. Consider Pelvis Presley, practice proper lunge technique and position holds. Could be poor knee tracking from lateral leg misalignments.\n• Front heel rises or poor depth: Quad dominance or tight calves. Consider Bees Knees High Knee Cap and/or Calfzilla.\n• Excess forward bend, arms past toes: Compromised trunk stability or too much tightness in front of body. Consider Le Butte Anterior, Thoracic Park, and/or Neck Mate." },
+        { id:"bms_lu_notes", label:"Lunge notes", type:"textarea" },
+      ]},
+      { id:"bms_row", title:"3. Dumbbell Bentover Row — Pull Pattern & Bilateral Bend", fields:[
+        { id:"bms_row_score", label:"Bentover Row Score (0–3)", type:"scale", min:0, max:3,
+          failNotes:"SCORING:\n• 3 Points: Correct rep with no faults — pull initiated by upper back/shoulder blades, full range up and down, no torso motion, spine straight, neck aligned, no forward shoulder shift.\n• 2 Points: Only 1 compensation. After coaching, they correct it immediately (shows it's not a fixed tendency).\n• 1 Point: After coaching, faults still evident. Begin with isolated pulling motions, advance to compound. E.g. rows face down on incline bench → seated row → bentover rows with butt on wall.\n• 0 Points: Pain ANYWHERE.\n\nINSTRUCTIONS:\n1. Demo: legs wide, knees slightly bent, 15-30lb dumbbells inside legs.\n2. Lean forward 45°, straight back.\n3. Palms facing each other, squeeze shoulder blades, pull dumbbells beside waist.\n4. Slowly lower (fight gravity). Keep neck straight.\n5. Demo 3 reps, then have them do 3 reps or until perfect rep." },
+        { id:"bms_row_compensations", label:"Compensations observed", type:"textarea",
+          failNotes:"COMMON COMPENSATIONS:\n• Lack of shoulder blade movement: Pulling via elbow flexion (bicep curl style) or only 2/3 range. Omits scapular retractor activation. Root cause: weak upper back, arms compensate.\n• Rounding lower back: Relying on passive spinal support instead of postural stabilizers. May need upper back mobilizations (foam roll, towel) and scapular retraction exercises.\n• Low back extension / leaning back: Using low back as a functional shoulder. Leads to excess spinal motion. Focus on isolated pulls (face-down incline bench rows).\n• Anterior shoulder dumping at end of pull: Forward shoulder shift for extra range. Strains anterior capsule. Usually a coaching fix. If capsule is loose, consider Shoulder Breakthrough Corrective.\n• Neck/head movement: Chin should be tucked to mid-neck. Head poking forward or looking up/down = limited shoulder mobility. Cue \"neck packed\"." },
+        { id:"bms_row_notes", label:"Row notes", type:"textarea" },
+      ]},
+      { id:"bms_hinge", title:"4. Unilateral Hip Hinge \"Bowing to Buddha\" — Hip Hinge & Rotation", fields:[
+        { id:"bms_hh_score_left", label:"Bowing to Buddha Score — Left (0–3)", type:"scale", min:0, max:3,
+          failNotes:"SCORING:\n• 3 Points: Perfect rep with control. Does not appear to take significant effort.\n• 2 Points: Rep with minor compensations (instability) or appears to take significant effort.\n• 1 Point: Poor control. Can't do movement or \"crashes down\".\n• 0 Points: Pain ANYWHERE.\nNOTE: If different score right vs left, the lower score is the overall score.\n\nINSTRUCTIONS:\n1. Begin on all 4's, slide one knee straight forward, other straight back.\n2. Both knees on ground. Legs straight forward & back, no crossing.\n3. Butt down over back heel as deep as possible.\n4. Elbows on ground touching lead knee on either side, hands in prayer.\n5. If front knee sensitive, place folded towel behind lead knee.\n6. Back foot flat, laces down.\n7. \"Freeze lower body & arms. Lift upper body from horizontal to vertical, and back down.\"\n8. 3 attempts per side or until perfect rep." },
+        { id:"bms_hh_score_right", label:"Bowing to Buddha Score — Right (0–3)", type:"scale", min:0, max:3 },
+        { id:"bms_hh_compensations", label:"Compensations observed", type:"textarea",
+          failNotes:"COMMON COMPENSATIONS:\n• Can't lift up: Inactive glutes (weakness or anterior pelvic tilt). Evaluate for structural anomalies or hip misalignment.\n• Poor depth: Tight quads limiting knee bend in lead leg starting position.\n• Stop in the middle: Sudden pause going up or down = instability.\n• Twisting on the way up or down: Sign of pelvic twist. Consider hip assessment.\n• Crashing down: Deficiency in descent control. Should be deliberate and controlled with gentle landing." },
+        { id:"bms_hh_notes", label:"Hip hinge notes", type:"textarea" },
+      ]},
+      { id:"bms_pushup", title:"5. Stiff Core Pushup — Push & Bend Pattern", fields:[
+        { id:"bms_pu_score", label:"Stiff Core Pushup Score (0–3)", type:"scale", min:0, max:3,
+          failNotes:"SCORING:\nMEN:\n• 3 Points: Body lifts as one unit, no rotation, no spine lag — thumbs aligned with TOP OF HEAD.\n• 2 Points: Same quality — thumbs aligned with BOTTOM OF JAW.\n• 1 Point: Unable to perform or keep torso rigid.\n• 0 Points: Pain ANYWHERE.\n\nWOMEN:\n• 3 Points: Body lifts as one unit, no rotation, no spine lag — thumbs aligned with BOTTOM OF JAW.\n• 2 Points: Same quality — thumbs aligned with COLLARBONE.\n• 1 Point: Unable to perform or keep torso rigid.\n• 0 Points: Pain ANYWHERE.\n\nINSTRUCTIONS:\n1. Lay face down, hands shoulder-width apart, thumbs in line with top of head (men) or jawline (women).\n2. \"Pull toes towards shins, keep knees and elbows lifted off ground.\"\n3. \"Push yourself all the way up and down, moving as one piece, keeping core stiff and straight like an ironing board.\"\n4. 3 reps or until perfect rep. No lag between upper/lower body elevation, no rotation." },
+        { id:"bms_pu_compensations", label:"Compensations observed", type:"textarea",
+          failNotes:"COMMON COMPENSATIONS:\n• Trunk sag: Poor trunk stability. Consistent core drills — planks, ab wheel rollouts, cable stiff arm pulldowns.\n• Can't push up: Compromised upper body strength. Start with wall pushups, knee pushups on bench, swiss ball pushups.\n• Rotation: Assess for imbalances in shoulder, core, or hips. Apply anti-rotation drills — opposite hand & knee floats, bird dogs, dead bugs.\n• Leads with head: Suboptimal movement strategy, upper crossed syndrome, or forward head posture. Apply posture drills. Demo: empty can test with good head position vs chin tucked down (weakened performance shows importance of neck alignment)." },
+        { id:"bms_pu_notes", label:"Pushup notes", type:"textarea" },
+      ]},
+      { id:"bms_total", title:"BMS-5 Total Score", fields:[
+        { id:"bms_total_score", label:"Total BMS-5 Score (sum of all 5 tests, 0–15)", type:"scale", min:0, max:15,
+          failNotes:"BMS-5 SCORING GRID — HOW DO YOU MEASURE UP?\n\nMALES:\n          Poor    Below Avg    Avg    Above Avg    Excellent\n18–39:    <10       11          12       13           14\n40–49:    <9        10          11       12           13\n50–59:    <8         9          10       11           12\n60+:      <7         8           9       10           11\n\nFEMALES:\n          Poor    Below Avg    Avg    Above Avg    Excellent\n18–39:    <11       12          13       14           15\n40–49:    <10       11          12       13           14\n50–59:    <9        10          11       12           13\n60+:      <8         9          10       11           12\n\nIMPROVEMENT GOAL:\nConsider applying specific stretch and exercise correctives from the Paddywhack, Revamp, or Sledge Corrective Protocols. Typical improvement rate: 1 point per month. Greater improvements are exceptional. Acknowledge that a plateau may be reached as we approach genetic and/or structural potential." },
+        { id:"bms_level", label:"Performance Level", type:"passfail", options:["Poor","Below Average","Average","Above Average","Excellent"] },
+        { id:"bms_total_notes", label:"Overall BMS-5 notes & recommendations", type:"textarea" },
+      ]},
+    ]
+  },
 }
 
 export const MAIN_ASSESSMENTS = [
@@ -353,4 +416,5 @@ export const MAIN_ASSESSMENTS = [
   ALL_ASSESSMENTS.shoulderSensitivity,
   ALL_ASSESSMENTS.speedy6,
   ALL_ASSESSMENTS.speedy7,
+  ALL_ASSESSMENTS.bms5,
 ]
