@@ -348,9 +348,9 @@ export const MAIN_ASSESSMENTS = [
   ALL_ASSESSMENTS.structural,
   ALL_ASSESSMENTS.neck,
   ALL_ASSESSMENTS.neckPosture,
-  ALL_ASSESSMENTS.neckSensitivity,
-  ALL_ASSESSMENTS.speedy6,
   ALL_ASSESSMENTS.shoulderPosture,
-  ALL_ASSESSMENTS.speedy7,
+  ALL_ASSESSMENTS.neckSensitivity,
   ALL_ASSESSMENTS.shoulderSensitivity,
+  ALL_ASSESSMENTS.speedy6,
+  ALL_ASSESSMENTS.speedy7,
 ]

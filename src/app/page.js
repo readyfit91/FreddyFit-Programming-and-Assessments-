@@ -662,9 +662,15 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
   }
 
   const FLOW = [
-    { phase: 'Phase 1 — Always First', color: C.teal, items: [ALL_ASSESSMENTS.hypermobility, ALL_ASSESSMENTS.prime8] },
-    { phase: 'Phase 2 — Ground Up Breakouts', color: C.orange, items: [ALL_ASSESSMENTS.foot, ALL_ASSESSMENTS.hip, ALL_ASSESSMENTS.knee, ALL_ASSESSMENTS.structural] },
-    { phase: 'Phase 3 — Neck & Shoulder', color: C.sky, items: [ALL_ASSESSMENTS.neck, ALL_ASSESSMENTS.neckPosture, ALL_ASSESSMENTS.neckSensitivity, ALL_ASSESSMENTS.speedy6, ALL_ASSESSMENTS.shoulderPosture, ALL_ASSESSMENTS.speedy7, ALL_ASSESSMENTS.shoulderSensitivity] },
+    { phase: 'Phase 1 — Always First', color: C.teal, items: [ALL_ASSESSMENTS.hypermobility] },
+    { phase: 'Phase 2 — Lower Body', color: C.accent, items: [ALL_ASSESSMENTS.prime8], subgroups: [
+      { label: 'Phase 2 Breakouts (if needed)', items: [ALL_ASSESSMENTS.foot, ALL_ASSESSMENTS.hip, ALL_ASSESSMENTS.knee, ALL_ASSESSMENTS.structural] },
+    ]},
+    { phase: 'Phase 3 — Upper Body', color: C.sky, items: [ALL_ASSESSMENTS.neck], subgroups: [
+      { label: 'Phase 3 Breakouts (if needed)', items: [ALL_ASSESSMENTS.neckPosture, ALL_ASSESSMENTS.shoulderPosture] },
+      { label: 'Phase 3 Pain Sensitivity (if needed)', items: [ALL_ASSESSMENTS.neckSensitivity, ALL_ASSESSMENTS.shoulderSensitivity] },
+    ]},
+    { phase: 'Phase 4 — Mobility for Movement', color: C.indigo, items: [ALL_ASSESSMENTS.speedy6, ALL_ASSESSMENTS.speedy7] },
   ]
 
   return (
@@ -697,11 +703,10 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
         </div>
       )}
 
-      {FLOW.map(group => (
-        <div key={group.phase} style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: group.color, textTransform: 'uppercase', marginBottom: 10 }}>{group.phase}</div>
+      {FLOW.map(group => {
+        const renderCards = (items) => (
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            {group.items.map(a => {
+            {items.map(a => {
               const done = assessmentsDone.includes(a.id)
               return (
                 <button key={a.id} onClick={() => onRunAssessment(a, client)} style={{ padding: '12px 16px', borderRadius: 12, border: `2px solid ${done ? a.color : C.border}`, background: done ? a.color + '12' : C.card, cursor: 'pointer', textAlign: 'left', minWidth: 160, flex: '1 1 160px', maxWidth: 220 }}>
@@ -713,8 +718,20 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
               )
             })}
           </div>
-        </div>
-      ))}
+        )
+        return (
+          <div key={group.phase} style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: group.color, textTransform: 'uppercase', marginBottom: 10 }}>{group.phase}</div>
+            {renderCards(group.items)}
+            {group.subgroups && group.subgroups.map(sub => (
+              <div key={sub.label} style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: C.sub, textTransform: 'uppercase', marginBottom: 8, paddingLeft: 4 }}>{sub.label}</div>
+                {renderCards(sub.items)}
+              </div>
+            ))}
+          </div>
+        )
+      })}
     </div>
   )
 }
