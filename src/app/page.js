@@ -113,11 +113,14 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
     const val = answers[f.id] || ''
     const base = { width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 13, color: C.text, outline: 'none', background: C.faint }
     if (f.type === 'textarea') return <textarea value={val} onChange={e => set(f.id, e.target.value)} rows={3} style={{ ...base, resize: 'vertical' }} placeholder={f.placeholder || ''} />
-    if (f.type === 'passfail') return (
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {f.options.map(o => <button key={o} onClick={() => set(f.id, o)} style={{ padding: '8px 16px', borderRadius: 7, border: `1.5px solid ${val === o ? C.accent : C.border}`, background: val === o ? C.accent + '20' : 'white', color: val === o ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>{o}</button>)}
-      </div>
-    )
+    if (f.type === 'passfail') {
+      if (assessment.id === 'prime8') return null
+      return (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {f.options.map(o => <button key={o} onClick={() => set(f.id, o)} style={{ padding: '8px 16px', borderRadius: 7, border: `1.5px solid ${val === o ? C.accent : C.border}`, background: val === o ? C.accent + '20' : 'white', color: val === o ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>{o}</button>)}
+        </div>
+      )
+    }
     if (f.type === 'scale') return (
       <div>
         <input type="range" min={f.min || 0} max={f.max || 10} value={val || f.min || 0} onChange={e => set(f.id, e.target.value)} style={{ width: '100%', accentColor: C.accent }} />
@@ -129,13 +132,66 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
 
   const renderRatingAndModifier = (f) => {
     if (f.type === 'textarea' || f.type === 'scale') return null
+    const isPrime8 = assessment.id === 'prime8'
+
+    // Special: Prime 8 Neck Rotation — finger widths instead of rating
+    if (isPrime8 && f.fingerWidths) {
+      const fwKey = `${f.id}_finger_widths`
+      const fw = answers[fwKey]
+      const isFW3 = fw === '3+'
+      return (
+        <div style={{ marginTop: 10, background: C.faint, borderRadius: 10, padding: '12px 14px', border: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>How Many Finger Widths?</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {['1','2','3+'].map(n => {
+              const isSelected = fw === n
+              const isFailOpt = n === '3+'
+              return (
+                <button key={n} onClick={() => {
+                  set(fwKey, n)
+                  set(f.id, n === '3+' ? 'Fail' : 'Pass')
+                }} style={{
+                  padding: '8px 24px', borderRadius: 7,
+                  border: `1.5px solid ${isSelected ? (isFailOpt ? C.red : C.green) : C.border}`,
+                  background: isSelected ? (isFailOpt ? C.red : C.green) : 'white',
+                  color: isSelected ? 'white' : isFailOpt ? C.red : C.green,
+                  fontFamily: 'Montserrat,sans-serif', fontWeight: 800, fontSize: 14,
+                  cursor: 'pointer'
+                }}>{n}</button>
+              )
+            })}
+          </div>
+          {fw && !isFW3 && (
+            <div style={{ marginTop: 8, fontSize: 11, fontWeight: 800, color: C.green }}>✓ PASS — {fw} finger width{fw !== '1' ? 's' : ''}</div>
+          )}
+          {isFW3 && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: C.red, marginBottom: 8 }}>✗ FAIL — 3+ finger widths</div>
+              <div style={{ padding: '10px 14px', background: C.red + '10', borderRadius: 8, border: `1px solid ${C.red}33`, fontSize: 12, color: C.red, fontWeight: 700 }}>
+                ⚠️ Perform Breakout Neck Assessment for further evaluation
+              </div>
+              {f.failNotes && (
+                <div style={{ marginTop: 8, background: C.orange + '08', border: `1px solid ${C.orange}22`, borderRadius: 10, padding: '12px 16px' }}>
+                  <div style={{ fontSize: 10, color: C.orange, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 What To Do Next</div>
+                  <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{f.failNotes}</pre>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )
+    }
+
     const ratingKey = `${f.id}_rating`
     const modKey = `${f.id}_modifier`
     const modConfirmedKey = `${f.id}_mod_confirmed`
+    const modRatingKey = `${f.id}_mod_rating`
     const rating = answers[ratingKey]
     const modifier = answers[modKey]
     const modConfirmed = answers[modConfirmedKey]
+    const modRating = answers[modRatingKey]
     const ratingNum = parseInt(rating)
+    const modRatingNum = parseInt(modRating)
     const isFail = rating && ratingNum <= 7
     const isPass = rating && ratingNum >= 8
     const ratingColor = !rating ? C.sub : isFail ? C.red : C.green
@@ -155,6 +211,16 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
                   set(ratingKey, n.toString())
                   set(modKey, '')
                   set(modConfirmedKey, '')
+                  set(modRatingKey, '')
+                  if (isPrime8) {
+                    if (n >= 8) {
+                      set(f.id, 'Pass')
+                    } else if (!f.modifiers || f.modifiers.length === 0) {
+                      set(f.id, 'Fail')
+                    } else {
+                      set(f.id, '')
+                    }
+                  }
                 }} style={{
                   width: 32, height: 32, borderRadius: 7,
                   border: `1.5px solid ${isSelected ? (btnFail ? C.red : C.green) : C.border}`,
@@ -183,13 +249,19 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
           </div>
         )}
 
-        {/* MODIFIER DROPDOWN — select which modifier helped */}
+        {/* MODIFIER DROPDOWN — select which modifier to attempt */}
         {isFail && f.modifiers && f.modifiers.length > 0 && (
           <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: modifier ? 12 : 0 }}>
             <div style={{ fontSize: 10, color: C.red, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Step 2 — Which modifier helped?</div>
             <select value={modifier || ''} onChange={e => {
               set(modKey, e.target.value)
               set(modConfirmedKey, '')
+              set(modRatingKey, '')
+              if (isPrime8 && e.target.value === 'No modifier helped') {
+                set(f.id, 'Fail')
+              } else if (isPrime8) {
+                set(f.id, '')
+              }
             }} style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${modifier ? C.accent : C.red + '66'}`, background: 'white', color: modifier ? C.text : C.sub, fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', cursor: 'pointer' }}>
               <option value="">— Select the modifier that helped —</option>
               {f.modifiers.map(m => <option key={m} value={m}>{m}</option>)}
@@ -197,8 +269,44 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
           </div>
         )}
 
-        {/* CONFIRM — did it work? (only if modifier selected and not "No modifier helped") */}
-        {isFail && modifier && modifier !== 'No modifier helped' && (
+        {/* PRIME 8: Re-rate after modifier attempt */}
+        {isPrime8 && isFail && modifier && modifier !== 'No modifier helped' && (
+          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
+            <div style={{ fontSize: 10, color: C.accent, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Step 3 — Re-rate after {modifier.split('→')[0].trim()}</div>
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              {[1,2,3,4,5,6,7,8,9,10].map(n => {
+                const isSelected = modRatingNum === n
+                const btnFail = n <= 7
+                return (
+                  <button key={n} onClick={() => {
+                    set(modRatingKey, n.toString())
+                    set(f.id, n >= 8 ? 'Pass' : '')
+                  }} style={{
+                    width: 32, height: 32, borderRadius: 7,
+                    border: `1.5px solid ${isSelected ? (btnFail ? C.red : C.green) : C.border}`,
+                    background: isSelected ? (btnFail ? C.red : C.green) : 'white',
+                    color: isSelected ? 'white' : btnFail ? C.red : C.green,
+                    fontFamily: 'Montserrat,sans-serif', fontWeight: 800, fontSize: 12,
+                    cursor: 'pointer'
+                  }}>{n}</button>
+                )
+              })}
+            </div>
+            {modRating && modRatingNum >= 8 && (
+              <div style={{ marginTop: 8, padding: '8px 12px', background: C.green + '12', borderRadius: 8, border: `1px solid ${C.green}44`, fontSize: 11, color: C.green, fontWeight: 700 }}>
+                ✓ PASS — {modifier} improved to {modRating}/10
+              </div>
+            )}
+            {modRating && modRatingNum <= 7 && (
+              <div style={{ marginTop: 8, padding: '8px 12px', background: C.orange + '12', borderRadius: 8, border: `1px solid ${C.orange}44`, fontSize: 11, color: C.orange, fontWeight: 700 }}>
+                Still {modRating}/10 — select a different modifier above ↑
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* NON-PRIME 8: Confirm — did it work? */}
+        {!isPrime8 && isFail && modifier && modifier !== 'No modifier helped' && (
           <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
             <div style={{ fontSize: 10, color: C.accent, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>Step 3 — Did <span style={{ color: C.accent }}>{modifier.split('→')[0].trim()}</span> improve the test?</div>
             <div style={{ display: 'flex', gap: 8 }}>
