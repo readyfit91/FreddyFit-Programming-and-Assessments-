@@ -263,7 +263,7 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
             <div key={f.id} style={{ marginBottom: 20, paddingBottom: 16, borderBottom: `1px solid ${C.faint}` }}>
               <label style={{ display: 'block', fontSize: 12, color: C.sub, marginBottom: 6, fontWeight: 600 }}>{f.label}</label>
               {renderField(f)}
-              {assessment.id !== 'bms5' && renderRatingAndModifier(f)}
+              {assessment.id !== 'bms5' && assessment.id !== 'hypermobility' && renderRatingAndModifier(f)}
               {f.type === 'scale' && f.failNotes && answers[f.id] && (
                 <div style={{ marginTop: 10, background: parseInt(answers[f.id]) >= 7 ? C.red + '08' : C.accent + '08', border: `1px solid ${parseInt(answers[f.id]) >= 7 ? C.red : C.accent}22`, borderRadius: 10, padding: '12px 16px' }}>
                   <div style={{ fontSize: 10, color: parseInt(answers[f.id]) >= 7 ? C.red : C.accent, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 Trainer Script</div>
