@@ -255,7 +255,11 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
       {assessment.sections.map(s => (
         <div key={s.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '20px 22px', marginBottom: 16 }}>
           <div style={{ fontWeight: 700, fontSize: 13, color: assessment.color, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 16 }}>{s.title}</div>
-          {s.fields.map(f => (
+          {s.fields.map(f => {
+            // Hide lying squat sub-questions when "Not needed" is selected
+            const lyingSubFields = ['bms_sq_lying_arms','bms_sq_lying_knees','bms_sq_lying_ankles','bms_sq_lying_result']
+            if (lyingSubFields.includes(f.id) && answers.bms_sq_lying !== 'Yes — performed') return null
+            return (
             <div key={f.id} style={{ marginBottom: 20, paddingBottom: 16, borderBottom: `1px solid ${C.faint}` }}>
               <label style={{ display: 'block', fontSize: 12, color: C.sub, marginBottom: 6, fontWeight: 600 }}>{f.label}</label>
               {renderField(f)}
@@ -263,7 +267,7 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
               {f.type === 'scale' && f.failNotes && answers[f.id] && (
                 <div style={{ marginTop: 10, background: parseInt(answers[f.id]) >= 7 ? C.red + '08' : C.accent + '08', border: `1px solid ${parseInt(answers[f.id]) >= 7 ? C.red : C.accent}22`, borderRadius: 10, padding: '12px 16px' }}>
                   <div style={{ fontSize: 10, color: parseInt(answers[f.id]) >= 7 ? C.red : C.accent, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 Trainer Script</div>
-                  <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{f.failNotes}</pre>
+                  <pre style={{ fontSize: 11, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: "'Courier New', Courier, monospace", margin: 0, overflowX: 'auto' }}>{f.failNotes}</pre>
                 </div>
               )}
               {f.type === 'textarea' && f.failNotes && (
@@ -273,7 +277,7 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
                 </div>
               )}
             </div>
-          ))}
+          )})}
         </div>
       ))}
 
