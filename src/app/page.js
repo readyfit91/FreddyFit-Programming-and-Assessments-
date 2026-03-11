@@ -58,6 +58,44 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
   const progress = Math.round((answered / allFields.length) * 100)
   const set = (id, val) => setAnswers(a => ({ ...a, [id]: val }))
 
+  // Auto-calculate BMS-5 performance level based on gender, age range, and total score
+  useEffect(() => {
+    if (assessment.id !== 'bms5') return
+    const gender = answers.bms_gender
+    const age = answers.bms_age_range
+    const score = parseInt(answers.bms_total_score)
+    if (!gender || !age || isNaN(score)) return
+
+    const grid = {
+      Male: {
+        '18–39': [10, 11, 12, 13, 14],
+        '40–49': [9, 10, 11, 12, 13],
+        '50–59': [8, 9, 10, 11, 12],
+        '60+':   [7, 8, 9, 10, 11],
+      },
+      Female: {
+        '18–39': [11, 12, 13, 14, 15],
+        '40–49': [10, 11, 12, 13, 14],
+        '50–59': [9, 10, 11, 12, 13],
+        '60+':   [8, 9, 10, 11, 12],
+      }
+    }
+    const levels = ['Poor', 'Below Average', 'Average', 'Above Average', 'Excellent']
+    const thresholds = grid[gender]?.[age]
+    if (!thresholds) return
+
+    let level = 'Poor'
+    if (score >= thresholds[4]) level = 'Excellent'
+    else if (score >= thresholds[3]) level = 'Above Average'
+    else if (score >= thresholds[2]) level = 'Average'
+    else if (score >= thresholds[1]) level = 'Below Average'
+    else level = 'Poor'
+
+    if (answers.bms_level !== level) {
+      setAnswers(a => ({ ...a, bms_level: level }))
+    }
+  }, [assessment.id, answers.bms_gender, answers.bms_age_range, answers.bms_total_score])
+
   const saveAssessmentData = async () => {
     setSaving(true)
     try {
@@ -221,7 +259,7 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
             <div key={f.id} style={{ marginBottom: 20, paddingBottom: 16, borderBottom: `1px solid ${C.faint}` }}>
               <label style={{ display: 'block', fontSize: 12, color: C.sub, marginBottom: 6, fontWeight: 600 }}>{f.label}</label>
               {renderField(f)}
-              {renderRatingAndModifier(f)}
+              {assessment.id !== 'bms5' && renderRatingAndModifier(f)}
               {f.type === 'scale' && f.failNotes && answers[f.id] && (
                 <div style={{ marginTop: 10, background: parseInt(answers[f.id]) >= 7 ? C.red + '08' : C.accent + '08', border: `1px solid ${parseInt(answers[f.id]) >= 7 ? C.red : C.accent}22`, borderRadius: 10, padding: '12px 16px' }}>
                   <div style={{ fontSize: 10, color: parseInt(answers[f.id]) >= 7 ? C.red : C.accent, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 Trainer Script</div>
