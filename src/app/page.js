@@ -671,7 +671,7 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
       { label: 'Phase 3 Pain Sensitivity (if needed)', items: [ALL_ASSESSMENTS.neckSensitivity, ALL_ASSESSMENTS.shoulderSensitivity] },
     ]},
     { phase: 'Phase 4 — Mobility for Movement', color: C.indigo, items: [ALL_ASSESSMENTS.speedy6, ALL_ASSESSMENTS.speedy7] },
-    { phase: 'Phase 5 — Performing & Ready to Function', color: C.green, items: [ALL_ASSESSMENTS.bms5] },
+    { phase: 'Phase 5 — Performing & Ready to Function', color: C.green, items: [ALL_ASSESSMENTS.bms5], requires: ['hypermobility', 'prime8'] },
   ]
 
   return (
@@ -705,16 +705,18 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
       )}
 
       {FLOW.map(group => {
+        const locked = group.requires && !group.requires.every(id => assessmentsDone.includes(id))
         const renderCards = (items) => (
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             {items.map(a => {
               const done = assessmentsDone.includes(a.id)
               return (
-                <button key={a.id} onClick={() => onRunAssessment(a, client)} style={{ padding: '12px 16px', borderRadius: 12, border: `2px solid ${done ? a.color : C.border}`, background: done ? a.color + '12' : C.card, cursor: 'pointer', textAlign: 'left', minWidth: 160, flex: '1 1 160px', maxWidth: 220 }}>
+                <button key={a.id} onClick={() => !locked && onRunAssessment(a, client)} style={{ padding: '12px 16px', borderRadius: 12, border: `2px solid ${done ? a.color : C.border}`, background: done ? a.color + '12' : C.card, cursor: locked ? 'not-allowed' : 'pointer', textAlign: 'left', minWidth: 160, flex: '1 1 160px', maxWidth: 220, opacity: locked ? 0.45 : 1 }}>
                   <div style={{ fontSize: 18, marginBottom: 4 }}>{a.icon}</div>
                   <div style={{ fontSize: 12, fontWeight: 700, color: done ? a.color : C.text, marginBottom: 2 }}>{a.name}</div>
                   {done && <div style={{ fontSize: 10, color: a.color, fontWeight: 600 }}>✓ Completed</div>}
-                  {!done && <div style={{ fontSize: 10, color: C.sub }}>Tap to start</div>}
+                  {!done && !locked && <div style={{ fontSize: 10, color: C.sub }}>Tap to start</div>}
+                  {locked && <div style={{ fontSize: 10, color: C.sub }}>🔒 Complete Phase 1 & 2 first</div>}
                 </button>
               )
             })}
@@ -722,9 +724,9 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
         )
         return (
           <div key={group.phase} style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: group.color, textTransform: 'uppercase', marginBottom: 10 }}>{group.phase}</div>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: group.color, textTransform: 'uppercase', marginBottom: 10 }}>{group.phase}{locked && <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: 1, marginLeft: 8, color: C.sub }}>🔒 LOCKED</span>}</div>
             {renderCards(group.items)}
-            {group.subgroups && group.subgroups.map(sub => (
+            {!locked && group.subgroups && group.subgroups.map(sub => (
               <div key={sub.label} style={{ marginTop: 12 }}>
                 <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: C.sub, textTransform: 'uppercase', marginBottom: 8, paddingLeft: 4 }}>{sub.label}</div>
                 {renderCards(sub.items)}
