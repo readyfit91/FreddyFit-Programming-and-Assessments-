@@ -106,56 +106,60 @@ export const FIELD_MODIFIERS = {
     'Soleus stretch (bent-knee wall lean)',
     'No modifier worked',
   ],
-  p8_hip_swing: [
+  p8_hip_swing_right: [
     'Hip flexor release (half-kneeling stretch)',
     'Glute activation (bridge with band)',
     'Adductor rock-back mobilisation',
     'Core bracing drill (dead bug)',
     'No modifier worked',
   ],
-  p8_hip_swing_side: [
-    'Targeted mobilisation on restricted side',
-    'Unilateral glute activation on weaker side',
-    'Cross-body adductor stretch',
+  p8_hip_swing_left: [
+    'Hip flexor release (half-kneeling stretch)',
+    'Glute activation (bridge with band)',
+    'Adductor rock-back mobilisation',
+    'Core bracing drill (dead bug)',
     'No modifier worked',
   ],
-  p8_kneecap: [
+  p8_kneecap_right: [
     'VMO activation (terminal knee extension)',
     'Patella mobilisation (lateral glide)',
     'Quad foam roll above kneecap',
     'Step-down eccentric loading',
     'No modifier worked',
   ],
-  p8_kneecap_side: [
-    'Unilateral VMO drill on affected side',
-    'Patella taping (McConnell tape)',
-    'ITB foam roll on affected side',
+  p8_kneecap_left: [
+    'VMO activation (terminal knee extension)',
+    'Patella mobilisation (lateral glide)',
+    'Quad foam roll above kneecap',
+    'Step-down eccentric loading',
     'No modifier worked',
   ],
-  p8_empty_can: [
+  p8_empty_can_right: [
     'Rotator cuff warm-up (band external rotation)',
     'Scapular setting drill (wall slides)',
     'Reduce load and retest',
     'King Atlas neck position reset then retest',
     'No modifier worked',
   ],
-  p8_empty_can_side: [
-    'Targeted rotator cuff activation on affected side',
-    'Scapula retraction + depression cue',
-    'Thoracic extension mobilisation',
+  p8_empty_can_left: [
+    'Rotator cuff warm-up (band external rotation)',
+    'Scapular setting drill (wall slides)',
+    'Reduce load and retest',
+    'King Atlas neck position reset then retest',
     'No modifier worked',
   ],
-  p8_neck_rotation: [
+  p8_neck_rotation_right: [
     'Cervical SNAG mobilisation (if trained)',
     'Upper trap release (pressure point)',
     'Levator scapulae stretch',
     'Chin tuck + rotate retest',
     'No modifier worked',
   ],
-  p8_neck_side: [
-    'Targeted upper trap release on restricted side',
-    'SCM stretch on restricted side',
-    'Scalene release on restricted side',
+  p8_neck_rotation_left: [
+    'Cervical SNAG mobilisation (if trained)',
+    'Upper trap release (pressure point)',
+    'Levator scapulae stretch',
+    'Chin tuck + rotate retest',
     'No modifier worked',
   ],
 
