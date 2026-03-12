@@ -367,17 +367,41 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
             // Hide lying squat sub-questions when "Not needed" is selected
             const lyingSubFields = ['bms_sq_lying_arms','bms_sq_lying_knees','bms_sq_lying_ankles','bms_sq_lying_result']
             if (lyingSubFields.includes(f.id) && answers.bms_sq_lying !== 'Yes — performed') return null
-            // Hide "what stops you" fields until their parent cm field is a fail (< threshold)
+            // Hide conditional fields until their parent meets criteria
             if (f.showWhenFail) {
               const parentVal = parseFloat(answers[f.showWhenFail])
               const parentField = s.fields.find(p => p.id === f.showWhenFail)
-              if (!parentVal || !parentField?.autoPassThreshold || parentVal >= parentField.autoPassThreshold) return null
+              // Balance fault fields: show when age is entered
+              if (f.balanceSide) {
+                if (!parentVal || isNaN(parentVal)) return null
+              }
+              // Dorsiflexion limiting factor: show when cm < threshold
+              else if (!parentVal || !parentField?.autoPassThreshold || parentVal >= parentField.autoPassThreshold) return null
             }
             return (
             <div key={f.id} style={{ marginBottom: 20, paddingBottom: 16, borderBottom: `1px solid ${C.faint}` }}>
               <label style={{ display: 'block', fontSize: 12, color: C.sub, marginBottom: 6, fontWeight: 600 }}>{f.label}</label>
               {renderField(f)}
               {assessment.id !== 'bms5' && assessment.id !== 'hypermobility' && assessment.id !== 'foot' && renderRatingAndModifier(f)}
+              {f.balanceAge && answers[f.id] && !isNaN(parseInt(answers[f.id])) && (() => {
+                const age = parseInt(answers[f.id])
+                const ageGroups = [
+                  { range: '20-49', min: 20, max: 49, allowed: 2 },
+                  { range: '50-59', min: 50, max: 59, allowed: 3 },
+                  { range: '60-69', min: 60, max: 69, allowed: 6 },
+                  { range: '70-79', min: 70, max: 79, allowed: 12 },
+                ]
+                const group = ageGroups.find(g => age >= g.min && age <= g.max)
+                return group ? (
+                  <div style={{ marginTop: 8, padding: '8px 12px', background: C.accent + '10', borderRadius: 8, border: `1px solid ${C.accent}33` }}>
+                    <div style={{ fontSize: 11, color: C.accent, fontWeight: 700 }}>Age group: {group.range} — allowed ≤ {group.allowed} faults per leg</div>
+                    <div style={{ fontSize: 10, color: C.sub, marginTop: 4 }}>Stand in sock/bare feet, arms crossed over opposite shoulders. Eyes closed. Standing leg straight. 60 seconds per leg.</div>
+                    <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>Faults: touch floor, move standing foot, big torso side bend, open eyes, or 5+ seconds to reset.</div>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 8, fontSize: 11, color: C.sub }}>Age {age} — norms available for ages 20-79</div>
+                )
+              })()}
               {f.autoPassThreshold && answers[f.id] && !isNaN(parseFloat(answers[f.id])) && (() => {
                 const val = parseFloat(answers[f.id])
                 const isPass = val >= f.autoPassThreshold
@@ -390,6 +414,44 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
                       <div style={{ marginTop: 10, background: C.orange + '08', border: `1px solid ${C.orange}22`, borderRadius: 10, padding: '12px 16px' }}>
                         <div style={{ fontSize: 10, color: C.orange, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 What To Do Next</div>
                         <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{f.failNotes}</pre>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+              {f.balanceSide && answers[f.id] && !isNaN(parseInt(answers[f.id])) && answers.f_balance_age && !isNaN(parseInt(answers.f_balance_age)) && (() => {
+                const faults = parseInt(answers[f.id])
+                const age = parseInt(answers.f_balance_age)
+                const ageGroups = [
+                  { range: '20-49', min: 20, max: 49, allowed: 2 },
+                  { range: '50-59', min: 50, max: 59, allowed: 3 },
+                  { range: '60-69', min: 60, max: 69, allowed: 6 },
+                  { range: '70-79', min: 70, max: 79, allowed: 12 },
+                ]
+                const clientGroup = ageGroups.find(g => age >= g.min && age <= g.max)
+                const allowed = clientGroup ? clientGroup.allowed : (age < 20 ? 2 : 12)
+                const isPass = faults <= allowed
+                // Which age group does their performance match?
+                let performanceGroup = null
+                if (faults <= 2) performanceGroup = '20-49 year olds (≤ 2 faults)'
+                else if (faults <= 3) performanceGroup = '50-59 year olds (≤ 3 faults)'
+                else if (faults <= 6) performanceGroup = '60-69 year olds (≤ 6 faults)'
+                else if (faults <= 12) performanceGroup = '70-79 year olds (≤ 12 faults)'
+                else performanceGroup = 'Below 70-79 norms (> 12 faults)'
+                return (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: isPass ? C.green : C.red }}>
+                      {isPass
+                        ? `✓ Pass — ${faults} fault${faults !== 1 ? 's' : ''} (allowed ≤ ${allowed} for age ${clientGroup ? clientGroup.range : age})`
+                        : `✗ Fail — ${faults} fault${faults !== 1 ? 's' : ''} (allowed ≤ ${allowed} for age ${clientGroup ? clientGroup.range : age})`}
+                    </div>
+                    <div style={{ marginTop: 6, fontSize: 11, color: C.sub, fontWeight: 600 }}>
+                      Performance level: <span style={{ color: isPass ? C.green : C.orange }}>{performanceGroup}</span>
+                    </div>
+                    {!isPass && (
+                      <div style={{ marginTop: 10, background: C.orange + '08', border: `1px solid ${C.orange}22`, borderRadius: 10, padding: '12px 16px' }}>
+                        <div style={{ fontSize: 10, color: C.orange, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 What To Do Next</div>
+                        <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{"SOLUTIONS:\n1. Single legged balance exercises.\n2. More time in sock (or bare) feet.\n3. Daily application of peppermint oil on bottoms of feet.\n\nNote: Inability to balance on one leg for 20+ seconds could signal brain damage in otherwise healthy individuals (BMJ study — associated with all cause mortality rates)."}</pre>
                       </div>
                     )}
                   </div>
