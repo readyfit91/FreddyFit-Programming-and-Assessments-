@@ -371,7 +371,13 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
             <div key={f.id} style={{ marginBottom: 20, paddingBottom: 16, borderBottom: `1px solid ${C.faint}` }}>
               <label style={{ display: 'block', fontSize: 12, color: C.sub, marginBottom: 6, fontWeight: 600 }}>{f.label}</label>
               {renderField(f)}
-              {assessment.id !== 'bms5' && assessment.id !== 'hypermobility' && renderRatingAndModifier(f)}
+              {assessment.id !== 'bms5' && assessment.id !== 'hypermobility' && assessment.id !== 'foot' && renderRatingAndModifier(f)}
+              {assessment.id === 'foot' && f.type === 'passfail' && f.failNotes && answers[f.id] && answers[f.id] !== f.options[0] && (
+                <div style={{ marginTop: 10, background: C.orange + '08', border: `1px solid ${C.orange}22`, borderRadius: 10, padding: '12px 16px' }}>
+                  <div style={{ fontSize: 10, color: C.orange, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 What To Do Next</div>
+                  <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{f.failNotes}</pre>
+                </div>
+              )}
               {f.type === 'scale' && f.failNotes && answers[f.id] && (
                 <div style={{ marginTop: 10, background: parseInt(answers[f.id]) >= 7 ? C.red + '08' : C.accent + '08', border: `1px solid ${parseInt(answers[f.id]) >= 7 ? C.red : C.accent}22`, borderRadius: 10, padding: '12px 16px' }}>
                   <div style={{ fontSize: 10, color: parseInt(answers[f.id]) >= 7 ? C.red : C.accent, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 Trainer Script</div>
