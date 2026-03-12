@@ -367,11 +367,34 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
             // Hide lying squat sub-questions when "Not needed" is selected
             const lyingSubFields = ['bms_sq_lying_arms','bms_sq_lying_knees','bms_sq_lying_ankles','bms_sq_lying_result']
             if (lyingSubFields.includes(f.id) && answers.bms_sq_lying !== 'Yes — performed') return null
+            // Hide "what stops you" fields until their parent cm field is a fail (< threshold)
+            if (f.showWhenFail) {
+              const parentVal = parseFloat(answers[f.showWhenFail])
+              const parentField = s.fields.find(p => p.id === f.showWhenFail)
+              if (!parentVal || !parentField?.autoPassThreshold || parentVal >= parentField.autoPassThreshold) return null
+            }
             return (
             <div key={f.id} style={{ marginBottom: 20, paddingBottom: 16, borderBottom: `1px solid ${C.faint}` }}>
               <label style={{ display: 'block', fontSize: 12, color: C.sub, marginBottom: 6, fontWeight: 600 }}>{f.label}</label>
               {renderField(f)}
               {assessment.id !== 'bms5' && assessment.id !== 'hypermobility' && assessment.id !== 'foot' && renderRatingAndModifier(f)}
+              {f.autoPassThreshold && answers[f.id] && !isNaN(parseFloat(answers[f.id])) && (() => {
+                const val = parseFloat(answers[f.id])
+                const isPass = val >= f.autoPassThreshold
+                return (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: isPass ? C.green : C.red }}>
+                      {isPass ? `✓ Pass — ${val}cm (≥ ${f.autoPassThreshold}cm)` : `✗ Fail — ${val}cm (below ${f.autoPassThreshold}cm)`}
+                    </div>
+                    {!isPass && f.failNotes && (
+                      <div style={{ marginTop: 10, background: C.orange + '08', border: `1px solid ${C.orange}22`, borderRadius: 10, padding: '12px 16px' }}>
+                        <div style={{ fontSize: 10, color: C.orange, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 What To Do Next</div>
+                        <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{f.failNotes}</pre>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
               {assessment.id === 'foot' && f.type === 'passfail' && f.failNotes && answers[f.id] && answers[f.id] !== f.options[0] && (
                 <div style={{ marginTop: 10, background: C.orange + '08', border: `1px solid ${C.orange}22`, borderRadius: 10, padding: '12px 16px' }}>
                   <div style={{ fontSize: 10, color: C.orange, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 What To Do Next</div>
