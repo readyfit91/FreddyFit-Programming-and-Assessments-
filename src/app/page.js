@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
+import { FIELD_MODIFIERS } from '../lib/modifiers'
 
 const makeId = () => Math.random().toString(36).slice(2,10)
 
@@ -885,8 +886,235 @@ function ProgramBuilder({ client, onBack, onSave }) {
   )
 }
 
+// ── PROTOCOL ADVISOR ─────────────────────────────────────────────────────────
+function ProtocolAdvisor({ client, onBack }) {
+  const [analysis, setAnalysis] = useState('')
+  const [generating, setGenerating] = useState(false)
+  const [error, setError] = useState('')
+
+  // Extract all failures from completed assessments
+  const getFindings = () => {
+    const findings = []
+    Object.entries(client.assessments || {}).forEach(([assessmentId, data]) => {
+      const a = ALL_ASSESSMENTS[assessmentId]
+      if (!a) return
+      const fields = a.sections.flatMap(s => s.fields)
+      fields.forEach(f => {
+        // Prime 8 style: rating-based failures
+        const ratingKey = `${f.id}_rating`
+        const modKey = `${f.id}_modifier`
+        const modConfirmedKey = `${f.id}_mod_confirmed`
+        const rating = data[ratingKey]
+        const modifier = data[modKey]
+        const modConfirmed = data[modConfirmedKey]
+
+        if (rating && parseInt(rating) <= 7) {
+          findings.push({
+            assessment: a.name,
+            test: f.label,
+            rating: parseInt(rating),
+            modifier: modifier || null,
+            modifierWorked: modConfirmed === 'yes' ? true : modConfirmed === 'no' ? false : null,
+            failNotes: f.failNotes || null,
+            fieldId: f.id,
+          })
+          return
+        }
+
+        // Pass/fail style failures
+        const val = data[f.id]
+        if (f.type === 'passfail' && val && val !== 'Pass' && val !== 'No change' && val !== '') {
+          const isFail = val === 'Fail' || val.startsWith('Fail') || val.includes('Yes')
+          if (isFail) {
+            findings.push({
+              assessment: a.name,
+              test: f.label,
+              rating: null,
+              result: val,
+              modifier: modifier || null,
+              modifierWorked: modConfirmed === 'yes' ? true : modConfirmed === 'no' ? false : null,
+              failNotes: f.failNotes || null,
+              fieldId: f.id,
+            })
+          }
+        }
+
+        // Finger widths (neck rotation)
+        const fwKey = `${f.id}_finger_widths`
+        if (data[fwKey] === '3+') {
+          findings.push({
+            assessment: a.name,
+            test: f.label,
+            rating: null,
+            result: '3+ finger widths (FAIL)',
+            failNotes: f.failNotes || null,
+            fieldId: f.id,
+          })
+        }
+      })
+    })
+    return findings
+  }
+
+  const findings = getFindings()
+
+  const analyze = async () => {
+    if (findings.length === 0) { setError('No failed tests found in assessments.'); return }
+    setGenerating(true); setError(''); setAnalysis('')
+
+    const findingsText = findings.map((f, i) => {
+      let line = `${i + 1}. [${f.assessment}] ${f.test}`
+      if (f.rating !== null && f.rating !== undefined) line += ` — Rating: ${f.rating}/10`
+      if (f.result) line += ` — Result: ${f.result}`
+      if (f.modifier) line += ` | Modifier tried: "${f.modifier}" → ${f.modifierWorked === true ? 'WORKED' : f.modifierWorked === false ? 'DID NOT WORK' : 'Not confirmed'}`
+      if (f.failNotes) line += `\n   Protocol notes: ${f.failNotes.split('\n').slice(0, 3).join(' | ')}`
+      return line
+    }).join('\n')
+
+    try {
+      const text = await callClaude([{ role: 'user', content: `You are an expert corrective exercise specialist and personal trainer working with the FreddyFit assessment system.
+
+A client has completed their assessments. Below are ALL the failed tests and their associated corrective protocol notes.
+
+CLIENT: ${client.name}
+GOAL: ${client.goal || 'Not specified'}
+
+═══ FAILED TESTS & PROTOCOL NOTES ═══
+${findingsText}
+
+═══ YOUR TASK ═══
+Analyze ALL findings and produce a PRIORITIZED corrective protocol action plan. Group related failures together where they share a root cause.
+
+FORMAT YOUR RESPONSE EXACTLY LIKE THIS:
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CORRECTIVE PROTOCOL ACTION PLAN
+Client: ${client.name}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+QUICK SUMMARY
+(2-3 sentences: What are the main patterns? What's the biggest concern?)
+
+───────────────────────────────────
+🔴 URGENT — Address First
+───────────────────────────────────
+(Protocols that involve pain, sensitivity, structural concerns, or tests where NO modifier worked. These need attention before progressing.)
+
+For each protocol:
+  PROTOCOL: [Protocol Name]
+  WHY URGENT: [Brief reason — pain, structural, nerve involvement, etc.]
+  BASED ON: [Which failed test(s) — include ratings]
+  ACTION: [What to do — specific corrective exercises, sets x reps, or referral]
+  SEND TO APP: [Name of the corrective protocol to build in the workout app]
+
+───────────────────────────────────
+🟡 IMPORTANT — Address in Weeks 1-4
+───────────────────────────────────
+(Protocols where a modifier DID work, or functional failures that affect training safety.)
+
+Same format as above.
+
+───────────────────────────────────
+🟢 MAINTENANCE — Ongoing Correctives
+───────────────────────────────────
+(Lower-priority items, minor asymmetries, or things to monitor over time.)
+
+Same format as above.
+
+───────────────────────────────────
+⚠️ FLAGS & REFERRALS
+───────────────────────────────────
+(Anything that needs medical referral, imaging, or specialist attention. Include "No modifier worked" items.)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PROTOCOL CHECKLIST (for workout app)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(Numbered list of all corrective protocols to create in the workout app, in priority order. Just the protocol names.)
+
+IMPORTANT:
+- Only reference protocols mentioned in the assessment notes (DUCK PROTOCOL, PIGEON PROTOCOL, CALFZILLA, LE BUTTE, NECK SAVVY, LEONARDO DA NECKY, NECK MATE, KING ATLAS, HIP HIP HOORAY, PELVIS PRESLEY, BEES KNEES, SHOULDER SAVIOR, SHOULDER STORY, SHOULDER SUPERIOR, THORACIC PARK, ROTATOR CUP, BREAKTHROUGH, WING NUT, SUPER SHOULDER DOWN, EDGAR ALLAN ELBOW, etc.)
+- Do NOT invent protocols that aren't in the data
+- If a modifier was confirmed working, that tells you which protocol to use
+- If no modifier worked, flag it as needing deeper investigation
+- Be specific about which side (Left/Right) when applicable` }], 4000)
+      setAnalysis(text)
+    } catch (e) { setError('Error: ' + e.message) }
+    setGenerating(false)
+  }
+
+  const printAnalysis = () => window.print()
+
+  return (
+    <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 24px 32px' }}>
+      <LogoHeader />
+      <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 24 }}>← Back to Client</button>
+      <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 3, color: C.text, marginBottom: 4 }}>{client.name}</div>
+      <div style={{ fontSize: 12, color: C.sub, marginBottom: 24 }}>Protocol Advisor · {Object.keys(client.assessments || {}).length} assessments on file</div>
+
+      {/* Findings summary */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '22px 24px', marginBottom: 20 }}>
+        <div style={{ fontSize: 10, color: C.sub, letterSpacing: 2, textTransform: 'uppercase', fontWeight: 700, marginBottom: 12 }}>Assessment Findings</div>
+        {findings.length === 0 ? (
+          <div style={{ fontSize: 13, color: C.sub, padding: '20px 0', textAlign: 'center' }}>No failed tests found. All assessments are passing.</div>
+        ) : (
+          <>
+            <div style={{ fontSize: 13, color: C.text, marginBottom: 14, fontWeight: 600 }}>{findings.length} failed test{findings.length !== 1 ? 's' : ''} found across {Object.keys(client.assessments || {}).length} assessment{Object.keys(client.assessments || {}).length !== 1 ? 's' : ''}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 300, overflowY: 'auto' }}>
+              {findings.map((f, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: C.faint, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                  <div style={{ minWidth: 44, textAlign: 'center' }}>
+                    {f.rating !== null && f.rating !== undefined ? (
+                      <span style={{ fontWeight: 800, fontSize: 16, color: f.rating <= 4 ? C.red : C.orange }}>{f.rating}</span>
+                    ) : (
+                      <span style={{ fontWeight: 800, fontSize: 12, color: C.red }}>FAIL</span>
+                    )}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.test}</div>
+                    <div style={{ fontSize: 10, color: C.sub }}>{f.assessment}{f.modifier ? ` · Modifier: ${f.modifier}` : ''}{f.modifierWorked === true ? ' ✓' : f.modifierWorked === false ? ' ✗' : ''}</div>
+                  </div>
+                  {f.modifierWorked === false && <span style={{ fontSize: 9, background: C.red + '15', color: C.red, borderRadius: 10, padding: '2px 8px', fontWeight: 700, whiteSpace: 'nowrap' }}>No fix</span>}
+                  {f.modifierWorked === true && <span style={{ fontSize: 9, background: C.green + '15', color: C.green, borderRadius: 10, padding: '2px 8px', fontWeight: 700, whiteSpace: 'nowrap' }}>Fixed</span>}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Generate button */}
+      {findings.length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, padding: '0 4px' }}>
+          <div style={{ fontSize: 11, color: C.sub }}>Analyzes all failures, groups root causes, and ranks corrective protocols by urgency</div>
+          <Btn onClick={analyze} disabled={generating}>{generating ? '⏳ Analyzing...' : '⚡ Analyze & Prioritize'}</Btn>
+        </div>
+      )}
+
+      {error && <div style={{ background: C.red + '12', border: `1px solid ${C.red}44`, borderRadius: 10, padding: '12px 16px', fontSize: 13, color: C.red, marginBottom: 16 }}>{error}</div>}
+      {generating && <><Spinner /><div style={{ textAlign: 'center', fontSize: 12, color: C.sub, marginTop: 4 }}>Analyzing assessment findings and prioritizing protocols...</div></>}
+
+      {analysis && (
+        <div style={{ background: C.card, border: `2px solid ${C.orange}44`, borderRadius: 14, overflow: 'hidden' }}>
+          <div style={{ background: `linear-gradient(135deg,${C.orange}18,${C.orange}08)`, borderBottom: `1px solid ${C.orange}33`, padding: '16px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 14, letterSpacing: 2, color: C.orange }}>CORRECTIVE PROTOCOL ACTION PLAN</div>
+              <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>{client.name} · Generated {new Date().toLocaleDateString()}</div>
+            </div>
+            <Btn onClick={printAnalysis} small>🖨 Print / PDF</Btn>
+          </div>
+          <div style={{ padding: 24 }}>
+            <pre style={{ fontSize: 12, lineHeight: 2, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{analysis}</pre>
+          </div>
+        </div>
+      )}
+
+      <style>{`@media print { .no-print { display: none !important; } }`}</style>
+    </div>
+  )
+}
+
 // ── CLIENT PROFILE ────────────────────────────────────────────────────────────
-function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onBack }) {
+function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onBack }) {
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState({ name: client.name, goal: client.goal || '', dob: client.dob || '', equipment: client.equipment || '', trainerNotes: client.trainerNotes || '' })
   const [saving, setSaving] = useState(false)
@@ -926,6 +1154,7 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
           {client.goal && <div style={{ fontSize: 13, color: C.sub, marginTop: 4 }}>Goal: {client.goal}</div>}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Btn onClick={() => onProtocolAdvisor(client)} small color={C.orange}>🩺 Protocols</Btn>
           <Btn onClick={() => onGenerateWorkout(client)} small>💪 Workout</Btn>
           <Btn onClick={() => onBuildProgram(client)} small>📋 Program</Btn>
           <Btn onClick={() => setEditing(!editing)} outline small color={C.sub}>{editing ? 'Cancel' : '✏️ Edit'}</Btn>
@@ -1164,7 +1393,7 @@ export default function App() {
         </button>
         {client && view !== 'roster' && (
           <div style={{ fontSize: 12, color: C.sub }}>
-            {view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : client.name}
+            {view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : client.name}
           </div>
         )}
       </div>
@@ -1179,6 +1408,7 @@ export default function App() {
             onRunAssessment={runAssessment}
             onBuildProgram={c => { setClient(c); setView('program') }}
             onGenerateWorkout={c => { setClient(c); setView('workout') }}
+            onProtocolAdvisor={c => { setClient(c); setView('protocols') }}
             onBack={() => setView('roster')}
           />
         )}
@@ -1199,6 +1429,12 @@ export default function App() {
         )}
         {view === 'workout' && client && (
           <WorkoutGenerator
+            client={client}
+            onBack={() => setView('client')}
+          />
+        )}
+        {view === 'protocols' && client && (
+          <ProtocolAdvisor
             client={client}
             onBack={() => setView('client')}
           />
