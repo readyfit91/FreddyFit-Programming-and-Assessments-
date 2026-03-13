@@ -904,17 +904,28 @@ function ProtocolAdvisor({ client, onBack }) {
         const ratingKey = `${f.id}_rating`
         const modKey = `${f.id}_modifier`
         const modConfirmedKey = `${f.id}_mod_confirmed`
+        const modRatingKey = `${f.id}_mod_rating`
         const rating = data[ratingKey]
         const modifier = data[modKey]
         const modConfirmed = data[modConfirmedKey]
+        const modRating = data[modRatingKey]
+
+        // Determine if modifier worked: check explicit yes/no confirmation first,
+        // then check re-rating (Prime 8 style: re-rate >=8 means it worked)
+        let modifierWorked = null
+        if (modConfirmed === 'yes') modifierWorked = true
+        else if (modConfirmed === 'no') modifierWorked = false
+        else if (modRating) modifierWorked = parseInt(modRating) >= 8
+        else if (modifier === 'No modifier helped') modifierWorked = false
 
         if (rating && parseInt(rating) <= 7) {
           findings.push({
             assessment: a.name,
             test: f.label,
             rating: parseInt(rating),
+            modRating: modRating ? parseInt(modRating) : null,
             modifier: modifier || null,
-            modifierWorked: modConfirmed === 'yes' ? true : modConfirmed === 'no' ? false : null,
+            modifierWorked,
             failNotes: f.failNotes || null,
             fieldId: f.id,
           })
@@ -932,7 +943,7 @@ function ProtocolAdvisor({ client, onBack }) {
               rating: null,
               result: val,
               modifier: modifier || null,
-              modifierWorked: modConfirmed === 'yes' ? true : modConfirmed === 'no' ? false : null,
+              modifierWorked,
               failNotes: f.failNotes || null,
               fieldId: f.id,
             })
@@ -966,7 +977,11 @@ function ProtocolAdvisor({ client, onBack }) {
       let line = `${i + 1}. [${f.assessment}] ${f.test}`
       if (f.rating !== null && f.rating !== undefined) line += ` — Rating: ${f.rating}/10`
       if (f.result) line += ` — Result: ${f.result}`
-      if (f.modifier) line += ` | Modifier tried: "${f.modifier}" → ${f.modifierWorked === true ? 'WORKED' : f.modifierWorked === false ? 'DID NOT WORK' : 'Not confirmed'}`
+      if (f.modifier) {
+        let modStatus = f.modifierWorked === true ? 'WORKED' : f.modifierWorked === false ? 'DID NOT WORK' : 'Not yet tested'
+        if (f.modRating) modStatus += ` (re-rated to ${f.modRating}/10)`
+        line += ` | Modifier tried: "${f.modifier}" → ${modStatus}`
+      }
       if (f.failNotes) line += `\n   Protocol notes: ${f.failNotes.split('\n').slice(0, 3).join(' | ')}`
       return line
     }).join('\n')
