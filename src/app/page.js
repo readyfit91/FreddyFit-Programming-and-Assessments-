@@ -869,37 +869,82 @@ function ProgramBuilder({ client, onBack, onSave }) {
 
 // ── CLIENT INTAKE FORM ───────────────────────────────────────────────────────
 function ClientIntakeForm({ existingClient, onSave, onBack }) {
+  // Parse existing intake data from trainerNotes JSON if editing
+  const existingIntake = (() => {
+    if (!existingClient?.trainerNotes) return {}
+    try { return JSON.parse(existingClient.trainerNotes) } catch { return {} }
+  })()
+
   const [form, setForm] = useState({
     name: existingClient?.name || '',
-    goal: existingClient?.goal || '',
+    phone: existingIntake.phone || '',
+    email: existingIntake.email || '',
     dob: existingClient?.dob || '',
-    equipment: existingClient?.equipment || '',
-    trainerNotes: existingClient?.trainerNotes || '',
+    gender: existingIntake.gender || '',
+    occupation: existingIntake.occupation || '',
+    taking_medication: existingIntake.taking_medication || '',
+    medication_list: existingIntake.medication_list || '',
+    pre_existing_conditions: existingIntake.pre_existing_conditions || '',
+    conditions_description: existingIntake.conditions_description || '',
+    nutrition_rating: existingIntake.nutrition_rating || '',
+    follows_diet: existingIntake.follows_diet || '',
+    diet_description: existingIntake.diet_description || '',
+    short_term_goals: existingIntake.short_term_goals || existingClient?.goal || '',
+    long_term_goals: existingIntake.long_term_goals || '',
+    commitment_rating: existingIntake.commitment_rating || '',
+    motivation: existingIntake.motivation || '',
+    activity_level: existingIntake.activity_level || '',
+    sleep_hours: existingIntake.sleep_hours || '',
+    stress_rating: existingIntake.stress_rating || '',
+    mental_health_challenges: existingIntake.mental_health_challenges || '',
+    mental_health_discuss: existingIntake.mental_health_discuss || '',
+    fitness_experience: existingIntake.fitness_experience || '',
+    training_methods: existingIntake.training_methods || '',
+    support_system: existingIntake.support_system || '',
+    preferred_days: existingIntake.preferred_days || [],
+    preferred_times: existingIntake.preferred_times || [],
+    has_gym: existingIntake.has_gym || '',
+    gym_name: existingIntake.gym_name || '',
+    planning_gym: existingIntake.planning_gym || '',
+    financial_concerns: existingIntake.financial_concerns || '',
+    financial_concerns_description: existingIntake.financial_concerns_description || '',
+    referral_source: existingIntake.referral_source || '',
+    referral_other: existingIntake.referral_other || '',
+    additional_info: existingIntake.additional_info || '',
   })
   const [saving, setSaving] = useState(false)
   const [errors, setErrors] = useState({})
 
   const isEdit = !!existingClient
 
-  const update = (field, val) => {
-    setForm(f => ({ ...f, [field]: val }))
-    if (errors[field]) setErrors(e => ({ ...e, [field]: null }))
+  const update = (key, val) => {
+    setForm(f => ({ ...f, [key]: val }))
+    if (errors[key]) setErrors(e => ({ ...e, [key]: null }))
   }
 
-  const validate = () => {
-    const errs = {}
-    if (!form.name.trim()) errs.name = 'Client name is required'
-    setErrors(errs)
-    return Object.keys(errs).length === 0
+  const toggleArray = (key, val) => {
+    setForm(f => {
+      const arr = f[key] || []
+      return { ...f, [key]: arr.includes(val) ? arr.filter(v => v !== val) : [...arr, val] }
+    })
   }
 
   const handleSave = async () => {
-    if (!validate()) return
+    const errs = {}
+    if (!form.name.trim()) errs.name = 'Client name is required'
+    setErrors(errs)
+    if (Object.keys(errs).length > 0) return
+
     setSaving(true)
     try {
+      // Store all intake data as JSON in trainerNotes
+      const { name, dob, short_term_goals, long_term_goals, ...intakeFields } = form
+      const intakeJson = JSON.stringify({ ...intakeFields, short_term_goals, long_term_goals })
+      const goal = [short_term_goals, long_term_goals].filter(Boolean).join(' | ')
+
       const clientData = isEdit
-        ? { ...existingClient, ...form }
-        : { id: makeId(), ...form, assessments: {} }
+        ? { ...existingClient, name, dob, goal, equipment: existingClient.equipment || '', trainerNotes: intakeJson }
+        : { id: makeId(), name, dob, goal, equipment: '', trainerNotes: intakeJson, assessments: {} }
       await saveClient(clientData)
       onSave(clientData)
     } catch (e) {
@@ -908,53 +953,201 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
     setSaving(false)
   }
 
-  const FIELDS = [
-    { key: 'name', label: 'Full Name', type: 'text', required: true, placeholder: 'e.g. John Smith' },
-    { key: 'dob', label: 'Date of Birth', type: 'date' },
-    { key: 'goal', label: 'Primary Goal', type: 'text', placeholder: 'e.g. Improve mobility, reduce pain, build strength' },
-    { key: 'equipment', label: 'Available Equipment', type: 'textarea', placeholder: 'List equipment the client has access to...', rows: 2 },
-    { key: 'trainerNotes', label: 'Trainer Notes', type: 'textarea', placeholder: 'Any relevant notes — injuries, medical history, preferences...', rows: 3 },
-  ]
+  // Shared styles
+  const labelStyle = { display: 'block', fontSize: 11, color: C.sub, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: 700, marginBottom: 6 }
+  const inputStyle = (key) => ({ width: '100%', background: C.faint, border: `1px solid ${errors[key] ? C.red : C.border}`, borderRadius: 8, padding: '10px 12px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', boxSizing: 'border-box' })
+  const sectionStyle = { background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '22px 24px', marginBottom: 16 }
+  const sectionTitle = (icon, title) => (
+    <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span>{icon}</span>{title}
+    </div>
+  )
+
+  const TextInput = ({ k, label, type = 'text', placeholder = '', required = false }) => (
+    <div style={{ marginBottom: 14 }}>
+      <label style={labelStyle}>{label}{required && <span style={{ color: C.red, marginLeft: 3 }}>*</span>}</label>
+      <input type={type} value={form[k]} onChange={e => update(k, e.target.value)} placeholder={placeholder} style={inputStyle(k)} />
+      {errors[k] && <div style={{ fontSize: 11, color: C.red, fontWeight: 600, marginTop: 4 }}>{errors[k]}</div>}
+    </div>
+  )
+
+  const TextArea = ({ k, label, placeholder = '', rows = 3 }) => (
+    <div style={{ marginBottom: 14 }}>
+      <label style={labelStyle}>{label}</label>
+      <textarea value={form[k]} onChange={e => update(k, e.target.value)} placeholder={placeholder} rows={rows} style={{ ...inputStyle(k), resize: 'vertical' }} />
+    </div>
+  )
+
+  const YesNo = ({ k, label }) => (
+    <div style={{ marginBottom: 14 }}>
+      <label style={labelStyle}>{label}</label>
+      <div style={{ display: 'flex', gap: 8 }}>
+        {['Yes', 'No'].map(opt => (
+          <button key={opt} onClick={() => update(k, opt)} style={{ padding: '8px 20px', borderRadius: 8, border: `1.5px solid ${form[k] === opt ? C.accent : C.border}`, background: form[k] === opt ? C.accent + '15' : C.faint, color: form[k] === opt ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>{opt}</button>
+        ))}
+      </div>
+    </div>
+  )
+
+  const Rating = ({ k, label, max = 10 }) => (
+    <div style={{ marginBottom: 14 }}>
+      <label style={labelStyle}>{label}</label>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {Array.from({ length: max }, (_, i) => i + 1).map(n => (
+          <button key={n} onClick={() => update(k, n.toString())} style={{ width: 36, height: 36, borderRadius: 8, border: `1.5px solid ${form[k] === n.toString() ? C.accent : C.border}`, background: form[k] === n.toString() ? C.accent : C.faint, color: form[k] === n.toString() ? '#000' : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{n}</button>
+        ))}
+      </div>
+    </div>
+  )
+
+  const Select = ({ k, label, options }) => (
+    <div style={{ marginBottom: 14 }}>
+      <label style={labelStyle}>{label}</label>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {options.map(opt => (
+          <button key={opt} onClick={() => update(k, opt)} style={{ padding: '9px 14px', borderRadius: 8, border: `1.5px solid ${form[k] === opt ? C.accent : C.border}`, background: form[k] === opt ? C.accent + '15' : C.faint, color: form[k] === opt ? C.accent : C.text, fontFamily: 'Montserrat,sans-serif', fontWeight: form[k] === opt ? 700 : 500, fontSize: 12, cursor: 'pointer', textAlign: 'left' }}>{opt}</button>
+        ))}
+      </div>
+    </div>
+  )
+
+  const MultiSelect = ({ k, label, options }) => (
+    <div style={{ marginBottom: 14 }}>
+      <label style={labelStyle}>{label}</label>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {options.map(opt => {
+          const selected = (form[k] || []).includes(opt)
+          return (
+            <button key={opt} onClick={() => toggleArray(k, opt)} style={{ padding: '8px 14px', borderRadius: 8, border: `1.5px solid ${selected ? C.accent : C.border}`, background: selected ? C.accent + '15' : C.faint, color: selected ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>{opt}</button>
+          )
+        })}
+      </div>
+    </div>
+  )
 
   return (
     <div style={{ maxWidth: 600, margin: '0 auto', padding: '0 24px 32px' }}>
       <LogoHeader />
       <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 24 }}>← Back</button>
 
-      <div style={{ fontWeight: 800, fontSize: 24, letterSpacing: 3, color: C.text, marginBottom: 6 }}>{isEdit ? 'EDIT CLIENT' : 'NEW CLIENT'}</div>
-      <div style={{ fontSize: 12, color: C.sub, marginBottom: 28 }}>{isEdit ? 'Update client information below.' : 'Fill out the intake form to add a new client.'}</div>
+      <div style={{ fontWeight: 800, fontSize: 24, letterSpacing: 3, color: C.text, marginBottom: 4 }}>{isEdit ? 'EDIT CLIENT' : 'CLIENT INTAKE FORM'}</div>
+      <div style={{ fontSize: 12, color: C.sub, marginBottom: 24, lineHeight: 1.6 }}>Please fill out this form as accurately as possible. This will help us tailor your training program to your unique needs and goals. All information provided is confidential.</div>
 
-      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '24px 24px 20px', display: 'flex', flexDirection: 'column', gap: 18 }}>
-        {FIELDS.map(f => (
-          <div key={f.key}>
-            <label style={{ display: 'block', fontSize: 11, color: C.sub, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: 700, marginBottom: 6 }}>
-              {f.label}{f.required && <span style={{ color: C.red, marginLeft: 3 }}>*</span>}
-            </label>
-            {f.type === 'textarea' ? (
-              <textarea
-                value={form[f.key]}
-                onChange={e => update(f.key, e.target.value)}
-                placeholder={f.placeholder || ''}
-                rows={f.rows || 3}
-                style={{ width: '100%', background: C.faint, border: `1px solid ${errors[f.key] ? C.red : C.border}`, borderRadius: 8, padding: '10px 12px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}
-              />
-            ) : (
-              <input
-                type={f.type || 'text'}
-                value={form[f.key]}
-                onChange={e => update(f.key, e.target.value)}
-                placeholder={f.placeholder || ''}
-                style={{ width: '100%', background: C.faint, border: `1px solid ${errors[f.key] ? C.red : C.border}`, borderRadius: 8, padding: '10px 12px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
-              />
-            )}
-            {errors[f.key] && <div style={{ fontSize: 11, color: C.red, fontWeight: 600, marginTop: 4 }}>{errors[f.key]}</div>}
-          </div>
-        ))}
+      {/* ── Personal Information ── */}
+      <div style={sectionStyle}>
+        {sectionTitle('👤', 'Personal Information')}
+        <TextInput k="name" label="Full Name" required placeholder="e.g. John Smith" />
+        <TextInput k="phone" label="Phone Number" type="tel" placeholder="e.g. (555) 123-4567" />
+        <TextInput k="email" label="Email Address" type="email" placeholder="e.g. john@example.com" />
+        <TextInput k="dob" label="Date of Birth" type="date" />
+        <Select k="gender" label="Gender" options={['Male', 'Female', 'Other']} />
+        <TextInput k="occupation" label="Occupation" placeholder="e.g. Office worker, construction, nurse..." />
+      </div>
 
-        <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 6 }}>
-          <Btn onClick={onBack} outline color={C.sub}>Cancel</Btn>
-          <Btn onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : isEdit ? '✓ Save Changes' : '+ Add Client'}</Btn>
-        </div>
+      {/* ── Health & Medical ── */}
+      <div style={sectionStyle}>
+        {sectionTitle('🩺', 'Health & Medical Information')}
+        <YesNo k="taking_medication" label="Are you currently taking any medication?" />
+        {form.taking_medication === 'Yes' && <TextArea k="medication_list" label="If yes, please list them" placeholder="List all current medications..." rows={2} />}
+        <YesNo k="pre_existing_conditions" label="Do you have any pre-existing injuries or medical conditions?" />
+        {form.pre_existing_conditions === 'Yes' && <TextArea k="conditions_description" label="If yes, please describe" placeholder="Describe injuries, conditions, surgeries..." rows={2} />}
+      </div>
+
+      {/* ── Nutrition ── */}
+      <div style={sectionStyle}>
+        {sectionTitle('🥗', 'Nutrition')}
+        <Rating k="nutrition_rating" label="How would you rate your overall nutrition in the last 90 days? (1 = poor, 10 = excellent)" />
+        <YesNo k="follows_diet" label="Do you follow any specific diet or nutrition plan?" />
+        {form.follows_diet === 'Yes' && <TextArea k="diet_description" label="If yes, please describe" placeholder="e.g. Keto, intermittent fasting, meal prep..." rows={2} />}
+      </div>
+
+      {/* ── Goals ── */}
+      <div style={sectionStyle}>
+        {sectionTitle('🎯', 'Goals')}
+        <TextArea k="short_term_goals" label="What are your short-term goals? (within the next 3-6 months)" placeholder="e.g. Lose 10 lbs, improve flexibility, reduce back pain..." rows={3} />
+        <TextArea k="long_term_goals" label="What are your long-term goals? (6 months and beyond)" placeholder="e.g. Run a marathon, build lean muscle, maintain active lifestyle..." rows={3} />
+      </div>
+
+      {/* ── Commitment & Motivation ── */}
+      <div style={sectionStyle}>
+        {sectionTitle('💪', 'Commitment & Motivation')}
+        <Rating k="commitment_rating" label="How would you rate your overall commitment to achieving your fitness goals? (1 = low, 10 = high)" />
+        <TextArea k="motivation" label="What motivates you to achieve your goals?" placeholder="What drives you? What does success look like?" rows={3} />
+      </div>
+
+      {/* ── Lifestyle & Activity Level ── */}
+      <div style={sectionStyle}>
+        {sectionTitle('🏃', 'Lifestyle & Activity Level')}
+        <Select k="activity_level" label="How would you describe your current activity level?" options={[
+          'Sedentary (little or no exercise)',
+          'Lightly active (light exercise or sports 1-3 days/week)',
+          'Moderately active (moderate exercise or sports 3-5 days/week)',
+          'Very active (hard exercise or sports 6-7 days/week)',
+          'Super active (very intense exercise or physical job)',
+        ]} />
+        <Select k="sleep_hours" label="How many hours of sleep do you typically get each night?" options={[
+          'Less than 5 hours',
+          '5-6 hours',
+          '7-8 hours',
+          '9+ hours',
+        ]} />
+        <Rating k="stress_rating" label="On a scale of 1-10, how would you rate your current stress levels? (1 = low, 10 = high)" />
+        <YesNo k="mental_health_challenges" label="Do you currently deal with any mental health challenges? (e.g., anxiety, depression)" />
+        {form.mental_health_challenges === 'Yes' && <YesNo k="mental_health_discuss" label="Would you like to discuss this further?" />}
+      </div>
+
+      {/* ── Fitness Experience ── */}
+      <div style={sectionStyle}>
+        {sectionTitle('🏋️', 'Fitness Experience')}
+        <Select k="fitness_experience" label="What is your previous experience with fitness or personal training?" options={['Beginner', 'Intermediate', 'Advanced']} />
+        <TextArea k="training_methods" label="Any specific training methods or programs you've followed?" placeholder="e.g. CrossFit, bodybuilding, yoga, P90X..." rows={2} />
+      </div>
+
+      {/* ── Support System ── */}
+      <div style={sectionStyle}>
+        {sectionTitle('🤝', 'Support System')}
+        <YesNo k="support_system" label="Do you have a support system in place (e.g., friends, family) to help you achieve your fitness goals?" />
+      </div>
+
+      {/* ── Scheduling Preferences ── */}
+      <div style={sectionStyle}>
+        {sectionTitle('📅', 'Scheduling Preferences')}
+        <MultiSelect k="preferred_days" label="Preferred days for personal training sessions" options={['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']} />
+        <MultiSelect k="preferred_times" label="Preferred times for sessions" options={['Morning (7 AM - 12 PM)', 'Afternoon (12 PM - 5 PM)', 'Evening (5 PM - 9 PM)']} />
+      </div>
+
+      {/* ── Gym Membership ── */}
+      <div style={sectionStyle}>
+        {sectionTitle('🏢', 'Gym Membership')}
+        <YesNo k="has_gym" label="Do you currently belong to a gym?" />
+        {form.has_gym === 'Yes' && <TextInput k="gym_name" label="Which gym?" placeholder="e.g. Planet Fitness, LA Fitness..." />}
+        {form.has_gym === 'No' && <YesNo k="planning_gym" label="Are you planning to join a gym in the near future?" />}
+      </div>
+
+      {/* ── Financial Considerations ── */}
+      <div style={sectionStyle}>
+        {sectionTitle('💰', 'Financial Considerations')}
+        <YesNo k="financial_concerns" label="Are there any concerns you have about committing to personal training sessions?" />
+        {form.financial_concerns === 'Yes' && <TextArea k="financial_concerns_description" label="If yes, please briefly describe" placeholder="Budget constraints, scheduling conflicts..." rows={2} />}
+      </div>
+
+      {/* ── Referral Source ── */}
+      <div style={sectionStyle}>
+        {sectionTitle('📣', 'Referral Source')}
+        <Select k="referral_source" label="How did you hear about FreddyFit Personal Training?" options={['Social Media', 'Referral from a friend/family', 'Google Search', 'Advertisement', 'Other']} />
+        {form.referral_source === 'Other' && <TextInput k="referral_other" label="Please specify" placeholder="How did you find us?" />}
+      </div>
+
+      {/* ── Additional Information ── */}
+      <div style={sectionStyle}>
+        {sectionTitle('📝', 'Additional Information')}
+        <TextArea k="additional_info" label="Is there anything else you'd like us to know about you, your fitness journey, or your goals?" placeholder="Anything else we should know..." rows={4} />
+      </div>
+
+      {/* ── Save ── */}
+      <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', padding: '8px 0 20px' }}>
+        <Btn onClick={onBack} outline color={C.sub}>Cancel</Btn>
+        <Btn onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : isEdit ? '✓ Save Changes' : '+ Add Client'}</Btn>
       </div>
     </div>
   )
@@ -1218,6 +1411,13 @@ IMPORTANT:
 // ── CLIENT PROFILE ────────────────────────────────────────────────────────────
 function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onBack }) {
   const assessmentsDone = Object.keys(client.assessments || {})
+  const [showIntake, setShowIntake] = useState(false)
+
+  // Parse intake data from trainerNotes JSON
+  const intake = (() => {
+    if (!client.trainerNotes) return null
+    try { return JSON.parse(client.trainerNotes) } catch { return null }
+  })()
 
   const FLOW = [
     { phase: 'Phase 1 — Always First', color: C.teal, items: [ALL_ASSESSMENTS.hypermobility] },
@@ -1249,6 +1449,88 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
           <Btn onClick={() => onEditClient(client)} outline small color={C.sub}>✏️ Edit</Btn>
         </div>
       </div>
+
+      {/* Intake Summary */}
+      {intake ? (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setShowIntake(!showIntake)}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase' }}>📋 Client Intake</div>
+            <span style={{ fontSize: 11, color: C.sub }}>{showIntake ? '▲ Hide' : '▼ View Details'}</span>
+          </div>
+          {!showIntake && (
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 10 }}>
+              {intake.phone && <div style={{ fontSize: 11, color: C.sub }}>{intake.phone}</div>}
+              {intake.email && <div style={{ fontSize: 11, color: C.sub }}>{intake.email}</div>}
+              {intake.fitness_experience && <span style={{ fontSize: 10, background: C.accent + '15', color: C.accent, borderRadius: 10, padding: '2px 10px', fontWeight: 700 }}>{intake.fitness_experience}</span>}
+              {intake.activity_level && <span style={{ fontSize: 10, background: C.teal + '15', color: C.teal, borderRadius: 10, padding: '2px 10px', fontWeight: 700 }}>{intake.activity_level.split('(')[0].trim()}</span>}
+            </div>
+          )}
+          {showIntake && (() => {
+            const Section = ({ title, items }) => {
+              const filtered = items.filter(([, v]) => v && v !== '' && !(Array.isArray(v) && v.length === 0))
+              if (filtered.length === 0) return null
+              return (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>{title}</div>
+                  {filtered.map(([label, val]) => (
+                    <div key={label} style={{ display: 'flex', gap: 8, padding: '4px 0', fontSize: 12, borderBottom: `1px solid ${C.border}22` }}>
+                      <span style={{ color: C.sub, minWidth: 140, fontWeight: 600 }}>{label}</span>
+                      <span style={{ color: C.text }}>{Array.isArray(val) ? val.join(', ') : val}</span>
+                    </div>
+                  ))}
+                </div>
+              )
+            }
+            return (
+              <div>
+                <Section title="Personal" items={[
+                  ['Phone', intake.phone], ['Email', intake.email], ['Gender', intake.gender], ['Occupation', intake.occupation],
+                ]} />
+                <Section title="Health & Medical" items={[
+                  ['Medication', intake.taking_medication], ['Medications', intake.medication_list],
+                  ['Conditions', intake.pre_existing_conditions], ['Details', intake.conditions_description],
+                ]} />
+                <Section title="Nutrition" items={[
+                  ['Rating (90 days)', intake.nutrition_rating ? `${intake.nutrition_rating}/10` : ''],
+                  ['Follows diet', intake.follows_diet], ['Diet', intake.diet_description],
+                ]} />
+                <Section title="Goals" items={[
+                  ['Short-term', intake.short_term_goals], ['Long-term', intake.long_term_goals],
+                ]} />
+                <Section title="Commitment" items={[
+                  ['Rating', intake.commitment_rating ? `${intake.commitment_rating}/10` : ''],
+                  ['Motivation', intake.motivation],
+                ]} />
+                <Section title="Lifestyle" items={[
+                  ['Activity level', intake.activity_level], ['Sleep', intake.sleep_hours],
+                  ['Stress', intake.stress_rating ? `${intake.stress_rating}/10` : ''],
+                  ['Mental health', intake.mental_health_challenges],
+                ]} />
+                <Section title="Experience" items={[
+                  ['Level', intake.fitness_experience], ['Methods', intake.training_methods],
+                ]} />
+                <Section title="Scheduling" items={[
+                  ['Days', intake.preferred_days], ['Times', intake.preferred_times],
+                ]} />
+                <Section title="Gym" items={[
+                  ['Member', intake.has_gym], ['Gym', intake.gym_name], ['Planning to join', intake.planning_gym],
+                ]} />
+                <Section title="Other" items={[
+                  ['Referral', intake.referral_source === 'Other' ? intake.referral_other : intake.referral_source],
+                  ['Support system', intake.support_system],
+                  ['Financial concerns', intake.financial_concerns === 'Yes' ? intake.financial_concerns_description || 'Yes' : intake.financial_concerns],
+                  ['Additional info', intake.additional_info],
+                ]} />
+              </div>
+            )
+          })()}
+        </div>
+      ) : (
+        <div style={{ background: C.faint, border: `1px dashed ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 20, textAlign: 'center' }}>
+          <div style={{ fontSize: 12, color: C.sub, marginBottom: 8 }}>No intake form on file</div>
+          <Btn onClick={() => onEditClient(client)} small outline color={C.sub}>Fill Out Intake Form</Btn>
+        </div>
+      )}
 
       {FLOW.map(group => {
         const locked = group.requires && !group.requires.every(id => assessmentsDone.includes(id))
