@@ -46,6 +46,7 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
   const [answers, setAnswers] = useState({})
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [hasUnsaved, setHasUnsaved] = useState(false)
 
   useEffect(() => {
     if (client.assessments?.[assessment.id]) {
@@ -57,7 +58,7 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
   const allFields = assessment.sections.flatMap(s => s.fields)
   const answered = allFields.filter(f => answers[f.id]?.toString().trim()).length
   const progress = Math.round((answered / allFields.length) * 100)
-  const set = (id, val) => setAnswers(a => ({ ...a, [id]: val }))
+  const set = (id, val) => { setAnswers(a => ({ ...a, [id]: val })); if (saved) setHasUnsaved(true) }
 
   // Auto-calculate BMS-5 performance level based on gender, age range, and total score
   useEffect(() => {
@@ -104,6 +105,7 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
       await saveAssessment(client.id, assessment.id, answers, '')
       onComplete(assessment.id, completed)
       setSaved(true)
+      setHasUnsaved(false)
     } catch (e) {
       alert('Error saving: ' + e.message)
     }
@@ -461,7 +463,7 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
       ))}
 
       <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 8 }}>
-        <Btn onClick={saveAssessmentData} disabled={saving}>{saving ? 'Saving...' : saved ? '✓ Saved — Tap to Re-save' : '💾 Save Assessment'}</Btn>
+        <Btn onClick={saveAssessmentData} disabled={saving} color={hasUnsaved ? C.orange : C.accent}>{saving ? 'Saving...' : hasUnsaved ? '⚠️ Unsaved Changes — Tap to Save' : saved ? '✓ Saved' : '💾 Save Assessment'}</Btn>
       </div>
     </div>
   )
@@ -890,12 +892,12 @@ function ProtocolAdvisor({ client, onBack }) {
         const modRating = data[modRatingKey]
 
         // Determine if modifier worked: check explicit yes/no confirmation first,
-        // then check re-rating (Prime 8 style: re-rate >=8 means it worked)
+        // then check re-rating (re-rate >=8 means it worked)
         let modifierWorked = null
         if (modConfirmed === 'yes') modifierWorked = true
         else if (modConfirmed === 'no') modifierWorked = false
         else if (modRating) modifierWorked = parseInt(modRating) >= 8
-        else if (modifier === 'No modifier helped') modifierWorked = false
+        else if (modifier && modifier.startsWith('No modifier')) modifierWorked = false
 
         if (rating && parseInt(rating) <= 7) {
           findings.push({
@@ -1055,20 +1057,33 @@ IMPORTANT:
             <div style={{ fontSize: 13, color: C.text, marginBottom: 14, fontWeight: 600 }}>{findings.length} failed test{findings.length !== 1 ? 's' : ''} found across {Object.keys(client.assessments || {}).length} assessment{Object.keys(client.assessments || {}).length !== 1 ? 's' : ''}</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 300, overflowY: 'auto' }}>
               {findings.map((f, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: C.faint, borderRadius: 8, border: `1px solid ${C.border}` }}>
-                  <div style={{ minWidth: 44, textAlign: 'center' }}>
-                    {f.rating !== null && f.rating !== undefined ? (
-                      <span style={{ fontWeight: 800, fontSize: 16, color: f.rating <= 4 ? C.red : C.orange }}>{f.rating}</span>
-                    ) : (
-                      <span style={{ fontWeight: 800, fontSize: 12, color: C.red }}>FAIL</span>
-                    )}
+                <div key={i} style={{ padding: '10px 12px', background: C.faint, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ minWidth: 44, textAlign: 'center' }}>
+                      {f.rating !== null && f.rating !== undefined ? (
+                        <span style={{ fontWeight: 800, fontSize: 16, color: f.rating <= 4 ? C.red : C.orange }}>{f.rating}</span>
+                      ) : (
+                        <span style={{ fontWeight: 800, fontSize: 12, color: C.red }}>FAIL</span>
+                      )}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{f.test}</div>
+                      <div style={{ fontSize: 10, color: C.sub }}>{f.assessment}</div>
+                    </div>
+                    {f.modifierWorked === false && <span style={{ fontSize: 9, background: C.red + '15', color: C.red, borderRadius: 10, padding: '2px 8px', fontWeight: 700, whiteSpace: 'nowrap' }}>No fix</span>}
+                    {f.modifierWorked === true && <span style={{ fontSize: 9, background: C.green + '15', color: C.green, borderRadius: 10, padding: '2px 8px', fontWeight: 700, whiteSpace: 'nowrap' }}>Fixed</span>}
+                    {f.modifier && f.modifierWorked === null && <span style={{ fontSize: 9, background: C.orange + '15', color: C.orange, borderRadius: 10, padding: '2px 8px', fontWeight: 700, whiteSpace: 'nowrap' }}>Not re-rated</span>}
                   </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.test}</div>
-                    <div style={{ fontSize: 10, color: C.sub }}>{f.assessment}{f.modifier ? ` · Modifier: ${f.modifier}` : ''}{f.modifierWorked === true ? ' ✓' : f.modifierWorked === false ? ' ✗' : ''}</div>
-                  </div>
-                  {f.modifierWorked === false && <span style={{ fontSize: 9, background: C.red + '15', color: C.red, borderRadius: 10, padding: '2px 8px', fontWeight: 700, whiteSpace: 'nowrap' }}>No fix</span>}
-                  {f.modifierWorked === true && <span style={{ fontSize: 9, background: C.green + '15', color: C.green, borderRadius: 10, padding: '2px 8px', fontWeight: 700, whiteSpace: 'nowrap' }}>Fixed</span>}
+                  {f.modifier && (
+                    <div style={{ marginTop: 6, marginLeft: 54, fontSize: 10, color: C.sub, lineHeight: 1.6 }}>
+                      Modifier: {f.modifier}
+                      {f.modRating !== null && f.modRating !== undefined ? (
+                        <span style={{ color: f.modRating >= 8 ? C.green : C.orange, fontWeight: 700 }}> · Re-rated: {f.modRating}/10</span>
+                      ) : (
+                        <span style={{ color: C.orange, fontWeight: 700 }}> · Step 3 re-rate: not saved</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
