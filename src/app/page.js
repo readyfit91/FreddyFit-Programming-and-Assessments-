@@ -213,14 +213,11 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
                   set(modKey, '')
                   set(modConfirmedKey, '')
                   set(modRatingKey, '')
-                  if (isPrime8) {
-                    if (n >= 8) {
-                      set(f.id, 'Pass')
-                    } else if (!f.modifiers || f.modifiers.length === 0) {
-                      set(f.id, 'Fail')
-                    } else {
-                      set(f.id, '')
-                    }
+                  const modOptions = f.modifiers || FIELD_MODIFIERS[f.id]
+                  if (n >= 8) {
+                    set(f.id, 'Pass')
+                  } else if (!modOptions || modOptions.length === 0) {
+                    set(f.id, 'Fail')
                   }
                 }} style={{
                   width: 32, height: 32, borderRadius: 7,
@@ -250,28 +247,31 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
           </div>
         )}
 
-        {/* MODIFIER DROPDOWN — select which modifier to attempt */}
-        {isFail && f.modifiers && f.modifiers.length > 0 && (
-          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: modifier ? 12 : 0 }}>
-            <div style={{ fontSize: 10, color: C.red, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Step 2 — Which modifier helped?</div>
-            <select value={modifier || ''} onChange={e => {
-              set(modKey, e.target.value)
-              set(modConfirmedKey, '')
-              set(modRatingKey, '')
-              if (isPrime8 && e.target.value === 'No modifier helped') {
-                set(f.id, 'Fail')
-              } else if (isPrime8) {
-                set(f.id, '')
-              }
-            }} style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${modifier ? C.accent : C.red + '66'}`, background: 'white', color: modifier ? C.text : C.sub, fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', cursor: 'pointer' }}>
-              <option value="">— Select the modifier that helped —</option>
-              {f.modifiers.map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
-          </div>
-        )}
+        {/* MODIFIER DROPDOWN — select which modifier to attempt (inline or from FIELD_MODIFIERS) */}
+        {(() => {
+          const modOptions = f.modifiers || FIELD_MODIFIERS[f.id]
+          if (!isFail || !modOptions || modOptions.length === 0) return null
+          const noHelpLabel = modOptions.find(m => m.startsWith('No modifier')) || 'No modifier worked'
+          return (
+            <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: modifier ? 12 : 0 }}>
+              <div style={{ fontSize: 10, color: C.red, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Step 2 — Which modifier helped?</div>
+              <select value={modifier || ''} onChange={e => {
+                set(modKey, e.target.value)
+                set(modConfirmedKey, '')
+                set(modRatingKey, '')
+                if (e.target.value.startsWith('No modifier')) {
+                  set(f.id, 'Fail')
+                }
+              }} style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${modifier ? C.accent : C.red + '66'}`, background: 'white', color: modifier ? C.text : C.sub, fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', cursor: 'pointer' }}>
+                <option value="">— Select the modifier that helped —</option>
+                {modOptions.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+          )
+        })()}
 
-        {/* PRIME 8: Re-rate after modifier attempt */}
-        {isPrime8 && isFail && modifier && modifier !== 'No modifier helped' && (
+        {/* ALL ASSESSMENTS: Re-rate after modifier attempt */}
+        {isFail && modifier && !modifier.startsWith('No modifier') && (
           <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
             <div style={{ fontSize: 10, color: C.accent, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Step 3 — Re-rate after {modifier.split('→')[0].trim()}</div>
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
@@ -281,7 +281,7 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
                 return (
                   <button key={n} onClick={() => {
                     set(modRatingKey, n.toString())
-                    set(f.id, n >= 8 ? 'Pass' : '')
+                    if (n >= 8) set(f.id, 'Pass')
                   }} style={{
                     width: 32, height: 32, borderRadius: 7,
                     border: `1.5px solid ${isSelected ? (btnFail ? C.red : C.green) : C.border}`,
@@ -295,7 +295,7 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
             </div>
             {modRating && modRatingNum >= 8 && (
               <div style={{ marginTop: 8, padding: '8px 12px', background: C.green + '12', borderRadius: 8, border: `1px solid ${C.green}44`, fontSize: 11, color: C.green, fontWeight: 700 }}>
-                ✓ PASS — {modifier} improved to {modRating}/10
+                ✓ PASS — {modifier.split('→')[0].trim()} improved to {modRating}/10
               </div>
             )}
             {modRating && modRatingNum <= 7 && (
@@ -306,32 +306,11 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
           </div>
         )}
 
-        {/* NON-PRIME 8: Confirm — did it work? */}
-        {!isPrime8 && isFail && modifier && modifier !== 'No modifier helped' && (
-          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
-            <div style={{ fontSize: 10, color: C.accent, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>Step 3 — Did <span style={{ color: C.accent }}>{modifier.split('→')[0].trim()}</span> improve the test?</div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => set(modConfirmedKey, 'yes')} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1.5px solid ${modConfirmed === 'yes' ? C.green : C.border}`, background: modConfirmed === 'yes' ? C.green : 'white', color: modConfirmed === 'yes' ? 'white' : C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>✓ Yes — it worked</button>
-              <button onClick={() => set(modConfirmedKey, 'no')} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1.5px solid ${modConfirmed === 'no' ? C.red : C.border}`, background: modConfirmed === 'no' ? C.red : 'white', color: modConfirmed === 'no' ? 'white' : C.red, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>✗ No — try another</button>
-            </div>
-            {modConfirmed === 'yes' && (
-              <div style={{ marginTop: 8, padding: '8px 12px', background: C.green + '12', borderRadius: 8, border: `1px solid ${C.green}44`, fontSize: 11, color: C.green, fontWeight: 700 }}>
-                ✓ Recorded: <strong>{modifier}</strong>
-              </div>
-            )}
-            {modConfirmed === 'no' && (
-              <div style={{ marginTop: 8, padding: '8px 12px', background: C.orange + '12', borderRadius: 8, border: `1px solid ${C.orange}44`, fontSize: 11, color: C.orange, fontWeight: 700 }}>
-                Select a different modifier above ↑
-              </div>
-            )}
-          </div>
-        )}
-
         {/* No modifier helped — flag it */}
-        {isFail && modifier === 'No modifier helped' && (
+        {isFail && modifier && modifier.startsWith('No modifier') && (
           <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
             <div style={{ padding: '8px 12px', background: C.red + '10', borderRadius: 8, border: `1px solid ${C.red}33`, fontSize: 11, color: C.red, fontWeight: 700 }}>
-              ✗ Recorded: No modifier helped — flag for deeper investigation / breakout assessments
+              ✗ Recorded: {modifier} — flag for deeper investigation / breakout assessments
             </div>
           </div>
         )}
@@ -383,7 +362,7 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
             <div key={f.id} style={{ marginBottom: 20, paddingBottom: 16, borderBottom: `1px solid ${C.faint}` }}>
               <label style={{ display: 'block', fontSize: 12, color: C.sub, marginBottom: 6, fontWeight: 600 }}>{f.label}</label>
               {renderField(f)}
-              {assessment.id !== 'bms5' && assessment.id !== 'hypermobility' && assessment.id !== 'foot' && renderRatingAndModifier(f)}
+              {assessment.id !== 'bms5' && renderRatingAndModifier(f)}
               {f.balanceAge && answers[f.id] && !isNaN(parseInt(answers[f.id])) && (() => {
                 const age = parseInt(answers[f.id])
                 const ageGroups = [
