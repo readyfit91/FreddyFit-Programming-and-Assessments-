@@ -867,6 +867,99 @@ function ProgramBuilder({ client, onBack, onSave }) {
   )
 }
 
+// ── CLIENT INTAKE FORM ───────────────────────────────────────────────────────
+function ClientIntakeForm({ existingClient, onSave, onBack }) {
+  const [form, setForm] = useState({
+    name: existingClient?.name || '',
+    goal: existingClient?.goal || '',
+    dob: existingClient?.dob || '',
+    equipment: existingClient?.equipment || '',
+    trainerNotes: existingClient?.trainerNotes || '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [errors, setErrors] = useState({})
+
+  const isEdit = !!existingClient
+
+  const update = (field, val) => {
+    setForm(f => ({ ...f, [field]: val }))
+    if (errors[field]) setErrors(e => ({ ...e, [field]: null }))
+  }
+
+  const validate = () => {
+    const errs = {}
+    if (!form.name.trim()) errs.name = 'Client name is required'
+    setErrors(errs)
+    return Object.keys(errs).length === 0
+  }
+
+  const handleSave = async () => {
+    if (!validate()) return
+    setSaving(true)
+    try {
+      const clientData = isEdit
+        ? { ...existingClient, ...form }
+        : { id: makeId(), ...form, assessments: {} }
+      await saveClient(clientData)
+      onSave(clientData)
+    } catch (e) {
+      alert('Error saving: ' + e.message)
+    }
+    setSaving(false)
+  }
+
+  const FIELDS = [
+    { key: 'name', label: 'Full Name', type: 'text', required: true, placeholder: 'e.g. John Smith' },
+    { key: 'dob', label: 'Date of Birth', type: 'date' },
+    { key: 'goal', label: 'Primary Goal', type: 'text', placeholder: 'e.g. Improve mobility, reduce pain, build strength' },
+    { key: 'equipment', label: 'Available Equipment', type: 'textarea', placeholder: 'List equipment the client has access to...', rows: 2 },
+    { key: 'trainerNotes', label: 'Trainer Notes', type: 'textarea', placeholder: 'Any relevant notes — injuries, medical history, preferences...', rows: 3 },
+  ]
+
+  return (
+    <div style={{ maxWidth: 600, margin: '0 auto', padding: '0 24px 32px' }}>
+      <LogoHeader />
+      <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 24 }}>← Back</button>
+
+      <div style={{ fontWeight: 800, fontSize: 24, letterSpacing: 3, color: C.text, marginBottom: 6 }}>{isEdit ? 'EDIT CLIENT' : 'NEW CLIENT'}</div>
+      <div style={{ fontSize: 12, color: C.sub, marginBottom: 28 }}>{isEdit ? 'Update client information below.' : 'Fill out the intake form to add a new client.'}</div>
+
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '24px 24px 20px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+        {FIELDS.map(f => (
+          <div key={f.key}>
+            <label style={{ display: 'block', fontSize: 11, color: C.sub, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: 700, marginBottom: 6 }}>
+              {f.label}{f.required && <span style={{ color: C.red, marginLeft: 3 }}>*</span>}
+            </label>
+            {f.type === 'textarea' ? (
+              <textarea
+                value={form[f.key]}
+                onChange={e => update(f.key, e.target.value)}
+                placeholder={f.placeholder || ''}
+                rows={f.rows || 3}
+                style={{ width: '100%', background: C.faint, border: `1px solid ${errors[f.key] ? C.red : C.border}`, borderRadius: 8, padding: '10px 12px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}
+              />
+            ) : (
+              <input
+                type={f.type || 'text'}
+                value={form[f.key]}
+                onChange={e => update(f.key, e.target.value)}
+                placeholder={f.placeholder || ''}
+                style={{ width: '100%', background: C.faint, border: `1px solid ${errors[f.key] ? C.red : C.border}`, borderRadius: 8, padding: '10px 12px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+              />
+            )}
+            {errors[f.key] && <div style={{ fontSize: 11, color: C.red, fontWeight: 600, marginTop: 4 }}>{errors[f.key]}</div>}
+          </div>
+        ))}
+
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 6 }}>
+          <Btn onClick={onBack} outline color={C.sub}>Cancel</Btn>
+          <Btn onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : isEdit ? '✓ Save Changes' : '+ Add Client'}</Btn>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── PROTOCOL ADVISOR ─────────────────────────────────────────────────────────
 function ProtocolAdvisor({ client, onBack }) {
   const [analysis, setAnalysis] = useState('')
@@ -1123,21 +1216,8 @@ IMPORTANT:
 }
 
 // ── CLIENT PROFILE ────────────────────────────────────────────────────────────
-function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onBack }) {
-  const [editing, setEditing] = useState(false)
-  const [form, setForm] = useState({ name: client.name, goal: client.goal || '', dob: client.dob || '', equipment: client.equipment || '', trainerNotes: client.trainerNotes || '' })
-  const [saving, setSaving] = useState(false)
-
+function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onBack }) {
   const assessmentsDone = Object.keys(client.assessments || {})
-
-  const save = async () => {
-    setSaving(true)
-    const updated = { ...client, ...form }
-    await saveClient(updated)
-    onUpdate(updated)
-    setEditing(false)
-    setSaving(false)
-  }
 
   const FLOW = [
     { phase: 'Phase 1 — Always First', color: C.teal, items: [ALL_ASSESSMENTS.hypermobility] },
@@ -1166,22 +1246,9 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
           <Btn onClick={() => onProtocolAdvisor(client)} small color={C.orange}>🩺 Protocols</Btn>
           <Btn onClick={() => onGenerateWorkout(client)} small>💪 Workout</Btn>
           <Btn onClick={() => onBuildProgram(client)} small>📋 Program</Btn>
-          <Btn onClick={() => setEditing(!editing)} outline small color={C.sub}>{editing ? 'Cancel' : '✏️ Edit'}</Btn>
+          <Btn onClick={() => onEditClient(client)} outline small color={C.sub}>✏️ Edit</Btn>
         </div>
       </div>
-
-      {editing && (
-        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '22px 24px', marginBottom: 24 }}>
-          {['name', 'goal', 'dob', 'equipment', 'trainerNotes'].map(field => (
-            <div key={field} style={{ marginBottom: 14 }}>
-              <label style={{ display: 'block', fontSize: 11, color: C.sub, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: 700, marginBottom: 6 }}>{field === 'trainerNotes' ? 'Trainer Notes' : field === 'dob' ? 'Date of Birth' : field.charAt(0).toUpperCase() + field.slice(1)}</label>
-              {field === 'trainerNotes' ? <textarea value={form[field]} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))} rows={3} style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 12px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', resize: 'vertical' }} />
-                : <input type={field === 'dob' ? 'date' : 'text'} value={form[field]} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))} style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 12px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none' }} />}
-            </div>
-          ))}
-          <Btn onClick={save} disabled={saving}>{saving ? 'Saving...' : '✓ Save Changes'}</Btn>
-        </div>
-      )}
 
       {FLOW.map(group => {
         const locked = group.requires && !group.requires.every(id => assessmentsDone.includes(id))
@@ -1219,12 +1286,10 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
 }
 
 // ── CLIENT ROSTER ─────────────────────────────────────────────────────────────
-function ClientRoster({ onSelectClient }) {
+function ClientRoster({ onSelectClient, onNewClient }) {
   const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [adding, setAdding] = useState(false)
-  const [newName, setNewName] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1239,15 +1304,6 @@ function ClientRoster({ onSelectClient }) {
   }, [])
 
   useEffect(() => { load() }, [load])
-
-  const addClient = async () => {
-    if (!newName.trim()) return
-    const c = { id: makeId(), name: newName.trim(), goal: '', dob: '', equipment: '', trainerNotes: '', assessments: {} }
-    await saveClient(c)
-    setNewName('')
-    setAdding(false)
-    await load()
-  }
 
   const removeClient = async (id, e) => {
     e.stopPropagation()
@@ -1266,16 +1322,8 @@ function ClientRoster({ onSelectClient }) {
           <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 4, color: C.text }}>CLIENT ROSTER</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 4 }}>{clients.length} client{clients.length !== 1 ? 's' : ''}</div>
         </div>
-        <Btn onClick={() => setAdding(true)}>+ New Client</Btn>
+        <Btn onClick={onNewClient}>+ New Client</Btn>
       </div>
-
-      {adding && (
-        <div style={{ background: C.card, border: `1px solid ${C.accent}44`, borderRadius: 12, padding: '18px 20px', marginBottom: 20, display: 'flex', gap: 10 }}>
-          <input autoFocus value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addClient()} placeholder="Client name..." style={{ flex: 1, background: C.faint, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 14px', fontFamily: 'Montserrat,sans-serif', fontSize: 14, outline: 'none' }} />
-          <Btn onClick={addClient}>Add</Btn>
-          <Btn onClick={() => setAdding(false)} outline color={C.sub}>Cancel</Btn>
-        </div>
-      )}
 
       <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search clients..." style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: '12px 16px', fontFamily: 'Montserrat,sans-serif', fontSize: 14, outline: 'none', marginBottom: 16 }} />
 
@@ -1377,6 +1425,8 @@ export default function App() {
 
   const goToClient = (c) => { setClient(c); setView('client') }
   const updateClient = (c) => setClient(c)
+  const openIntake = () => { setClient(null); setView('intake') }
+  const openEditClient = (c) => { setClient(c); setView('editClient') }
 
   const runAssessment = (a, c) => {
     setAssessment(a)
@@ -1400,16 +1450,16 @@ export default function App() {
           <div style={{ width: 1, height: 20, background: C.border }} />
           <div style={{ fontSize: 11, color: C.sub, letterSpacing: 2, fontWeight: 600, textTransform: 'uppercase' }}>TrainDesk</div>
         </button>
-        {client && view !== 'roster' && (
+        {view !== 'roster' && (
           <div style={{ fontSize: 12, color: C.sub }}>
-            {view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : client.name}
+            {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : view === 'editClient' ? 'Edit Client' : client?.name}
           </div>
         )}
       </div>
 
       {/* Content */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {view === 'roster' && <ClientRoster onSelectClient={goToClient} />}
+        {view === 'roster' && <ClientRoster onSelectClient={goToClient} onNewClient={openIntake} />}
         {view === 'client' && client && (
           <ClientProfile
             client={client}
@@ -1418,6 +1468,7 @@ export default function App() {
             onBuildProgram={c => { setClient(c); setView('program') }}
             onGenerateWorkout={c => { setClient(c); setView('workout') }}
             onProtocolAdvisor={c => { setClient(c); setView('protocols') }}
+            onEditClient={openEditClient}
             onBack={() => setView('roster')}
           />
         )}
@@ -1445,6 +1496,19 @@ export default function App() {
         {view === 'protocols' && client && (
           <ProtocolAdvisor
             client={client}
+            onBack={() => setView('client')}
+          />
+        )}
+        {view === 'intake' && (
+          <ClientIntakeForm
+            onSave={(c) => { goToClient({ ...c, assessments: {} }) }}
+            onBack={() => setView('roster')}
+          />
+        )}
+        {view === 'editClient' && client && (
+          <ClientIntakeForm
+            existingClient={client}
+            onSave={(c) => { updateClient({ ...client, ...c }); setView('client') }}
             onBack={() => setView('client')}
           />
         )}
