@@ -136,6 +136,9 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
   const renderRatingAndModifier = (f) => {
     if (f.type === 'textarea' || f.type === 'scale') return null
     const isPrime8 = assessment.id === 'prime8'
+    // Only show rating system for fields that have modifiers (Prime 8 inline or FIELD_MODIFIERS)
+    const hasModifiers = !!(f.modifiers || FIELD_MODIFIERS[f.id])
+    if (!isPrime8 && !hasModifiers) return null
 
     // Special: Prime 8 Neck Rotation — finger widths instead of rating
     if (isPrime8 && f.fingerWidths) {
