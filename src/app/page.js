@@ -2203,8 +2203,312 @@ IMPORTANT:
   )
 }
 
+// ── SIGN-IN SHEET ────────────────────────────────────────────────────────────
+const PACKAGE_OPTIONS = [
+  { label: '3 Months — 24 Sessions', sessions: 24 },
+  { label: '6 Months — 48 Sessions', sessions: 48 },
+  { label: '12 Months — 96 Sessions', sessions: 96 },
+]
+
+function SignInSheet({ client, onBack, onUpdate }) {
+  // Load existing sign-in data from trainerNotes
+  const parsed = (() => {
+    if (!client.trainerNotes) return {}
+    try { return JSON.parse(client.trainerNotes) } catch { return {} }
+  })()
+
+  const [packageType, setPackageType] = useState(parsed.sign_in_package || '')
+  const [entries, setEntries] = useState(parsed.sign_in_entries || [])
+  const [showPopup, setShowPopup] = useState(null) // { remaining, total, session }
+  const [saving, setSaving] = useState(false)
+
+  const totalSessions = PACKAGE_OPTIONS.find(p => p.label === packageType)?.sessions || 0
+  const sessionsUsed = entries.length
+  const sessionsRemaining = Math.max(0, totalSessions - sessionsUsed)
+
+  const saveData = async (newPackage, newEntries) => {
+    setSaving(true)
+    try {
+      const updatedNotes = { ...parsed, sign_in_package: newPackage, sign_in_entries: newEntries }
+      const updatedClient = { ...client, trainerNotes: JSON.stringify(updatedNotes) }
+      await saveClient(updatedClient)
+      onUpdate(updatedClient)
+    } catch (e) {
+      alert('Error saving: ' + e.message)
+    }
+    setSaving(false)
+  }
+
+  const handlePackageChange = (val) => {
+    setPackageType(val)
+    saveData(val, entries)
+  }
+
+  const handleSign = (signature) => {
+    const today = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+    const sessionNum = entries.length + 1
+    const newEntries = [...entries, { session: sessionNum, date: today, signature }]
+    setEntries(newEntries)
+    saveData(packageType, newEntries)
+    const remaining = Math.max(0, totalSessions - newEntries.length)
+    setShowPopup({ remaining, total: totalSessions, session: sessionNum })
+  }
+
+  const handleDeleteEntry = (idx) => {
+    const newEntries = entries.filter((_, i) => i !== idx).map((e, i) => ({ ...e, session: i + 1 }))
+    setEntries(newEntries)
+    saveData(packageType, newEntries)
+  }
+
+  return (
+    <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 24px 32px' }}>
+      <LogoHeader />
+      <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 24 }}>← Back to Profile</button>
+
+      <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 3, color: C.text, marginBottom: 4 }}>Sign-In Sheet</div>
+      <div style={{ fontSize: 14, color: C.sub, marginBottom: 24 }}>{client.name}</div>
+
+      {/* Package Selection */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 20 }}>
+        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 10 }}>Select Package</div>
+        <select
+          value={packageType}
+          onChange={e => handlePackageChange(e.target.value)}
+          style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: `2px solid ${packageType ? C.accent : C.border}`, fontSize: 14, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, color: C.text, background: C.card, outline: 'none', cursor: 'pointer', appearance: 'auto' }}
+        >
+          <option value="">— Choose a package —</option>
+          {PACKAGE_OPTIONS.map(p => (
+            <option key={p.label} value={p.label}>{p.label}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Session Counter */}
+      {packageType && (
+        <>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
+            <div style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 20px', textAlign: 'center' }}>
+              <div style={{ fontSize: 28, fontWeight: 800, color: C.accent }}>{sessionsUsed}</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 }}>Sessions Used</div>
+            </div>
+            <div style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 20px', textAlign: 'center' }}>
+              <div style={{ fontSize: 28, fontWeight: 800, color: sessionsRemaining <= 4 ? C.orange : C.green }}>{sessionsRemaining}</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 }}>Remaining</div>
+            </div>
+            <div style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 20px', textAlign: 'center' }}>
+              <div style={{ fontSize: 28, fontWeight: 800, color: C.text }}>{totalSessions}</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 }}>Total</div>
+            </div>
+          </div>
+
+          {/* Sign-In Area */}
+          {sessionsRemaining > 0 ? (
+            <div style={{ background: C.card, border: `2px solid ${C.accent}44`, borderRadius: 14, padding: '20px 24px', marginBottom: 20 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 4 }}>Session {sessionsUsed + 1} of {totalSessions}</div>
+              <div style={{ fontSize: 13, color: C.sub, marginBottom: 12 }}>Sign below to check in for today's session</div>
+              <SignInPad onSign={handleSign} saving={saving} />
+            </div>
+          ) : (
+            <div style={{ background: C.orange + '10', border: `2px solid ${C.orange}44`, borderRadius: 14, padding: '20px 24px', marginBottom: 20, textAlign: 'center' }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: C.orange, marginBottom: 4 }}>Package Complete</div>
+              <div style={{ fontSize: 13, color: C.sub }}>All {totalSessions} sessions have been used. Select a new package to continue.</div>
+            </div>
+          )}
+
+          {/* Sign-In History */}
+          {entries.length > 0 && (
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px' }}>
+              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 14 }}>Sign-In History</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '50px 1fr 80px 40px', gap: '0', fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', padding: '0 0 8px', borderBottom: `1px solid ${C.border}` }}>
+                <div>#</div>
+                <div>Date</div>
+                <div>Signature</div>
+                <div />
+              </div>
+              {[...entries].reverse().map((entry, i) => (
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '50px 1fr 80px 40px', gap: '0', alignItems: 'center', padding: '10px 0', borderBottom: `1px solid ${C.border}11` }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: C.accent }}>{entry.session}</div>
+                  <div style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>{entry.date}</div>
+                  <div>{entry.signature && <img src={entry.signature} alt="sig" style={{ height: 28, borderRadius: 4, border: `1px solid ${C.border}` }} />}</div>
+                  <button onClick={() => handleDeleteEntry(entries.length - 1 - i)} style={{ background: 'none', border: 'none', color: C.sub, fontSize: 14, cursor: 'pointer', padding: 0 }} title="Remove">×</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Sessions Remaining Popup */}
+      {showPopup && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }} onClick={() => setShowPopup(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: C.card, borderRadius: 20, padding: '40px 36px', textAlign: 'center', maxWidth: 360, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ fontSize: 14, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 8 }}>Session {showPopup.session} Complete</div>
+            <div style={{ fontSize: 56, fontWeight: 800, color: showPopup.remaining <= 4 ? C.orange : C.green, lineHeight: 1, margin: '16px 0' }}>{showPopup.remaining}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 4 }}>
+              {showPopup.remaining === 0 ? 'No sessions remaining' : `Session${showPopup.remaining === 1 ? '' : 's'} Remaining`}
+            </div>
+            <div style={{ fontSize: 12, color: C.sub, marginBottom: 24 }}>out of {showPopup.total} total sessions</div>
+            {showPopup.remaining <= 4 && showPopup.remaining > 0 && (
+              <div style={{ background: C.orange + '15', border: `1px solid ${C.orange}33`, borderRadius: 10, padding: '10px 14px', marginBottom: 20, fontSize: 12, color: C.orange, fontWeight: 700 }}>
+                Running low — time to discuss renewal!
+              </div>
+            )}
+            {showPopup.remaining === 0 && (
+              <div style={{ background: C.orange + '15', border: `1px solid ${C.orange}33`, borderRadius: 10, padding: '10px 14px', marginBottom: 20, fontSize: 12, color: C.orange, fontWeight: 700 }}>
+                Package complete! Select a new package to continue.
+              </div>
+            )}
+            <Btn onClick={() => setShowPopup(null)}>Got It</Btn>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SignInPad({ onSign, saving }) {
+  const canvasRef = useRef(null)
+  const isDrawing = useRef(false)
+  const hasDrawn = useRef(false)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    const rect = canvas.getBoundingClientRect()
+    canvas.width = rect.width * 2
+    canvas.height = rect.height * 2
+    ctx.scale(2, 2)
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.lineWidth = 2.5
+    ctx.strokeStyle = '#1a1a2e'
+    // Guide line
+    ctx.save()
+    ctx.strokeStyle = '#ddd'
+    ctx.lineWidth = 1
+    ctx.setLineDash([4, 4])
+    ctx.beginPath()
+    ctx.moveTo(20, rect.height - 20)
+    ctx.lineTo(rect.width - 20, rect.height - 20)
+    ctx.stroke()
+    ctx.restore()
+    ctx.save()
+    ctx.font = '14px Montserrat, sans-serif'
+    ctx.fillStyle = '#ccc'
+    ctx.fillText('✕', 8, rect.height - 12)
+    ctx.restore()
+  }, [])
+
+  const getPos = (e) => {
+    const canvas = canvasRef.current
+    const rect = canvas.getBoundingClientRect()
+    const touch = e.touches ? e.touches[0] : e
+    return { x: touch.clientX - rect.left, y: touch.clientY - rect.top }
+  }
+
+  const startDraw = (e) => {
+    e.preventDefault()
+    hasDrawn.current = true
+    isDrawing.current = true
+    const ctx = canvasRef.current.getContext('2d')
+    ctx.strokeStyle = '#1a1a2e'
+    ctx.lineWidth = 2.5
+    ctx.setLineDash([])
+    const pos = getPos(e)
+    ctx.beginPath()
+    ctx.moveTo(pos.x, pos.y)
+  }
+
+  const draw = (e) => {
+    if (!isDrawing.current) return
+    e.preventDefault()
+    const ctx = canvasRef.current.getContext('2d')
+    const pos = getPos(e)
+    ctx.lineTo(pos.x, pos.y)
+    ctx.stroke()
+  }
+
+  const endDraw = () => {
+    if (!isDrawing.current) return
+    isDrawing.current = false
+  }
+
+  const clear = () => {
+    const canvas = canvasRef.current
+    const ctx = canvas.getContext('2d')
+    const rect = canvas.getBoundingClientRect()
+    ctx.clearRect(0, 0, rect.width, rect.height)
+    hasDrawn.current = false
+    ctx.save()
+    ctx.strokeStyle = '#ddd'
+    ctx.lineWidth = 1
+    ctx.setLineDash([4, 4])
+    ctx.beginPath()
+    ctx.moveTo(20, rect.height - 20)
+    ctx.lineTo(rect.width - 20, rect.height - 20)
+    ctx.stroke()
+    ctx.restore()
+    ctx.save()
+    ctx.font = '14px Montserrat, sans-serif'
+    ctx.fillStyle = '#ccc'
+    ctx.fillText('✕', 8, rect.height - 12)
+    ctx.restore()
+  }
+
+  const handleSubmit = () => {
+    if (!hasDrawn.current) return
+    const sig = canvasRef.current.toDataURL()
+    onSign(sig)
+    // Reset canvas for next sign-in
+    setTimeout(() => {
+      hasDrawn.current = false
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const ctx = canvas.getContext('2d')
+      const rect = canvas.getBoundingClientRect()
+      ctx.clearRect(0, 0, rect.width, rect.height)
+      ctx.save()
+      ctx.strokeStyle = '#ddd'
+      ctx.lineWidth = 1
+      ctx.setLineDash([4, 4])
+      ctx.beginPath()
+      ctx.moveTo(20, rect.height - 20)
+      ctx.lineTo(rect.width - 20, rect.height - 20)
+      ctx.stroke()
+      ctx.restore()
+      ctx.save()
+      ctx.font = '14px Montserrat, sans-serif'
+      ctx.fillStyle = '#ccc'
+      ctx.fillText('✕', 8, rect.height - 12)
+      ctx.restore()
+    }, 300)
+  }
+
+  return (
+    <div>
+      <div style={{ position: 'relative' }}>
+        <div style={{ position: 'absolute', top: '35%', left: '50%', transform: 'translate(-50%, -50%)', pointerEvents: 'none', zIndex: 1, textAlign: 'center' }}>
+          <div style={{ fontSize: 13, color: '#bbb', fontWeight: 600, fontFamily: 'Montserrat,sans-serif' }}>Sign to check in</div>
+          <div style={{ fontSize: 10, color: '#ccc', marginTop: 2, fontFamily: 'Montserrat,sans-serif' }}>Use your finger or mouse</div>
+        </div>
+        <canvas
+          ref={canvasRef}
+          style={{ width: '100%', height: 120, border: `2px solid ${C.border}`, borderRadius: 12, background: '#fafbfc', touchAction: 'none', cursor: 'crosshair', position: 'relative', zIndex: 2 }}
+          onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
+          onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}
+        />
+      </div>
+      <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+        <button onClick={clear} style={{ background: 'none', border: `1.5px solid ${C.border}`, color: C.sub, borderRadius: 8, padding: '8px 18px', fontSize: 12, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', fontWeight: 600 }}>Clear</button>
+        <Btn onClick={handleSubmit} disabled={saving}>{saving ? 'Saving...' : 'Sign In'}</Btn>
+      </div>
+    </div>
+  )
+}
+
 // ── CLIENT PROFILE ────────────────────────────────────────────────────────────
-function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onBack }) {
+function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onSignInSheet, onBack }) {
   const assessmentsDone = Object.keys(client.assessments || {})
   const [showIntake, setShowIntake] = useState(false)
 
@@ -2238,6 +2542,7 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
           {client.goal && <div style={{ fontSize: 13, color: C.sub, marginTop: 4 }}>Goal: {client.goal}</div>}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Btn onClick={() => onSignInSheet(client)} small color={C.green}>📋 Sign-In Sheet</Btn>
           <Btn onClick={() => onProtocolAdvisor(client)} small color={C.orange}>🩺 Protocols</Btn>
           <Btn onClick={() => onGenerateWorkout(client)} small>💪 Workout</Btn>
           <Btn onClick={() => onBuildProgram(client)} small>📋 Program</Btn>
@@ -2546,7 +2851,7 @@ export default function App() {
         </button>
         {view !== 'roster' && (
           <div style={{ fontSize: 12, color: C.sub }}>
-            {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : view === 'editClient' ? 'Edit Client' : client?.name}
+            {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : view === 'signin' ? 'Sign-In Sheet' : view === 'editClient' ? 'Edit Client' : client?.name}
           </div>
         )}
       </div>
@@ -2562,6 +2867,7 @@ export default function App() {
             onBuildProgram={c => { setClient(c); setView('program') }}
             onGenerateWorkout={c => { setClient(c); setView('workout') }}
             onProtocolAdvisor={c => { setClient(c); setView('protocols') }}
+            onSignInSheet={c => { setClient(c); setView('signin') }}
             onEditClient={openEditClient}
             onBack={() => setView('roster')}
           />
@@ -2590,6 +2896,13 @@ export default function App() {
         {view === 'protocols' && client && (
           <ProtocolAdvisor
             client={client}
+            onBack={() => setView('client')}
+          />
+        )}
+        {view === 'signin' && client && (
+          <SignInSheet
+            client={client}
+            onUpdate={updateClient}
             onBack={() => setView('client')}
           />
         )}
