@@ -2206,6 +2206,7 @@ IMPORTANT:
 // ── SIGN-IN SHEET ────────────────────────────────────────────────────────────
 const PACKAGE_OPTIONS = [
   { label: '3 Months — 24 Sessions', sessions: 24 },
+  { label: '25 Sessions', sessions: 25 },
   { label: '6 Months — 48 Sessions', sessions: 48 },
   { label: '12 Months — 96 Sessions', sessions: 96 },
 ]
