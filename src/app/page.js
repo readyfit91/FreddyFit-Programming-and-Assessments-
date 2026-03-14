@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
 import { FIELD_MODIFIERS } from '../lib/modifiers'
+import { QRCodeCanvas } from 'qrcode.react'
 
 const makeId = () => Math.random().toString(36).slice(2,10)
 
@@ -1760,48 +1761,39 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
 
         {form.functional_fit_commit === 'Yes' && (
           <div style={{ marginTop: 8 }}>
-            {/* QR Code placeholder */}
-            <div style={{ textAlign: 'center', padding: '20px 16px', background: C.faint, borderRadius: 10, border: `1px solid ${C.border}`, marginBottom: 16 }}>
-              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 1.5, color: C.sub, textTransform: 'uppercase', marginBottom: 10 }}>Scan to Complete Payment</div>
-              <div style={{ width: 160, height: 160, margin: '0 auto', background: 'white', borderRadius: 12, border: `2px dashed ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.sub, fontSize: 11, fontWeight: 600 }}>QR Code Here</div>
-              <div style={{ fontSize: 10, color: C.sub, marginTop: 8 }}>QR code will be placed here</div>
+            {/* QR Code */}
+            <div style={{ textAlign: 'center', padding: '24px 16px', background: '#6C63FF08', borderRadius: 14, border: `2px solid #6C63FF33`, marginBottom: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: 2, color: C.text, textTransform: 'uppercase', marginBottom: 2 }}>FunctionalFit</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: C.text, marginBottom: 12 }}>$299.00</div>
+              <div style={{ display: 'inline-block', padding: 12, background: 'white', borderRadius: 14, border: '3px solid #6C63FF', boxShadow: '0 4px 20px #6C63FF22' }}>
+                <QRCodeCanvas value="https://buy.stripe.com/5kQ14nawL8Ft4l6fnh3Ru05" size={180} level="H" includeMargin={false} />
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#6C63FF', marginTop: 10 }}>Scan to Pay</div>
             </div>
 
             {/* Agreement initials */}
             <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 1.5, color: C.sub, textTransform: 'uppercase', marginBottom: 12 }}>Please initial each statement below</div>
 
-            {/* Statement 1 */}
-            <div style={{ padding: '14px 16px', background: C.faint, borderRadius: 10, border: `1px solid ${C.border}`, marginBottom: 10 }}>
-              <div style={{ fontSize: 12, lineHeight: 1.7, color: C.text, marginBottom: 10 }}>
-                I understand that I will receive four (4) one-on-one personal training sessions to be scheduled and completed within the next 3–4 weeks from the date of purchase.
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <label style={{ fontSize: 11, fontWeight: 700, color: C.sub, whiteSpace: 'nowrap' }}>Initials:</label>
-                <input type="text" value={form.functional_fit_initial_1} onChange={e => update('functional_fit_initial_1', e.target.value.toUpperCase())} placeholder="e.g. JS" maxLength={5} style={{ width: 70, padding: '6px 10px', borderRadius: 7, border: `1.5px solid ${form.functional_fit_initial_1 ? C.green : C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 14, fontWeight: 800, textAlign: 'center', color: C.text, outline: 'none', background: form.functional_fit_initial_1 ? C.green + '08' : 'white' }} />
-              </div>
-            </div>
-
-            {/* Statement 2 */}
-            <div style={{ padding: '14px 16px', background: C.faint, borderRadius: 10, border: `1px solid ${C.border}`, marginBottom: 10 }}>
-              <div style={{ fontSize: 12, lineHeight: 1.7, color: C.text, marginBottom: 10 }}>
-                I understand that this package comes with a 100% satisfaction guarantee. If, upon completion of all four (4) sessions, I am not satisfied with the service provided, I am eligible for a full refund. To exercise this guarantee, I must submit my refund request in writing.
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <label style={{ fontSize: 11, fontWeight: 700, color: C.sub, whiteSpace: 'nowrap' }}>Initials:</label>
-                <input type="text" value={form.functional_fit_initial_2} onChange={e => update('functional_fit_initial_2', e.target.value.toUpperCase())} placeholder="e.g. JS" maxLength={5} style={{ width: 70, padding: '6px 10px', borderRadius: 7, border: `1.5px solid ${form.functional_fit_initial_2 ? C.green : C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 14, fontWeight: 800, textAlign: 'center', color: C.text, outline: 'none', background: form.functional_fit_initial_2 ? C.green + '08' : 'white' }} />
-              </div>
-            </div>
-
-            {/* Statement 3 */}
-            <div style={{ padding: '14px 16px', background: C.faint, borderRadius: 10, border: `1px solid ${C.border}`, marginBottom: 10 }}>
-              <div style={{ fontSize: 12, lineHeight: 1.7, color: C.text, marginBottom: 10 }}>
-                I understand the cancellation policy: if I cancel a scheduled session with less than 12 hours{"'"} notice, the session will be forfeited and counted as used. If my trainer cancels a session, the next session will be complimentary at no charge to me.
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <label style={{ fontSize: 11, fontWeight: 700, color: C.sub, whiteSpace: 'nowrap' }}>Initials:</label>
-                <input type="text" value={form.functional_fit_initial_3} onChange={e => update('functional_fit_initial_3', e.target.value.toUpperCase())} placeholder="e.g. JS" maxLength={5} style={{ width: 70, padding: '6px 10px', borderRadius: 7, border: `1.5px solid ${form.functional_fit_initial_3 ? C.green : C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 14, fontWeight: 800, textAlign: 'center', color: C.text, outline: 'none', background: form.functional_fit_initial_3 ? C.green + '08' : 'white' }} />
-              </div>
-            </div>
+            {[
+              { k: 'functional_fit_initial_1', num: '1', text: 'I understand that I will receive four (4) one-on-one personal training sessions to be scheduled and completed within the next 3–4 weeks from the date of purchase.' },
+              { k: 'functional_fit_initial_2', num: '2', text: 'I understand that this package comes with a 100% satisfaction guarantee. If, upon completion of all four (4) sessions, I am not satisfied with the service provided, I am eligible for a full refund. To exercise this guarantee, I must submit my refund request in writing.' },
+              { k: 'functional_fit_initial_3', num: '3', text: `I understand the cancellation policy: if I cancel a scheduled session with less than 12 hours' notice, the session will be forfeited and counted as used. If my trainer cancels a session, the next session will be complimentary at no charge to me.` },
+            ].map(({ k, num, text }) => {
+              const initialed = !!form[k]
+              return (
+                <div key={k} style={{ display: 'flex', gap: 14, padding: '16px', background: initialed ? C.green + '06' : C.faint, borderRadius: 10, border: `1.5px solid ${initialed ? C.green + '44' : C.border}`, marginBottom: 10, alignItems: 'flex-start' }}>
+                  <div style={{ minWidth: 64, textAlign: 'center', paddingTop: 2 }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Initial</div>
+                    <input type="text" value={form[k]} onChange={e => update(k, e.target.value.toUpperCase())} placeholder="___" maxLength={5} style={{ width: 60, padding: '8px 4px', borderRadius: 8, border: `2px solid ${initialed ? C.green : C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 18, fontWeight: 800, textAlign: 'center', color: initialed ? C.green : C.text, outline: 'none', background: initialed ? C.green + '08' : 'white' }} />
+                    {initialed && <div style={{ fontSize: 10, color: C.green, fontWeight: 700, marginTop: 4 }}>Initialed</div>}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: C.accent, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 }}>Statement {num}</div>
+                    <div style={{ fontSize: 12, lineHeight: 1.7, color: C.text }}>{text}</div>
+                  </div>
+                </div>
+              )
+            })}
 
             {form.functional_fit_initial_1 && form.functional_fit_initial_2 && form.functional_fit_initial_3 && (
               <div style={{ marginTop: 12, padding: '10px 14px', background: C.green + '10', borderRadius: 8, border: `1px solid ${C.green}33`, fontSize: 12, color: C.green, fontWeight: 700, textAlign: 'center' }}>
