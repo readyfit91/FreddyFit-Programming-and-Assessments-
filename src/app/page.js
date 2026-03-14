@@ -447,52 +447,53 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
               {f.emptyCan && answers[f.id] && !isNaN(parseInt(answers[f.id])) && (() => {
                 const rating = parseInt(answers[f.id])
                 if (rating < 1 || rating > 10) return null
-                const shorterLeg = (() => {
-                  const r = parseFloat(answers['st_leg_length_right'])
-                  const l = parseFloat(answers['st_leg_length_left'])
-                  if (isNaN(r) || isNaN(l) || r === l) return null
-                  return l < r ? 'LEFT' : 'RIGHT'
-                })()
+                const shorterLeg = answers['st_leg_which_shorter'] || null
                 if (rating >= 8) return (
                   <div style={{ marginTop: 10 }}>
                     <div style={{ padding: '10px 14px', background: C.green + '12', borderRadius: 10, border: `1px solid ${C.green}44` }}>
                       <div style={{ fontSize: 12, fontWeight: 800, color: C.green }}>✓ {rating}/10 — Good seated empty can strength</div>
                     </div>
-                    {shorterLeg && (
-                      <div style={{ marginTop: 8, padding: '10px 14px', background: C.accent + '10', borderRadius: 10, border: `1px solid ${C.accent}33` }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: C.accent }}>Now perform Empty Can while standing on the {shorterLeg} (shorter) leg on weight plates. Rate the result below.</div>
-                      </div>
-                    )}
+                    <div style={{ marginTop: 8, padding: '10px 14px', background: C.accent + '10', borderRadius: 10, border: `1px solid ${C.accent}33` }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: C.accent }}>Now perform Empty Can STANDING on the {shorterLeg || 'shorter'} leg on weight plates. Measure how many cm of plates allow the test to pass.</div>
+                    </div>
                   </div>
                 )
                 return (
                   <div style={{ marginTop: 10, padding: '10px 14px', background: C.red + '10', borderRadius: 10, border: `1px solid ${C.red}33` }}>
                     <div style={{ fontSize: 12, fontWeight: 800, color: C.red }}>✗ {rating}/10 — Weak seated empty can</div>
-                    <div style={{ fontSize: 11, color: C.sub, marginTop: 4 }}>Score below 8 indicates weakness even while seated. Address shoulder/nerve function before standing tests.</div>
+                    <div style={{ fontSize: 12, color: C.red, fontWeight: 700, marginTop: 8 }}>⚠ Conduct the Shoulder/Neck Assessment before proceeding</div>
                   </div>
                 )
               })()}
-              {/* Empty Can Standing on weight plates — show rating result and height conclusion */}
+              {/* Empty Can Standing on weight plates — show rating result */}
               {f.emptyCanStanding && answers[f.id] && !isNaN(parseInt(answers[f.id])) && (() => {
                 const rating = parseInt(answers[f.id])
                 if (rating < 1 || rating > 10) return null
+                const shorterLeg = answers['st_leg_which_shorter'] || 'shorter'
+                return (
+                  <div style={{ marginTop: 10, padding: '10px 14px', background: (rating >= 8 ? C.green : C.red) + '12', borderRadius: 10, border: `1px solid ${(rating >= 8 ? C.green : C.red)}44` }}>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: rating >= 8 ? C.green : C.red }}>
+                      {rating >= 8 ? `✓ ${rating}/10 — PASS on ${shorterLeg} leg with weight plates` : `✗ ${rating}/10 — Still weak on ${shorterLeg} leg with weight plates`}
+                    </div>
+                  </div>
+                )
+              })()}
+              {/* Empty Can Standing Rating with cm adjustment */}
+              {f.emptyCanStandingRating && answers[f.id] && !isNaN(parseInt(answers[f.id])) && (() => {
+                const rating = parseInt(answers[f.id])
+                if (rating < 1 || rating > 10) return null
                 const plateHeight = answers['st_empty_can_plate_height']
-                const shorterLeg = (() => {
-                  const r = parseFloat(answers['st_leg_length_right'])
-                  const l = parseFloat(answers['st_leg_length_left'])
-                  if (isNaN(r) || isNaN(l) || r === l) return null
-                  return l < r ? 'LEFT' : 'RIGHT'
-                })()
+                const shorterLeg = answers['st_leg_which_shorter'] || 'shorter'
                 return (
                   <div style={{ marginTop: 10 }}>
                     <div style={{ padding: '10px 14px', background: (rating >= 8 ? C.green : C.red) + '12', borderRadius: 10, border: `1px solid ${(rating >= 8 ? C.green : C.red)}44` }}>
                       <div style={{ fontSize: 12, fontWeight: 800, color: rating >= 8 ? C.green : C.red }}>
-                        {rating >= 8 ? `✓ ${rating}/10 — PASS on ${shorterLeg || 'shorter'} leg with weight plates` : `✗ ${rating}/10 — Still weak on ${shorterLeg || 'shorter'} leg with weight plates`}
+                        {rating >= 8 ? `✓ ${rating}/10 — PASS with ${plateHeight || '?'} cm adjustment` : `✗ ${rating}/10 — FAIL with ${plateHeight || '?'} cm adjustment`}
                       </div>
                     </div>
-                    {plateHeight && (
+                    {plateHeight && rating >= 8 && (
                       <div style={{ marginTop: 8, padding: '10px 14px', background: C.accent + '10', borderRadius: 10, border: `1px solid ${C.accent}33` }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: C.accent }}>Appropriate height: {plateHeight} cm — this is the ideal lift height for the {shorterLeg || 'shorter'} leg</div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: C.accent }}>Appropriate height: {plateHeight} cm — this is the ideal lift height for the {shorterLeg} leg</div>
                       </div>
                     )}
                   </div>

@@ -243,55 +243,6 @@ export const FIELD_MODIFIERS = {
     'Tibial rotation awareness drill',
     'No modifier worked',
   ],
-  st_hip_height: [
-    'Heel lift trial on short side',
-    'Seated pelvic level check with wedge',
-    'Unilateral loading assessment',
-    'No modifier worked',
-  ],
-  st_leg_asymmetry: [
-    'Heel lift trial on shorter side',
-    'Unilateral exercise prescription',
-    'Modify bilateral stance width',
-    'No modifier worked',
-  ],
-  st_leg_length_right: [
-    'Heel lift trial — Right',
-    'Unilateral loading assessment — Right',
-    'Gait analysis with/without lift',
-    'No modifier worked',
-  ],
-  st_leg_length_left: [
-    'Heel lift trial — Left',
-    'Unilateral loading assessment — Left',
-    'Gait analysis with/without lift',
-    'No modifier worked',
-  ],
-  st_scoliosis: [
-    'Thoracic extension mobilisation',
-    'Unilateral strengthening on concave side',
-    'Core stabilisation (anti-rotation focus)',
-    'Refer for imaging if moderate/severe',
-    'No modifier worked',
-  ],
-  st_wsit: [
-    'Hip ER strengthening (clamshells)',
-    'Avoid deep internal rotation under load',
-    'Modify squat stance to accommodate anteversion',
-    'No modifier worked',
-  ],
-  st_yogasit: [
-    'Hip IR mobilisation (90/90 drill)',
-    'Adductor stretch + release',
-    'Modify seated positions during training',
-    'No modifier worked',
-  ],
-  st_referral: [
-    'Schedule GP / orthopaedic referral',
-    'Provide assessment summary for referring practitioner',
-    'Modify training to pain-free movements only',
-    'No modifier worked',
-  ],
 
   // ═══════════════════════════════════════════════════════════════════════════
   // NECK POSTURE & FUNCTION
