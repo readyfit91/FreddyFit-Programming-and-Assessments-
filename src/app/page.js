@@ -352,6 +352,15 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
             // Hide lying squat sub-questions when "Not needed" is selected
             const lyingSubFields = ['bms_sq_lying_arms','bms_sq_lying_knees','bms_sq_lying_ankles','bms_sq_lying_result']
             if (lyingSubFields.includes(f.id) && answers.bms_sq_lying !== 'Yes — performed') return null
+            // Hide thigh follow-up questions until both legs are measured and one is smaller
+            if (f.thighFollowUp) {
+              const r = parseFloat(answers.k_thigh_right)
+              const l = parseFloat(answers.k_thigh_left)
+              if (!r || !l || isNaN(r) || isNaN(l) || r === l) return null
+              const smallerLeg = l < r ? 'left' : 'right'
+              const labelWithLeg = f.label.replace(/\?$/, ` (${smallerLeg} leg)?`)
+              f = { ...f, label: labelWithLeg }
+            }
             // Hide conditional fields until their parent meets criteria
             if (f.showWhenFail) {
               const parentVal = parseFloat(answers[f.showWhenFail])
@@ -460,6 +469,49 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
                   <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{f.failNotes}</pre>
                 </div>
               )}
+              {/* Auto-comparison for thigh girth — show after left leg is entered */}
+              {f.id === 'k_thigh_left' && answers.k_thigh_right && answers.k_thigh_left && !isNaN(parseFloat(answers.k_thigh_right)) && !isNaN(parseFloat(answers.k_thigh_left)) && (() => {
+                const r = parseFloat(answers.k_thigh_right)
+                const l = parseFloat(answers.k_thigh_left)
+                const diff = Math.abs(r - l).toFixed(1)
+                if (r === l) return (
+                  <div style={{ marginTop: 8, padding: '8px 12px', background: C.green + '12', borderRadius: 8, border: `1px solid ${C.green}44` }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: C.green }}>✓ Equal — both legs measure {r}cm</div>
+                  </div>
+                )
+                const smallerLeg = l < r ? 'left' : 'right'
+                const smallerVal = Math.min(r, l)
+                const largerVal = Math.max(r, l)
+                return (
+                  <div style={{ marginTop: 8, padding: '8px 12px', background: C.orange + '12', borderRadius: 8, border: `1px solid ${C.orange}44` }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: C.orange }}>⚠ The {smallerLeg} leg measures less — {smallerVal}cm vs {largerVal}cm ({diff}cm difference)</div>
+                    <div style={{ fontSize: 11, color: C.sub, marginTop: 4 }}>Answer the follow-up questions below for the {smallerLeg} leg.</div>
+                  </div>
+                )
+              })()}
+              {/* Thigh girth verdict — show after all follow-up questions answered */}
+              {f.id === 'k_thigh_sport' && answers.k_thigh_right && answers.k_thigh_left && answers.k_thigh_injury && answers.k_thigh_surgery && answers.k_thigh_sport && (() => {
+                const r = parseFloat(answers.k_thigh_right)
+                const l = parseFloat(answers.k_thigh_left)
+                if (isNaN(r) || isNaN(l) || r === l) return null
+                const smallerLeg = l < r ? 'left' : 'right'
+                const diff = Math.abs(r - l).toFixed(1)
+                const injury = answers.k_thigh_injury === 'Yes'
+                const surgery = answers.k_thigh_surgery === 'Yes'
+                const sport = answers.k_thigh_sport === 'Yes'
+                let verdict = `The ${smallerLeg} leg measures ${diff}cm less in upper thigh girth.`
+                if (injury && surgery) verdict += ` The ${smallerLeg} leg has a history of both recent injury and surgery — muscle atrophy is likely post-surgical and post-injury. Prioritize gradual quad re-activation on the ${smallerLeg} side with VMO-focused work.`
+                else if (injury) verdict += ` A recent injury to the ${smallerLeg} leg likely explains the reduced girth — disuse atrophy from pain avoidance. Focus on pain-free quad activation and progressive loading on the ${smallerLeg} side.`
+                else if (surgery) verdict += ` Surgery on the ${smallerLeg} leg likely caused post-operative muscle atrophy. Focus on progressive quad strengthening and VMO re-activation on the ${smallerLeg} side.`
+                else if (sport) verdict += ` No injury or surgery reported, but the client plays a quad dominant sport — the larger leg may be the overworked dominant side. Monitor the ${smallerLeg} leg for compensatory weakness and consider single-leg training to balance both sides.`
+                else verdict += ` No injury, surgery, or quad dominant sport reported. The ${smallerLeg} leg shows reduced girth which may indicate a compensatory pattern or disuse. Investigate further — consider checking hip and low back function for nerve-related causes of ${smallerLeg} quad inhibition.`
+                return (
+                  <div style={{ marginTop: 10, padding: '12px 16px', background: C.red + '08', border: `1px solid ${C.red}22`, borderRadius: 10 }}>
+                    <div style={{ fontSize: 10, color: C.red, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>🦵 Thigh Girth Verdict</div>
+                    <div style={{ fontSize: 12, lineHeight: 1.7, color: C.text, fontFamily: 'Montserrat,sans-serif' }}>{verdict}</div>
+                  </div>
+                )
+              })()}
             </div>
           )})}
         </div>

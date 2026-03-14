@@ -211,11 +211,11 @@ export const ALL_ASSESSMENTS = {
     color:C.red, colorDim:C.red+"12",
     sections:[
       { id:"k1", title:"1. Upper Thigh Girth", fields:[
-        { id:"k_thigh_right", label:"1. Upper Thigh Girth — Right (cm)", type:"text", placeholder:"Enter cm",
-          failNotes:"Compare right vs left. A difference in thigh girth may indicate muscle atrophy, disuse, or compensatory patterns. The larger side is typically the dominant or overworked side." },
-        { id:"k_thigh_left", label:"1. Upper Thigh Girth — Left (cm)", type:"text", placeholder:"Enter cm",
-          failNotes:"Compare right vs left. A difference in thigh girth may indicate muscle atrophy, disuse, or compensatory patterns. The larger side is typically the dominant or overworked side." },
-        { id:"k_thigh_comparison", label:"Which side is larger?", type:"passfail", options:["Equal","Right Larger","Left Larger"] },
+        { id:"k_thigh_right", label:"1. Upper Thigh Girth — Right Leg (cm)", type:"text", placeholder:"Enter cm" },
+        { id:"k_thigh_left", label:"1. Upper Thigh Girth — Left Leg (cm)", type:"text", placeholder:"Enter cm" },
+        { id:"k_thigh_injury", label:"Was there an injury recently?", type:"passfail", options:["No","Yes"], thighFollowUp:true },
+        { id:"k_thigh_surgery", label:"Was there surgery?", type:"passfail", options:["No","Yes"], thighFollowUp:true },
+        { id:"k_thigh_sport", label:"Quad dominant sport?", type:"passfail", options:["No","Yes"], thighFollowUp:true },
       ]},
       { id:"k2", title:"2. Knee Cap Height Comparison", fields:[
         { id:"k_height", label:"2. Knee Cap Height — have client stand with SHOES OFF. Feel the TOP BORDER of the knee caps from the front. Are they the same height?", type:"passfail", options:["Equal","Right Higher","Left Higher"],
