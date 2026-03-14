@@ -2209,17 +2209,20 @@ const PACKAGE_OPTIONS = [
   { label: '25 Sessions', sessions: 25 },
   { label: '6 Months — 48 Sessions', sessions: 48 },
   { label: '12 Months — 96 Sessions', sessions: 96 },
-  { label: 'Ben McNamara — 32 Remaining', sessions: 32 },
-  { label: 'Stephanie Boyer — 45 Remaining', sessions: 45 },
-  { label: 'John Purcelli — 94 Remaining', sessions: 94 },
-  { label: 'Denise Rallo — 18 Remaining', sessions: 18 },
-  { label: 'Nick Rallo — 12 Remaining', sessions: 12 },
-  { label: 'Phruttitum — 34 Remaining', sessions: 34 },
-  { label: 'Timothy Ryner — 26 Remaining', sessions: 26 },
-  { label: 'Laura Reitz — 75 Remaining', sessions: 75 },
-  { label: 'Erin Larkin — 18 Remaining', sessions: 18 },
-  { label: 'Chris Mataya — 2 Remaining', sessions: 2 },
 ]
+
+const CLIENT_PACKAGES = {
+  'Ben McNamara': { totalPackage: 96, sessionsUsed: 64, sessionsRemaining: 32 },
+  'Stephanie Boyer': { totalPackage: 96, sessionsUsed: 51, sessionsRemaining: 45 },
+  'John Purcelli': { totalPackage: 96, sessionsUsed: 2, sessionsRemaining: 94 },
+  'Denise Rallo': { totalPackage: 96, sessionsUsed: 78, sessionsRemaining: 18 },
+  'Nick Rallo': { totalPackage: 96, sessionsUsed: 84, sessionsRemaining: 12 },
+  'Phruttitum': { totalPackage: 48, sessionsUsed: 14, sessionsRemaining: 34 },
+  'Timothy Ryner': { totalPackage: 96, sessionsUsed: 70, sessionsRemaining: 26 },
+  'Laura Reitz': { totalPackage: 96, sessionsUsed: 21, sessionsRemaining: 75 },
+  'Erin Larkin': { totalPackage: 24, sessionsUsed: 6, sessionsRemaining: 18 },
+  'Chris Mataya': { totalPackage: 25, sessionsUsed: 23, sessionsRemaining: 2 },
+}
 
 function SignInSheet({ client, onBack, onUpdate }) {
   // Load existing sign-in data from trainerNotes
@@ -2228,12 +2231,14 @@ function SignInSheet({ client, onBack, onUpdate }) {
     try { return JSON.parse(client.trainerNotes) } catch { return {} }
   })()
 
+  const clientPkg = CLIENT_PACKAGES[client.name] || null
   const [packageType, setPackageType] = useState(parsed.sign_in_package || '')
   const [entries, setEntries] = useState(parsed.sign_in_entries || [])
   const [showPopup, setShowPopup] = useState(null) // { remaining, total, session }
   const [saving, setSaving] = useState(false)
 
-  const totalSessions = PACKAGE_OPTIONS.find(p => p.label === packageType)?.sessions || 0
+  // If client has a pre-set package, use remaining as total and signatures as used
+  const totalSessions = clientPkg ? clientPkg.sessionsRemaining : (PACKAGE_OPTIONS.find(p => p.label === packageType)?.sessions || 0)
   const sessionsUsed = entries.length
   const sessionsRemaining = Math.max(0, totalSessions - sessionsUsed)
 
@@ -2279,23 +2284,46 @@ function SignInSheet({ client, onBack, onUpdate }) {
       <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 3, color: C.text, marginBottom: 4 }}>Sign-In Sheet</div>
       <div style={{ fontSize: 14, color: C.sub, marginBottom: 24 }}>{client.name}</div>
 
-      {/* Package Selection */}
-      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 20 }}>
-        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 10 }}>Select Package</div>
-        <select
-          value={packageType}
-          onChange={e => handlePackageChange(e.target.value)}
-          style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: `2px solid ${packageType ? C.accent : C.border}`, fontSize: 14, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, color: C.text, background: C.card, outline: 'none', cursor: 'pointer', appearance: 'auto' }}
-        >
-          <option value="">— Choose a package —</option>
-          {PACKAGE_OPTIONS.map(p => (
-            <option key={p.label} value={p.label}>{p.label}</option>
-          ))}
-        </select>
-      </div>
+      {/* Client Package Info */}
+      {clientPkg && (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 20 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 14 }}>{client.name}&apos;s Package</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, textAlign: 'center' }}>
+            <div>
+              <div style={{ fontSize: 24, fontWeight: 800, color: C.text }}>{clientPkg.totalPackage}</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 }}>Package</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 24, fontWeight: 800, color: C.accent }}>{clientPkg.sessionsUsed}</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 }}>Used</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 24, fontWeight: 800, color: clientPkg.sessionsRemaining <= 4 ? C.orange : C.green }}>{clientPkg.sessionsRemaining}</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 }}>Remaining</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Package Selection (for clients without pre-set packages) */}
+      {!clientPkg && (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 20 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 10 }}>Select Package</div>
+          <select
+            value={packageType}
+            onChange={e => handlePackageChange(e.target.value)}
+            style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: `2px solid ${packageType ? C.accent : C.border}`, fontSize: 14, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, color: C.text, background: C.card, outline: 'none', cursor: 'pointer', appearance: 'auto' }}
+          >
+            <option value="">— Choose a package —</option>
+            {PACKAGE_OPTIONS.map(p => (
+              <option key={p.label} value={p.label}>{p.label}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Session Counter */}
-      {packageType && (
+      {(clientPkg || packageType) && (
         <>
           <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
             <div style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 20px', textAlign: 'center' }}>
