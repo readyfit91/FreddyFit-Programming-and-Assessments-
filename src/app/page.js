@@ -1385,6 +1385,20 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
     conditions_description: existingIntake.conditions_description || '',
     had_surgery: existingIntake.had_surgery || '',
     surgery_description: existingIntake.surgery_description || '',
+    pain_foot: existingIntake.pain_foot || '',
+    pain_foot_side: existingIntake.pain_foot_side || '',
+    pain_knee: existingIntake.pain_knee || '',
+    pain_knee_side: existingIntake.pain_knee_side || '',
+    pain_hip: existingIntake.pain_hip || '',
+    pain_hip_side: existingIntake.pain_hip_side || '',
+    pain_back: existingIntake.pain_back || '',
+    pain_back_side: existingIntake.pain_back_side || '',
+    pain_shoulder: existingIntake.pain_shoulder || '',
+    pain_shoulder_side: existingIntake.pain_shoulder_side || '',
+    pain_neck: existingIntake.pain_neck || '',
+    pain_neck_side: existingIntake.pain_neck_side || '',
+    pain_migraines: existingIntake.pain_migraines || '',
+    pain_migraines_side: existingIntake.pain_migraines_side || '',
     nutrition_rating: existingIntake.nutrition_rating || '',
     nutrition_failure: existingIntake.nutrition_failure || '',
     follows_diet: existingIntake.follows_diet || '',
@@ -1499,6 +1513,34 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
         {form.pre_existing_conditions === 'Yes' && <IntakeTextArea k="conditions_description" label="If yes, please describe" placeholder="Describe injuries or conditions..." rows={2} {...fp} />}
         <IntakeYesNo k="had_surgery" label="Have you ever had surgery?" {...fp} />
         {form.had_surgery === 'Yes' && <IntakeTextArea k="surgery_description" label="If yes, please describe" placeholder="Type of surgery, when, any lasting effects..." rows={2} {...fp} />}
+
+        {/* ── Pain Screening ── */}
+        <div style={{ marginTop: 16, padding: '14px 16px', background: C.faint, borderRadius: 10, border: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 1.5, color: C.sub, textTransform: 'uppercase', marginBottom: 12 }}>Current Pain Screening</div>
+          {[
+            { k: 'pain_foot', label: 'Foot Pain', sideOptions: ['Left foot', 'Right foot', 'Both feet'] },
+            { k: 'pain_knee', label: 'Knee Pain', sideOptions: ['Left knee', 'Right knee', 'Both knees'] },
+            { k: 'pain_hip', label: 'Hip Pain', sideOptions: ['Left hip', 'Right hip', 'Both hips'] },
+            { k: 'pain_back', label: 'Back Pain', sideOptions: ['Lower back', 'Mid back', 'Upper back', 'Both sides', 'Left side', 'Right side'] },
+            { k: 'pain_shoulder', label: 'Shoulder Pain', sideOptions: ['Left shoulder', 'Right shoulder', 'Both shoulders'] },
+            { k: 'pain_neck', label: 'Neck Pain', sideOptions: ['Left side', 'Right side', 'Both sides', 'Central'] },
+            { k: 'pain_migraines', label: 'Migraines / Headaches', sideOptions: ['Left side', 'Right side', 'Both sides', 'Front', 'Back of head'] },
+          ].map(({ k: painKey, label: painLabel, sideOptions }) => (
+            <div key={painKey} style={{ marginBottom: 10, paddingBottom: 10, borderBottom: `1px solid ${C.border}22` }}>
+              <IntakeYesNo k={painKey} label={painLabel} {...fp} />
+              {form[painKey] === 'Yes' && (
+                <div style={{ marginTop: -6, marginLeft: 8 }}>
+                  <label style={fp.labelStyle}>Which area?</label>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {sideOptions.map(opt => (
+                      <button key={opt} onClick={() => update(`${painKey}_side`, opt)} style={{ padding: '6px 14px', borderRadius: 7, border: `1.5px solid ${form[`${painKey}_side`] === opt ? C.accent : C.border}`, background: form[`${painKey}_side`] === opt ? C.accent + '15' : 'white', color: form[`${painKey}_side`] === opt ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 600, fontSize: 11, cursor: 'pointer' }}>{opt}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* ── Nutrition ── */}
@@ -2052,6 +2094,14 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
                 <Section title="Health & Medical" items={[
                   ['Medication', intake.taking_medication], ['Medications', intake.medication_list],
                   ['Conditions', intake.pre_existing_conditions], ['Details', intake.conditions_description],
+                  ['Surgery', intake.had_surgery], ['Surgery details', intake.surgery_description],
+                  ['Foot pain', intake.pain_foot === 'Yes' ? `Yes — ${intake.pain_foot_side || 'unspecified'}` : intake.pain_foot],
+                  ['Knee pain', intake.pain_knee === 'Yes' ? `Yes — ${intake.pain_knee_side || 'unspecified'}` : intake.pain_knee],
+                  ['Hip pain', intake.pain_hip === 'Yes' ? `Yes — ${intake.pain_hip_side || 'unspecified'}` : intake.pain_hip],
+                  ['Back pain', intake.pain_back === 'Yes' ? `Yes — ${intake.pain_back_side || 'unspecified'}` : intake.pain_back],
+                  ['Shoulder pain', intake.pain_shoulder === 'Yes' ? `Yes — ${intake.pain_shoulder_side || 'unspecified'}` : intake.pain_shoulder],
+                  ['Neck pain', intake.pain_neck === 'Yes' ? `Yes — ${intake.pain_neck_side || 'unspecified'}` : intake.pain_neck],
+                  ['Migraines', intake.pain_migraines === 'Yes' ? `Yes — ${intake.pain_migraines_side || 'unspecified'}` : intake.pain_migraines],
                 ]} />
                 <Section title="Nutrition" items={[
                   ['Rating (90 days)', intake.nutrition_rating ? `${intake.nutrition_rating}/10` : ''],
