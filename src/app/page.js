@@ -1154,7 +1154,8 @@ const WAIVER_TEXT = `I hereby affirm, to the best of my knowledge, that I am in 
 I understand and agree that I am fully responsible for my participation in any services provided by FREDDYFIT LLC. I acknowledge that all activities are undertaken at my own risk. I release and hold harmless FREDDYFIT LLC, including its shareholders, directors, officers, employees, representatives, and agents, from any and all claims, losses, injuries, damages, or liabilities arising from my participation in or use of services provided by FREDDYFIT LLC.`
 
 const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-const TIME_OPTIONS = ['Morning', 'Afternoon', 'Evening', 'Unavailable']
+const TIME_OPTIONS = ['Morning', 'Afternoon', 'Evening']
+const DAY_STATUS_OPTIONS = ['Available', 'Preferred', 'Unavailable']
 
 function SignaturePad({ value, onChange }) {
   const canvasRef = useRef(null)
@@ -1433,23 +1434,41 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
       {/* ── Scheduling Preferences ── */}
       <div style={sectionStyle}>
         {sectionTitle('📅', 'Scheduling Preferences')}
-        <label style={labelStyle}>Select your preferred day(s) and time for each</label>
+        <label style={labelStyle}>For each day, select availability and preferred time(s)</label>
         {DAYS_OF_WEEK.map(day => {
           const dayData = form.schedule[day] || {}
-          const isPreferred = dayData.preferred === true
+          const status = dayData.status || ''
+          const times = dayData.times || []
+          const isActive = status === 'Available' || status === 'Preferred'
+          const statusColor = status === 'Preferred' ? C.accent : status === 'Available' ? C.green : status === 'Unavailable' ? C.red : C.border
           return (
-            <div key={day} style={{ marginBottom: 10, padding: '10px 14px', background: isPreferred ? C.accent + '08' : C.faint, border: `1.5px solid ${isPreferred ? C.accent + '44' : C.border}`, borderRadius: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isPreferred ? 8 : 0 }}>
+            <div key={day} style={{ marginBottom: 10, padding: '12px 14px', background: isActive ? statusColor + '06' : C.faint, border: `1.5px solid ${status ? statusColor + '44' : C.border}`, borderRadius: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: status && status !== 'Unavailable' ? 8 : 0 }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{day}</span>
-                <button onClick={() => updateSchedule(day, 'preferred', !isPreferred)} style={{ padding: '5px 14px', borderRadius: 7, border: `1.5px solid ${isPreferred ? C.accent : C.border}`, background: isPreferred ? C.accent + '15' : 'transparent', color: isPreferred ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
-                  {isPreferred ? '✓ Preferred' : 'Select'}
-                </button>
+                <div style={{ display: 'flex', gap: 5 }}>
+                  {DAY_STATUS_OPTIONS.map(opt => {
+                    const selected = status === opt
+                    const optColor = opt === 'Preferred' ? C.accent : opt === 'Available' ? C.green : C.red
+                    return (
+                      <button key={opt} onClick={() => {
+                        updateSchedule(day, 'status', selected ? '' : opt)
+                        if (opt === 'Unavailable') updateSchedule(day, 'times', [])
+                      }} style={{ padding: '4px 10px', borderRadius: 7, border: `1.5px solid ${selected ? optColor : C.border}`, background: selected ? optColor + '15' : 'transparent', color: selected ? optColor : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer' }}>{selected ? '✓ ' : ''}{opt}</button>
+                    )
+                  })}
+                </div>
               </div>
-              {isPreferred && (
+              {isActive && (
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {TIME_OPTIONS.map(time => (
-                    <button key={time} onClick={() => updateSchedule(day, 'time', time)} style={{ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${dayData.time === time ? C.accent : C.border}`, background: dayData.time === time ? C.accent + '15' : 'transparent', color: dayData.time === time ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 600, fontSize: 11, cursor: 'pointer' }}>{time}</button>
-                  ))}
+                  {TIME_OPTIONS.map(time => {
+                    const selected = times.includes(time)
+                    return (
+                      <button key={time} onClick={() => {
+                        const newTimes = selected ? times.filter(t => t !== time) : [...times, time]
+                        updateSchedule(day, 'times', newTimes)
+                      }} style={{ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${selected ? statusColor : C.border}`, background: selected ? statusColor + '15' : 'transparent', color: selected ? statusColor : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 600, fontSize: 11, cursor: 'pointer' }}>{selected ? '✓ ' : ''}{time}</button>
+                    )
+                  })}
                 </div>
               )}
             </div>
