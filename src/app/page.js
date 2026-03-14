@@ -2244,17 +2244,20 @@ function SignInSheet({ client, onBack, onUpdate }) {
   const clientPkg = CLIENT_PACKAGES[client.name] || null
   const [packageType, setPackageType] = useState(parsed.sign_in_package || '')
   const [entries, setEntries] = useState(parsed.sign_in_entries || [])
+  const [sessionOffset, setSessionOffset] = useState(parsed.sign_in_offset || 0)
   const [showPopup, setShowPopup] = useState(null) // { remaining, total, session }
   const [saving, setSaving] = useState(false)
+  const [editingOffset, setEditingOffset] = useState(false)
+  const [tempOffset, setTempOffset] = useState(String(sessionOffset))
 
   const totalSessions = PACKAGE_OPTIONS.find(p => p.label === packageType)?.sessions || 0
-  const sessionsUsed = entries.length
+  const sessionsUsed = entries.length + sessionOffset
   const sessionsRemaining = Math.max(0, totalSessions - sessionsUsed)
 
-  const saveData = async (newPackage, newEntries) => {
+  const saveData = async (newPackage, newEntries, newOffset) => {
     setSaving(true)
     try {
-      const updatedNotes = { ...parsed, sign_in_package: newPackage, sign_in_entries: newEntries }
+      const updatedNotes = { ...parsed, sign_in_package: newPackage, sign_in_entries: newEntries, sign_in_offset: newOffset !== undefined ? newOffset : sessionOffset }
       const updatedClient = { ...client, trainerNotes: JSON.stringify(updatedNotes) }
       await saveClient(updatedClient)
       onUpdate(updatedClient)
@@ -2271,18 +2274,28 @@ function SignInSheet({ client, onBack, onUpdate }) {
 
   const handleSign = (signature) => {
     const today = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
-    const sessionNum = entries.length + 1
+    const sessionNum = entries.length + sessionOffset + 1
     const newEntries = [...entries, { session: sessionNum, date: today, signature }]
     setEntries(newEntries)
     saveData(packageType, newEntries)
-    const remaining = Math.max(0, totalSessions - newEntries.length)
+    const remaining = Math.max(0, totalSessions - (newEntries.length + sessionOffset))
     setShowPopup({ remaining, total: totalSessions, session: sessionNum })
   }
 
   const handleDeleteEntry = (idx) => {
-    const newEntries = entries.filter((_, i) => i !== idx).map((e, i) => ({ ...e, session: i + 1 }))
+    const newEntries = entries.filter((_, i) => i !== idx).map((e, i) => ({ ...e, session: i + sessionOffset + 1 }))
     setEntries(newEntries)
     saveData(packageType, newEntries)
+  }
+
+  const handleOffsetSave = () => {
+    const val = Math.max(0, parseInt(tempOffset) || 0)
+    setSessionOffset(val)
+    setEditingOffset(false)
+    // Renumber existing entries to account for new offset
+    const renumbered = entries.map((e, i) => ({ ...e, session: i + val + 1 }))
+    setEntries(renumbered)
+    saveData(packageType, renumbered, val)
   }
 
   return (
@@ -2331,6 +2344,29 @@ function SignInSheet({ client, onBack, onUpdate }) {
             <option key={p.label} value={p.label}>{p.label}</option>
           ))}
         </select>
+        {packageType && !clientPkg && (
+          <div style={{ marginTop: 12 }}>
+            {editingOffset ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: C.sub }}>Previous sessions completed:</span>
+                <input
+                  type="number"
+                  min="0"
+                  max={totalSessions - 1}
+                  value={tempOffset}
+                  onChange={e => setTempOffset(e.target.value)}
+                  style={{ width: 70, padding: '6px 10px', borderRadius: 8, border: `2px solid ${C.accent}`, fontSize: 14, fontWeight: 700, color: C.text, background: C.card, outline: 'none', fontFamily: 'Montserrat,sans-serif', textAlign: 'center' }}
+                />
+                <button onClick={handleOffsetSave} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Save</button>
+                <button onClick={() => { setEditingOffset(false); setTempOffset(String(sessionOffset)) }} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 8, padding: '6px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Cancel</button>
+              </div>
+            ) : (
+              <button onClick={() => { setEditingOffset(true); setTempOffset(String(sessionOffset)) }} style={{ background: 'none', border: 'none', color: C.accent, fontSize: 12, fontWeight: 700, cursor: 'pointer', padding: 0, fontFamily: 'Montserrat,sans-serif' }}>
+                {sessionOffset > 0 ? `${sessionOffset} previous sessions recorded` : 'Set previous sessions completed'}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Session Counter */}
