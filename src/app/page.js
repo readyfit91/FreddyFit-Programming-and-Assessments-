@@ -1291,12 +1291,134 @@ const DAY_STATUS_OPTIONS = ['Available', 'Preferred', 'Unavailable']
 function SignaturePad({ value, onChange }) {
   const canvasRef = useRef(null)
   const isDrawing = useRef(false)
+  const hasDrawn = useRef(!!value)
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
-    // Set canvas resolution
+    const rect = canvas.getBoundingClientRect()
+    canvas.width = rect.width * 2
+    canvas.height = rect.height * 2
+    ctx.scale(2, 2)
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.lineWidth = 2.5
+    ctx.strokeStyle = '#1a1a2e'
+    // Draw signature guide line
+    ctx.save()
+    ctx.strokeStyle = '#ddd'
+    ctx.lineWidth = 1
+    ctx.setLineDash([4, 4])
+    ctx.beginPath()
+    ctx.moveTo(20, rect.height - 30)
+    ctx.lineTo(rect.width - 20, rect.height - 30)
+    ctx.stroke()
+    ctx.restore()
+    // "X" marker
+    ctx.save()
+    ctx.font = '16px Montserrat, sans-serif'
+    ctx.fillStyle = '#ccc'
+    ctx.fillText('✕', 8, rect.height - 22)
+    ctx.restore()
+    // Restore existing signature
+    if (value) {
+      hasDrawn.current = true
+      const img = new Image()
+      img.onload = () => { ctx.drawImage(img, 0, 0, rect.width, rect.height) }
+      img.src = value
+    }
+  }, [])
+
+  const getPos = (e) => {
+    const canvas = canvasRef.current
+    const rect = canvas.getBoundingClientRect()
+    const touch = e.touches ? e.touches[0] : e
+    return { x: touch.clientX - rect.left, y: touch.clientY - rect.top }
+  }
+
+  const startDraw = (e) => {
+    e.preventDefault()
+    hasDrawn.current = true
+    isDrawing.current = true
+    const ctx = canvasRef.current.getContext('2d')
+    ctx.strokeStyle = '#1a1a2e'
+    ctx.lineWidth = 2.5
+    ctx.setLineDash([])
+    const pos = getPos(e)
+    ctx.beginPath()
+    ctx.moveTo(pos.x, pos.y)
+  }
+
+  const draw = (e) => {
+    if (!isDrawing.current) return
+    e.preventDefault()
+    const ctx = canvasRef.current.getContext('2d')
+    const pos = getPos(e)
+    ctx.lineTo(pos.x, pos.y)
+    ctx.stroke()
+  }
+
+  const endDraw = () => {
+    if (!isDrawing.current) return
+    isDrawing.current = false
+    onChange(canvasRef.current.toDataURL())
+  }
+
+  const clear = () => {
+    const canvas = canvasRef.current
+    const ctx = canvas.getContext('2d')
+    const rect = canvas.getBoundingClientRect()
+    ctx.clearRect(0, 0, rect.width, rect.height)
+    hasDrawn.current = false
+    // Redraw guide line
+    ctx.save()
+    ctx.strokeStyle = '#ddd'
+    ctx.lineWidth = 1
+    ctx.setLineDash([4, 4])
+    ctx.beginPath()
+    ctx.moveTo(20, rect.height - 30)
+    ctx.lineTo(rect.width - 20, rect.height - 30)
+    ctx.stroke()
+    ctx.restore()
+    ctx.save()
+    ctx.font = '16px Montserrat, sans-serif'
+    ctx.fillStyle = '#ccc'
+    ctx.fillText('✕', 8, rect.height - 22)
+    ctx.restore()
+    onChange('')
+  }
+
+  return (
+    <div style={{ position: 'relative' }}>
+      {!value && (
+        <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', pointerEvents: 'none', zIndex: 1, textAlign: 'center' }}>
+          <div style={{ fontSize: 13, color: '#bbb', fontWeight: 600, fontFamily: 'Montserrat,sans-serif' }}>Sign here</div>
+          <div style={{ fontSize: 10, color: '#ccc', marginTop: 2, fontFamily: 'Montserrat,sans-serif' }}>Use your finger or mouse to sign</div>
+        </div>
+      )}
+      <canvas
+        ref={canvasRef}
+        style={{ width: '100%', height: 160, border: `2px solid ${value ? C.green + '66' : C.border}`, borderRadius: 12, background: '#fafbfc', touchAction: 'none', cursor: 'crosshair', position: 'relative', zIndex: 2 }}
+        onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
+        onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}
+      />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+        <button onClick={clear} style={{ background: 'none', border: `1.5px solid ${C.border}`, color: C.sub, borderRadius: 8, padding: '6px 16px', fontSize: 12, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', fontWeight: 600 }}>Clear</button>
+        {value && <div style={{ fontSize: 11, color: C.green, fontWeight: 700 }}>✓ Signature captured</div>}
+      </div>
+    </div>
+  )
+}
+
+function InitialPad({ value, onChange }) {
+  const canvasRef = useRef(null)
+  const isDrawing = useRef(false)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
     const rect = canvas.getBoundingClientRect()
     canvas.width = rect.width * 2
     canvas.height = rect.height * 2
@@ -1304,8 +1426,7 @@ function SignaturePad({ value, onChange }) {
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
     ctx.lineWidth = 2
-    ctx.strokeStyle = '#000'
-    // Restore existing signature
+    ctx.strokeStyle = '#1a1a2e'
     if (value) {
       const img = new Image()
       img.onload = () => { ctx.drawImage(img, 0, 0, rect.width, rect.height) }
@@ -1324,6 +1445,9 @@ function SignaturePad({ value, onChange }) {
     e.preventDefault()
     isDrawing.current = true
     const ctx = canvasRef.current.getContext('2d')
+    ctx.strokeStyle = '#1a1a2e'
+    ctx.lineWidth = 2
+    ctx.setLineDash([])
     const pos = getPos(e)
     ctx.beginPath()
     ctx.moveTo(pos.x, pos.y)
@@ -1353,14 +1477,23 @@ function SignaturePad({ value, onChange }) {
   }
 
   return (
-    <div>
-      <canvas
-        ref={canvasRef}
-        style={{ width: '100%', height: 150, border: `1.5px solid ${C.border}`, borderRadius: 10, background: '#fff', touchAction: 'none', cursor: 'crosshair' }}
-        onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
-        onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}
-      />
-      <button onClick={clear} style={{ marginTop: 6, background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 6, padding: '4px 12px', fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Clear Signature</button>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 80 }}>
+      <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 }}>Initial</div>
+      <div style={{ position: 'relative' }}>
+        {!value && (
+          <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', pointerEvents: 'none', zIndex: 1, fontSize: 10, color: '#ccc', fontWeight: 600, fontFamily: 'Montserrat,sans-serif', whiteSpace: 'nowrap' }}>Draw</div>
+        )}
+        <canvas
+          ref={canvasRef}
+          style={{ width: 80, height: 50, border: `2px solid ${value ? C.green : C.border}`, borderRadius: 8, background: value ? C.green + '08' : '#fafbfc', touchAction: 'none', cursor: 'crosshair', position: 'relative', zIndex: 2 }}
+          onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
+          onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}
+        />
+      </div>
+      {value ? (
+        <button onClick={clear} style={{ marginTop: 3, background: 'none', border: 'none', color: C.sub, fontSize: 9, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', textDecoration: 'underline', padding: 0 }}>clear</button>
+      ) : null}
+      {value && <div style={{ fontSize: 9, color: C.green, fontWeight: 700, marginTop: 2 }}>✓</div>}
     </div>
   )
 }
@@ -1747,10 +1880,10 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
       {/* ── Waiver & Signature ── */}
       <div style={sectionStyle}>
         {sectionTitle('✍️', 'Waiver & Signature')}
-        <div style={{ fontSize: 12, color: C.text, lineHeight: 1.8, marginBottom: 16, padding: '14px 16px', background: C.faint, borderRadius: 10, border: `1px solid ${C.border}` }}>
+        <div style={{ fontSize: 12, color: C.text, lineHeight: 1.8, marginBottom: 16, padding: '16px 18px', background: C.faint, borderRadius: 12, border: `1px solid ${C.border}`, maxHeight: 200, overflowY: 'auto' }}>
           {WAIVER_TEXT}
         </div>
-        <label style={labelStyle}>Client Signature</label>
+        <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>By signing below, I agree to the terms above</div>
         <SignaturePad value={form.waiver_signature} onChange={val => update('waiver_signature', val)} />
       </div>
 
@@ -1781,12 +1914,8 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
             ].map(({ k, num, text }) => {
               const initialed = !!form[k]
               return (
-                <div key={k} style={{ display: 'flex', gap: 14, padding: '16px', background: initialed ? C.green + '06' : C.faint, borderRadius: 10, border: `1.5px solid ${initialed ? C.green + '44' : C.border}`, marginBottom: 10, alignItems: 'flex-start' }}>
-                  <div style={{ minWidth: 64, textAlign: 'center', paddingTop: 2 }}>
-                    <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Initial</div>
-                    <input type="text" value={form[k]} onChange={e => update(k, e.target.value.toUpperCase())} placeholder="___" maxLength={5} style={{ width: 60, padding: '8px 4px', borderRadius: 8, border: `2px solid ${initialed ? C.green : C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 18, fontWeight: 800, textAlign: 'center', color: initialed ? C.green : C.text, outline: 'none', background: initialed ? C.green + '08' : 'white' }} />
-                    {initialed && <div style={{ fontSize: 10, color: C.green, fontWeight: 700, marginTop: 4 }}>Initialed</div>}
-                  </div>
+                <div key={k} style={{ display: 'flex', gap: 14, padding: '16px', background: initialed ? C.green + '06' : C.faint, borderRadius: 12, border: `1.5px solid ${initialed ? C.green + '44' : C.border}`, marginBottom: 10, alignItems: 'flex-start' }}>
+                  <InitialPad value={form[k]} onChange={val => update(k, val)} />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 10, fontWeight: 800, color: C.accent, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 }}>Statement {num}</div>
                     <div style={{ fontSize: 12, lineHeight: 1.7, color: C.text }}>{text}</div>
