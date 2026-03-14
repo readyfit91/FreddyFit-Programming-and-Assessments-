@@ -2209,6 +2209,16 @@ const PACKAGE_OPTIONS = [
   { label: '25 Sessions', sessions: 25 },
   { label: '6 Months — 48 Sessions', sessions: 48 },
   { label: '12 Months — 96 Sessions', sessions: 96 },
+  { label: 'Ben McNamara', sessions: 32 },
+  { label: 'Stephanie Boyer', sessions: 45 },
+  { label: 'John Purcelli', sessions: 94 },
+  { label: 'Denise Rallo', sessions: 18 },
+  { label: 'Nick Rallo', sessions: 12 },
+  { label: 'Phruttitum', sessions: 34 },
+  { label: 'Timothy Ryner', sessions: 26 },
+  { label: 'Laura Reitz', sessions: 75 },
+  { label: 'Erin Larkin', sessions: 18 },
+  { label: 'Chris Mataya', sessions: 2 },
 ]
 
 const CLIENT_PACKAGES = {
@@ -2237,8 +2247,7 @@ function SignInSheet({ client, onBack, onUpdate }) {
   const [showPopup, setShowPopup] = useState(null) // { remaining, total, session }
   const [saving, setSaving] = useState(false)
 
-  // If client has a pre-set package, use remaining as total and signatures as used
-  const totalSessions = clientPkg ? clientPkg.sessionsRemaining : (PACKAGE_OPTIONS.find(p => p.label === packageType)?.sessions || 0)
+  const totalSessions = PACKAGE_OPTIONS.find(p => p.label === packageType)?.sessions || 0
   const sessionsUsed = entries.length
   const sessionsRemaining = Math.max(0, totalSessions - sessionsUsed)
 
@@ -2305,25 +2314,23 @@ function SignInSheet({ client, onBack, onUpdate }) {
         </div>
       )}
 
-      {/* Package Selection (for clients without pre-set packages) */}
-      {!clientPkg && (
-        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 20 }}>
-          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 10 }}>Select Package</div>
-          <select
-            value={packageType}
-            onChange={e => handlePackageChange(e.target.value)}
-            style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: `2px solid ${packageType ? C.accent : C.border}`, fontSize: 14, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, color: C.text, background: C.card, outline: 'none', cursor: 'pointer', appearance: 'auto' }}
-          >
-            <option value="">— Choose a package —</option>
-            {PACKAGE_OPTIONS.map(p => (
-              <option key={p.label} value={p.label}>{p.label}</option>
-            ))}
-          </select>
-        </div>
-      )}
+      {/* Package Selection */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 20 }}>
+        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 10 }}>Select Package</div>
+        <select
+          value={packageType}
+          onChange={e => handlePackageChange(e.target.value)}
+          style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: `2px solid ${packageType ? C.accent : C.border}`, fontSize: 14, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, color: C.text, background: C.card, outline: 'none', cursor: 'pointer', appearance: 'auto' }}
+        >
+          <option value="">— Choose a package —</option>
+          {PACKAGE_OPTIONS.map(p => (
+            <option key={p.label} value={p.label}>{p.label}</option>
+          ))}
+        </select>
+      </div>
 
       {/* Session Counter */}
-      {(clientPkg || packageType) && (
+      {packageType && (
         <>
           <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
             <div style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 20px', textAlign: 'center' }}>
