@@ -188,78 +188,27 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
       )
     }
 
-    const ratingKey = `${f.id}_rating`
     const modKey = `${f.id}_modifier`
     const modConfirmedKey = `${f.id}_mod_confirmed`
     const modRatingKey = `${f.id}_mod_rating`
-    const rating = answers[ratingKey]
     const modifier = answers[modKey]
-    const modConfirmed = answers[modConfirmedKey]
     const modRating = answers[modRatingKey]
-    const ratingNum = parseInt(rating)
     const modRatingNum = parseInt(modRating)
-    const isFail = rating && ratingNum <= 7
-    const isPass = rating && ratingNum >= 8
-    const ratingColor = !rating ? C.sub : isFail ? C.red : C.green
+    const isFail = answers[f.id] && answers[f.id] !== f.options?.[0] && answers[f.id] !== 'Pass'
+    const isPass = answers[f.id] === f.options?.[0] || answers[f.id] === 'Pass'
+
+    if (!isFail && !isPass) return null
 
     return (
       <div style={{ marginTop: 10, background: C.faint, borderRadius: 10, padding: '12px 14px', border: `1px solid ${C.border}` }}>
-
-        {/* Rate this test */}
-        <div style={{ marginBottom: rating ? 12 : 0 }}>
-          <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Step 1 — Rate this test (1–10)</div>
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            {[1,2,3,4,5,6,7,8,9,10].map(n => {
-              const isSelected = ratingNum === n
-              const btnFail = n <= 7
-              return (
-                <button key={n} onClick={() => {
-                  set(ratingKey, n.toString())
-                  set(modKey, '')
-                  set(modConfirmedKey, '')
-                  set(modRatingKey, '')
-                  const modOptions = f.modifiers || FIELD_MODIFIERS[f.id]
-                  if (n >= 8) {
-                    set(f.id, 'Pass')
-                  } else if (!modOptions || modOptions.length === 0) {
-                    set(f.id, 'Fail')
-                  }
-                }} style={{
-                  width: 32, height: 32, borderRadius: 7,
-                  border: `1.5px solid ${isSelected ? (btnFail ? C.red : C.green) : C.border}`,
-                  background: isSelected ? (btnFail ? C.red : C.green) : 'white',
-                  color: isSelected ? 'white' : btnFail ? C.red : C.green,
-                  fontFamily: 'Montserrat,sans-serif', fontWeight: 800, fontSize: 12,
-                  cursor: 'pointer'
-                }}>{n}</button>
-              )
-            })}
-          </div>
-          {rating && (
-            <div style={{ fontSize: 11, marginTop: 6, fontWeight: 800, color: ratingColor }}>
-              {isFail ? `✗ FAIL — ${rating}/10` : `✓ PASS — ${rating}/10`}
-            </div>
-          )}
-        </div>
-
-        {/* FAIL NOTES — clinical decision notes from uploaded protocols */}
-        {isFail && f.failNotes && (
-          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: 12 }}>
-            <div style={{ fontSize: 10, color: C.orange, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 What To Do Next</div>
-            <div style={{ background: C.orange + '08', border: `1px solid ${C.orange}22`, borderRadius: 10, padding: '12px 16px' }}>
-              <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{f.failNotes}</pre>
-            </div>
-          </div>
-        )}
 
         {/* MODIFIER DROPDOWN — select which modifier to attempt (inline or from FIELD_MODIFIERS) */}
         {(() => {
           const modOptions = f.modifiers || FIELD_MODIFIERS[f.id]
           if (!isFail || !modOptions || modOptions.length === 0) return null
-          const noHelpLabel = modOptions.find(m => m.startsWith('No modifier')) || 'No modifier worked'
           return (
-            <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: modifier ? 12 : 0 }}>
-              <div style={{ fontSize: 10, color: C.red, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Step 2 — Which modifier helped?</div>
+            <div style={{ marginBottom: modifier ? 12 : 0 }}>
+              <div style={{ fontSize: 10, color: C.red, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Modifiers to try</div>
               <select value={modifier || ''} onChange={e => {
                 set(modKey, e.target.value)
                 set(modConfirmedKey, '')
@@ -275,10 +224,10 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
           )
         })()}
 
-        {/* ALL ASSESSMENTS: Re-rate after modifier attempt */}
+        {/* Re-rate after modifier attempt */}
         {isFail && modifier && !modifier.startsWith('No modifier') && (
           <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
-            <div style={{ fontSize: 10, color: C.accent, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Step 3 — Re-rate after {modifier.split('→')[0].trim()}</div>
+            <div style={{ fontSize: 10, color: C.accent, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Re-rate after {modifier.split('→')[0].trim()} (1–10)</div>
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
               {[1,2,3,4,5,6,7,8,9,10].map(n => {
                 const isSelected = modRatingNum === n
@@ -322,7 +271,7 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
 
         {/* Pass — no corrective needed */}
         {isPass && (
-          <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+          <div>
             <div style={{ fontSize: 11, color: C.green, fontWeight: 700 }}>✓ Pass — no corrective needed for this test</div>
           </div>
         )}
@@ -369,7 +318,14 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
             }
             // Hide fields until parent has a specific value
             if (f.showWhenParent) {
-              if (answers[f.showWhenParent] !== f.showWhenParentValue) return null
+              if (f.showWhenParentValue === '__gte8__') {
+                const parentNum = parseInt(answers[f.showWhenParent])
+                if (!parentNum || isNaN(parentNum) || parentNum < 8) return null
+              } else if (f.showWhenParentValue === '__any__') {
+                if (!answers[f.showWhenParent]) return null
+              } else {
+                if (answers[f.showWhenParent] !== f.showWhenParentValue) return null
+              }
             }
             // Hide conditional fields until their parent meets criteria
             if (f.showWhenFail) {
@@ -467,6 +423,81 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
                   <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{f.failNotes}</pre>
                 </div>
               )}
+              {/* Leg Length — auto-conclude which leg is shorter */}
+              {f.id === 'st_leg_length_left' && answers['st_leg_length_right'] && answers['st_leg_length_left'] && (() => {
+                const r = parseFloat(answers['st_leg_length_right'])
+                const l = parseFloat(answers['st_leg_length_left'])
+                if (isNaN(r) || isNaN(l)) return null
+                const diff = Math.abs(r - l).toFixed(1)
+                if (r === l) return (
+                  <div style={{ marginTop: 10, padding: '10px 14px', background: C.green + '12', borderRadius: 10, border: `1px solid ${C.green}44` }}>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: C.green }}>✓ Legs are equal length — {r} cm each</div>
+                  </div>
+                )
+                const shorter = l < r ? 'LEFT' : 'RIGHT'
+                const longer = l < r ? 'RIGHT' : 'LEFT'
+                return (
+                  <div style={{ marginTop: 10, padding: '10px 14px', background: C.red + '10', borderRadius: 10, border: `1px solid ${C.red}33` }}>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: C.red }}>⚠ {shorter} leg is shorter by {diff} cm</div>
+                    <div style={{ fontSize: 11, color: C.sub, marginTop: 4 }}>Right: {r} cm · Left: {l} cm · Difference: {diff} cm</div>
+                  </div>
+                )
+              })()}
+              {/* Empty Can Seated — show rating result */}
+              {f.emptyCan && answers[f.id] && !isNaN(parseInt(answers[f.id])) && (() => {
+                const rating = parseInt(answers[f.id])
+                if (rating < 1 || rating > 10) return null
+                const shorterLeg = (() => {
+                  const r = parseFloat(answers['st_leg_length_right'])
+                  const l = parseFloat(answers['st_leg_length_left'])
+                  if (isNaN(r) || isNaN(l) || r === l) return null
+                  return l < r ? 'LEFT' : 'RIGHT'
+                })()
+                if (rating >= 8) return (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ padding: '10px 14px', background: C.green + '12', borderRadius: 10, border: `1px solid ${C.green}44` }}>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: C.green }}>✓ {rating}/10 — Good seated empty can strength</div>
+                    </div>
+                    {shorterLeg && (
+                      <div style={{ marginTop: 8, padding: '10px 14px', background: C.accent + '10', borderRadius: 10, border: `1px solid ${C.accent}33` }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: C.accent }}>Now perform Empty Can while standing on the {shorterLeg} (shorter) leg on weight plates. Rate the result below.</div>
+                      </div>
+                    )}
+                  </div>
+                )
+                return (
+                  <div style={{ marginTop: 10, padding: '10px 14px', background: C.red + '10', borderRadius: 10, border: `1px solid ${C.red}33` }}>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: C.red }}>✗ {rating}/10 — Weak seated empty can</div>
+                    <div style={{ fontSize: 11, color: C.sub, marginTop: 4 }}>Score below 8 indicates weakness even while seated. Address shoulder/nerve function before standing tests.</div>
+                  </div>
+                )
+              })()}
+              {/* Empty Can Standing on weight plates — show rating result and height conclusion */}
+              {f.emptyCanStanding && answers[f.id] && !isNaN(parseInt(answers[f.id])) && (() => {
+                const rating = parseInt(answers[f.id])
+                if (rating < 1 || rating > 10) return null
+                const plateHeight = answers['st_empty_can_plate_height']
+                const shorterLeg = (() => {
+                  const r = parseFloat(answers['st_leg_length_right'])
+                  const l = parseFloat(answers['st_leg_length_left'])
+                  if (isNaN(r) || isNaN(l) || r === l) return null
+                  return l < r ? 'LEFT' : 'RIGHT'
+                })()
+                return (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ padding: '10px 14px', background: (rating >= 8 ? C.green : C.red) + '12', borderRadius: 10, border: `1px solid ${(rating >= 8 ? C.green : C.red)}44` }}>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: rating >= 8 ? C.green : C.red }}>
+                        {rating >= 8 ? `✓ ${rating}/10 — PASS on ${shorterLeg || 'shorter'} leg with weight plates` : `✗ ${rating}/10 — Still weak on ${shorterLeg || 'shorter'} leg with weight plates`}
+                      </div>
+                    </div>
+                    {plateHeight && (
+                      <div style={{ marginTop: 8, padding: '10px 14px', background: C.accent + '10', borderRadius: 10, border: `1px solid ${C.accent}33` }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: C.accent }}>Appropriate height: {plateHeight} cm — this is the ideal lift height for the {shorterLeg || 'shorter'} leg</div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
               {(assessment.id === 'foot' || assessment.id === 'structural') && f.type === 'passfail' && f.failNotes && answers[f.id] && answers[f.id] !== f.options[0] && (
                 <div style={{ marginTop: 10, background: C.orange + '08', border: `1px solid ${C.orange}22`, borderRadius: 10, padding: '12px 16px' }}>
                   <div style={{ fontSize: 10, color: C.orange, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 What To Do Next</div>
