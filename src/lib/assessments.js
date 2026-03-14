@@ -395,7 +395,10 @@ export const ALL_ASSESSMENTS = {
     color:C.indigo, colorDim:C.indigo+"12",
     sections:[
       { id:"st1", title:"Structural Tests", fields:[
-        { id:"st_tibial", label:"Tibial Torsion — present", type:"passfail", options:["No","Yes"] },
+        { id:"st_tibial_right", label:"Tibial Torsion — Right Foot present", type:"passfail", options:["No","Yes"],
+          failNotes:"ASSOCIATED FINDINGS: A common sign of tibial torsion is that someone will have one foot forward, and one leg externally rotated during the squat, so that their hips and knees are straight. This is a compensation to reduce torque in knees and hips.\n\n• BE MINDFUL OF FOOT PLACEMENT: Symmetrical foot placement in an exercise such as squats or leg press may create torque on the knee or hip on the side of the tibial torsion. Allow a comfortable foot placement.\n\n• Fibular head instability may result in what appears to be a medial tibial torsion. If duck foot test is weak, try clamping lower leg bones below fib head & re-test.\n\n• In some cases, tibial torsion has been corrected through hands-on manual therapy, such as Matrix Repatterning." },
+        { id:"st_tibial_left", label:"Tibial Torsion — Left Foot present", type:"passfail", options:["No","Yes"],
+          failNotes:"ASSOCIATED FINDINGS: A common sign of tibial torsion is that someone will have one foot forward, and one leg externally rotated during the squat, so that their hips and knees are straight. This is a compensation to reduce torque in knees and hips.\n\n• BE MINDFUL OF FOOT PLACEMENT: Symmetrical foot placement in an exercise such as squats or leg press may create torque on the knee or hip on the side of the tibial torsion. Allow a comfortable foot placement.\n\n• Fibular head instability may result in what appears to be a medial tibial torsion. If duck foot test is weak, try clamping lower leg bones below fib head & re-test.\n\n• In some cases, tibial torsion has been corrected through hands-on manual therapy, such as Matrix Repatterning." },
         { id:"st_tibial_notes", label:"Tibial torsion notes", type:"textarea" },
         { id:"st_hip_height", label:"Seated Hip Height — level or uneven", type:"text" },
         { id:"st_leg_asymmetry", label:"Leg Bone Asymmetry — visual check", type:"text" },
