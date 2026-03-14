@@ -2323,7 +2323,11 @@ function SignInSheet({ client, onBack, onUpdate }) {
           style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: `2px solid ${packageType ? C.accent : C.border}`, fontSize: 14, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, color: C.text, background: C.card, outline: 'none', cursor: 'pointer', appearance: 'auto' }}
         >
           <option value="">— Choose a package —</option>
-          {PACKAGE_OPTIONS.map(p => (
+          {PACKAGE_OPTIONS.filter(p => {
+            const isClientPkg = !!CLIENT_PACKAGES[p.label]
+            if (!isClientPkg) return true
+            return p.label === client.name
+          }).map(p => (
             <option key={p.label} value={p.label}>{p.label}</option>
           ))}
         </select>
