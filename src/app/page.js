@@ -1394,6 +1394,9 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
     goal_1_year: existingIntake.goal_1_year || '',
     commitment_rating: existingIntake.commitment_rating || '',
     motivation: existingIntake.motivation || '',
+    commit_solo_workouts: existingIntake.commit_solo_workouts || '',
+    commit_pt_sessions: existingIntake.commit_pt_sessions || '',
+    pt_decline_reason: existingIntake.pt_decline_reason || '',
     activity_level: existingIntake.activity_level || '',
     sleep_hours: existingIntake.sleep_hours || '',
     stress_rating: existingIntake.stress_rating || '',
@@ -1520,6 +1523,66 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
         {sectionTitle('💪', 'Commitment & Motivation')}
         <IntakeRating k="commitment_rating" label="How would you rate your overall commitment to achieving your fitness goals? (1 = low, 10 = high)" {...fp} />
         <IntakeTextArea k="motivation" label="What motivates you to achieve your goals?" placeholder="What drives you? What does success look like?" rows={3} {...fp} />
+
+        {/* Solo workout commitment */}
+        <IntakeYesNo k="commit_solo_workouts" label="Can you commit to 2 workouts on your own per week that I design for you in the app?" {...fp} />
+        {form.commit_solo_workouts === 'No' && (
+          <div style={{ background: C.orange + '10', border: `1px solid ${C.orange}33`, borderRadius: 10, padding: '14px 16px', marginTop: 4 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: C.orange, marginBottom: 6 }}>⚠️ REVISIT COMMITMENT LEVEL</div>
+            <div style={{ fontSize: 12, lineHeight: 1.7, color: C.text }}>
+              The client said they cannot commit to 2 solo workouts per week. Go back to the commitment rating above and have an honest conversation:
+            </div>
+            <ul style={{ fontSize: 12, lineHeight: 1.8, color: C.text, margin: '8px 0 0 0', paddingLeft: 20 }}>
+              <li>What is realistically preventing them from doing 2 workouts on their own?</li>
+              <li>Would they be willing to start with even 1 session per week and build up?</li>
+              <li>Remind them that the app-based workouts are designed specifically for them and take the guesswork out</li>
+              <li>Re-rate their commitment — does the number still feel accurate?</li>
+            </ul>
+          </div>
+        )}
+
+        {/* Personal training sessions commitment */}
+        {(form.commit_solo_workouts === 'Yes' || form.commit_solo_workouts === 'No') && (
+          <>
+            <IntakeYesNo k="commit_pt_sessions" label="Can you commit to 2 personal training sessions with me per week?" {...fp} />
+            {form.commit_pt_sessions === 'No' && (
+              <>
+                <IntakeTextArea k="pt_decline_reason" label="What's holding you back from 2 sessions per week?" placeholder="e.g. Budget, schedule, distance, unsure about commitment..." rows={3} {...fp} />
+                <div style={{ background: C.accent + '08', border: `1px solid ${C.accent}22`, borderRadius: 10, padding: '14px 16px', marginTop: 4 }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: C.accent, marginBottom: 8 }}>🤖 AI TALKING POINTS — Use these to guide the conversation</div>
+                  <div style={{ fontSize: 12, lineHeight: 1.8, color: C.text }}>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>💰 If finances are the concern:</div>
+                    <ul style={{ margin: '0 0 10px 0', paddingLeft: 20 }}>
+                      <li>How much do they spend monthly on things that don{"'"}t improve their health? (eating out, subscriptions, impulse purchases)</li>
+                      <li>What is the cost of NOT investing in their health? (medical bills, medications, lost productivity, reduced quality of life)</li>
+                      <li>Personal training is preventative healthcare — it{"'"}s cheaper than physiotherapy, chiropractic visits, or surgery down the road</li>
+                      <li>Ask: "If I could show you that 2 sessions/week gets you to your goals twice as fast, would it be worth finding the budget?"</li>
+                    </ul>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>🏥 If health is the concern:</div>
+                    <ul style={{ margin: '0 0 10px 0', paddingLeft: 20 }}>
+                      <li>The longer they wait, the harder it gets — injuries compound, mobility decreases, recovery slows</li>
+                      <li>2 sessions gives enough frequency to build real momentum and see measurable results</li>
+                      <li>With only 1 session/week, progress is slower and it{"'"}s easier to lose motivation</li>
+                      <li>Their body adapts best with consistent stimulus — 2x/week is the minimum effective dose for real change</li>
+                    </ul>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>⏰ If scheduling is the concern:</div>
+                    <ul style={{ margin: '0 0 10px 0', paddingLeft: 20 }}>
+                      <li>Can they do early mornings or lunch breaks?</li>
+                      <li>Sessions can be as short as 30-45 minutes — it{"'"}s about quality, not duration</li>
+                      <li>Help them look at their weekly schedule right now and find 2 realistic slots</li>
+                    </ul>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>🎯 General closer:</div>
+                    <ul style={{ margin: 0, paddingLeft: 20 }}>
+                      <li>"You rated your commitment a {form.commitment_rating || '?'}/10 — let{"'"}s make sure your actions match that number"</li>
+                      <li>"What would it take for you to say yes to 2 sessions per week?"</li>
+                      <li>"Would you be open to trying 2x/week for just 4 weeks and then we reassess?"</li>
+                    </ul>
+                  </div>
+                </div>
+              </>
+            )}
+          </>
+        )}
       </div>
 
       {/* ── Lifestyle & Activity Level ── */}
@@ -2000,6 +2063,9 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
                 <Section title="Commitment" items={[
                   ['Rating', intake.commitment_rating ? `${intake.commitment_rating}/10` : ''],
                   ['Motivation', intake.motivation],
+                  ['2 solo workouts/week', intake.commit_solo_workouts],
+                  ['2 PT sessions/week', intake.commit_pt_sessions],
+                  ['PT decline reason', intake.pt_decline_reason],
                 ]} />
                 <Section title="Lifestyle" items={[
                   ['Activity level', intake.activity_level], ['Sleep', intake.sleep_hours],
