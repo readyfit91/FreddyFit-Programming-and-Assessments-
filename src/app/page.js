@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
 import { FIELD_MODIFIERS } from '../lib/modifiers'
@@ -1100,6 +1100,139 @@ function ProgramBuilder({ client, onBack, onSave }) {
 }
 
 // ── CLIENT INTAKE FORM ───────────────────────────────────────────────────────
+// ── Intake form sub-components (defined outside to prevent focus loss on re-render) ──
+const IntakeTextInput = ({ k, label, type = 'text', placeholder = '', required = false, form, update, errors, labelStyle, inputStyle }) => (
+  <div style={{ marginBottom: 14 }}>
+    <label style={labelStyle}>{label}{required && <span style={{ color: C.red, marginLeft: 3 }}>*</span>}</label>
+    <input type={type} value={form[k]} onChange={e => update(k, e.target.value)} placeholder={placeholder} style={inputStyle(k)} />
+    {errors[k] && <div style={{ fontSize: 11, color: C.red, fontWeight: 600, marginTop: 4 }}>{errors[k]}</div>}
+  </div>
+)
+
+const IntakeTextArea = ({ k, label, placeholder = '', rows = 3, form, update, labelStyle, inputStyle }) => (
+  <div style={{ marginBottom: 14 }}>
+    <label style={labelStyle}>{label}</label>
+    <textarea value={form[k]} onChange={e => update(k, e.target.value)} placeholder={placeholder} rows={rows} style={{ ...inputStyle(k), resize: 'vertical' }} />
+  </div>
+)
+
+const IntakeYesNo = ({ k, label, form, update, labelStyle }) => (
+  <div style={{ marginBottom: 14 }}>
+    <label style={labelStyle}>{label}</label>
+    <div style={{ display: 'flex', gap: 8 }}>
+      {['Yes', 'No'].map(opt => (
+        <button key={opt} onClick={() => update(k, opt)} style={{ padding: '8px 20px', borderRadius: 8, border: `1.5px solid ${form[k] === opt ? C.accent : C.border}`, background: form[k] === opt ? C.accent + '15' : C.faint, color: form[k] === opt ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>{opt}</button>
+      ))}
+    </div>
+  </div>
+)
+
+const IntakeRating = ({ k, label, max = 10, form, update, labelStyle }) => (
+  <div style={{ marginBottom: 14 }}>
+    <label style={labelStyle}>{label}</label>
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      {Array.from({ length: max }, (_, i) => i + 1).map(n => (
+        <button key={n} onClick={() => update(k, n.toString())} style={{ width: 36, height: 36, borderRadius: 8, border: `1.5px solid ${form[k] === n.toString() ? C.accent : C.border}`, background: form[k] === n.toString() ? C.accent : C.faint, color: form[k] === n.toString() ? '#000' : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{n}</button>
+      ))}
+    </div>
+  </div>
+)
+
+const IntakeSelect = ({ k, label, options, form, update, labelStyle }) => (
+  <div style={{ marginBottom: 14 }}>
+    <label style={labelStyle}>{label}</label>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {options.map(opt => (
+        <button key={opt} onClick={() => update(k, opt)} style={{ padding: '9px 14px', borderRadius: 8, border: `1.5px solid ${form[k] === opt ? C.accent : C.border}`, background: form[k] === opt ? C.accent + '15' : C.faint, color: form[k] === opt ? C.accent : C.text, fontFamily: 'Montserrat,sans-serif', fontWeight: form[k] === opt ? 700 : 500, fontSize: 12, cursor: 'pointer', textAlign: 'left' }}>{opt}</button>
+      ))}
+    </div>
+  </div>
+)
+
+const WAIVER_TEXT = `I hereby affirm, to the best of my knowledge, that I am in good physical condition and do not have any disability or medical condition that would prevent or limit my participation in this program. I have not been advised by a physician to avoid exercise, and I have not experienced heart problems, lung problems, high blood pressure, shortness of breath during physical activity, or any other medical condition that I have not disclosed to FREDDYFIT LLC.
+
+I understand and agree that I am fully responsible for my participation in any services provided by FREDDYFIT LLC. I acknowledge that all activities are undertaken at my own risk. I release and hold harmless FREDDYFIT LLC, including its shareholders, directors, officers, employees, representatives, and agents, from any and all claims, losses, injuries, damages, or liabilities arising from my participation in or use of services provided by FREDDYFIT LLC.`
+
+const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+const TIME_OPTIONS = ['Morning', 'Afternoon', 'Evening', 'Unavailable']
+
+function SignaturePad({ value, onChange }) {
+  const canvasRef = useRef(null)
+  const isDrawing = useRef(false)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    // Set canvas resolution
+    const rect = canvas.getBoundingClientRect()
+    canvas.width = rect.width * 2
+    canvas.height = rect.height * 2
+    ctx.scale(2, 2)
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.lineWidth = 2
+    ctx.strokeStyle = '#000'
+    // Restore existing signature
+    if (value) {
+      const img = new Image()
+      img.onload = () => { ctx.drawImage(img, 0, 0, rect.width, rect.height) }
+      img.src = value
+    }
+  }, [])
+
+  const getPos = (e) => {
+    const canvas = canvasRef.current
+    const rect = canvas.getBoundingClientRect()
+    const touch = e.touches ? e.touches[0] : e
+    return { x: touch.clientX - rect.left, y: touch.clientY - rect.top }
+  }
+
+  const startDraw = (e) => {
+    e.preventDefault()
+    isDrawing.current = true
+    const ctx = canvasRef.current.getContext('2d')
+    const pos = getPos(e)
+    ctx.beginPath()
+    ctx.moveTo(pos.x, pos.y)
+  }
+
+  const draw = (e) => {
+    if (!isDrawing.current) return
+    e.preventDefault()
+    const ctx = canvasRef.current.getContext('2d')
+    const pos = getPos(e)
+    ctx.lineTo(pos.x, pos.y)
+    ctx.stroke()
+  }
+
+  const endDraw = () => {
+    if (!isDrawing.current) return
+    isDrawing.current = false
+    onChange(canvasRef.current.toDataURL())
+  }
+
+  const clear = () => {
+    const canvas = canvasRef.current
+    const ctx = canvas.getContext('2d')
+    const rect = canvas.getBoundingClientRect()
+    ctx.clearRect(0, 0, rect.width, rect.height)
+    onChange('')
+  }
+
+  return (
+    <div>
+      <canvas
+        ref={canvasRef}
+        style={{ width: '100%', height: 150, border: `1.5px solid ${C.border}`, borderRadius: 10, background: '#fff', touchAction: 'none', cursor: 'crosshair' }}
+        onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
+        onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}
+      />
+      <button onClick={clear} style={{ marginTop: 6, background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 6, padding: '4px 12px', fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Clear Signature</button>
+    </div>
+  )
+}
+
 function ClientIntakeForm({ existingClient, onSave, onBack }) {
   // Parse existing intake data from trainerNotes JSON if editing
   const existingIntake = (() => {
@@ -1111,6 +1244,7 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
     name: existingClient?.name || '',
     phone: existingIntake.phone || '',
     email: existingIntake.email || '',
+    address: existingIntake.address || '',
     dob: existingClient?.dob || '',
     gender: existingIntake.gender || '',
     occupation: existingIntake.occupation || '',
@@ -1118,11 +1252,15 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
     medication_list: existingIntake.medication_list || '',
     pre_existing_conditions: existingIntake.pre_existing_conditions || '',
     conditions_description: existingIntake.conditions_description || '',
+    had_surgery: existingIntake.had_surgery || '',
+    surgery_description: existingIntake.surgery_description || '',
     nutrition_rating: existingIntake.nutrition_rating || '',
+    nutrition_failure: existingIntake.nutrition_failure || '',
     follows_diet: existingIntake.follows_diet || '',
     diet_description: existingIntake.diet_description || '',
-    short_term_goals: existingIntake.short_term_goals || existingClient?.goal || '',
-    long_term_goals: existingIntake.long_term_goals || '',
+    goal_3_month: existingIntake.goal_3_month || '',
+    goal_6_month: existingIntake.goal_6_month || '',
+    goal_1_year: existingIntake.goal_1_year || '',
     commitment_rating: existingIntake.commitment_rating || '',
     motivation: existingIntake.motivation || '',
     activity_level: existingIntake.activity_level || '',
@@ -1130,11 +1268,11 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
     stress_rating: existingIntake.stress_rating || '',
     mental_health_challenges: existingIntake.mental_health_challenges || '',
     mental_health_discuss: existingIntake.mental_health_discuss || '',
+    mental_health_notes: existingIntake.mental_health_notes || '',
     fitness_experience: existingIntake.fitness_experience || '',
     training_methods: existingIntake.training_methods || '',
     support_system: existingIntake.support_system || '',
-    preferred_days: existingIntake.preferred_days || [],
-    preferred_times: existingIntake.preferred_times || [],
+    schedule: existingIntake.schedule || {},
     has_gym: existingIntake.has_gym || '',
     gym_name: existingIntake.gym_name || '',
     planning_gym: existingIntake.planning_gym || '',
@@ -1143,22 +1281,23 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
     referral_source: existingIntake.referral_source || '',
     referral_other: existingIntake.referral_other || '',
     additional_info: existingIntake.additional_info || '',
+    waiver_signature: existingIntake.waiver_signature || '',
   })
   const [saving, setSaving] = useState(false)
   const [errors, setErrors] = useState({})
 
   const isEdit = !!existingClient
 
-  const update = (key, val) => {
+  const update = useCallback((key, val) => {
     setForm(f => ({ ...f, [key]: val }))
     if (errors[key]) setErrors(e => ({ ...e, [key]: null }))
-  }
+  }, [errors])
 
-  const toggleArray = (key, val) => {
-    setForm(f => {
-      const arr = f[key] || []
-      return { ...f, [key]: arr.includes(val) ? arr.filter(v => v !== val) : [...arr, val] }
-    })
+  const updateSchedule = (day, field, val) => {
+    setForm(f => ({
+      ...f,
+      schedule: { ...f.schedule, [day]: { ...(f.schedule[day] || {}), [field]: val } }
+    }))
   }
 
   const handleSave = async () => {
@@ -1169,10 +1308,9 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
 
     setSaving(true)
     try {
-      // Store all intake data as JSON in trainerNotes
-      const { name, dob, short_term_goals, long_term_goals, ...intakeFields } = form
-      const intakeJson = JSON.stringify({ ...intakeFields, short_term_goals, long_term_goals })
-      const goal = [short_term_goals, long_term_goals].filter(Boolean).join(' | ')
+      const { name, dob, goal_3_month, goal_6_month, goal_1_year, ...intakeFields } = form
+      const intakeJson = JSON.stringify({ ...intakeFields, goal_3_month, goal_6_month, goal_1_year })
+      const goal = [goal_3_month, goal_6_month, goal_1_year].filter(Boolean).join(' | ')
 
       const clientData = isEdit
         ? { ...existingClient, name, dob, goal, equipment: existingClient.equipment || '', trainerNotes: intakeJson }
@@ -1195,67 +1333,8 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
     </div>
   )
 
-  const TextInput = ({ k, label, type = 'text', placeholder = '', required = false }) => (
-    <div style={{ marginBottom: 14 }}>
-      <label style={labelStyle}>{label}{required && <span style={{ color: C.red, marginLeft: 3 }}>*</span>}</label>
-      <input type={type} value={form[k]} onChange={e => update(k, e.target.value)} placeholder={placeholder} style={inputStyle(k)} />
-      {errors[k] && <div style={{ fontSize: 11, color: C.red, fontWeight: 600, marginTop: 4 }}>{errors[k]}</div>}
-    </div>
-  )
-
-  const TextArea = ({ k, label, placeholder = '', rows = 3 }) => (
-    <div style={{ marginBottom: 14 }}>
-      <label style={labelStyle}>{label}</label>
-      <textarea value={form[k]} onChange={e => update(k, e.target.value)} placeholder={placeholder} rows={rows} style={{ ...inputStyle(k), resize: 'vertical' }} />
-    </div>
-  )
-
-  const YesNo = ({ k, label }) => (
-    <div style={{ marginBottom: 14 }}>
-      <label style={labelStyle}>{label}</label>
-      <div style={{ display: 'flex', gap: 8 }}>
-        {['Yes', 'No'].map(opt => (
-          <button key={opt} onClick={() => update(k, opt)} style={{ padding: '8px 20px', borderRadius: 8, border: `1.5px solid ${form[k] === opt ? C.accent : C.border}`, background: form[k] === opt ? C.accent + '15' : C.faint, color: form[k] === opt ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>{opt}</button>
-        ))}
-      </div>
-    </div>
-  )
-
-  const Rating = ({ k, label, max = 10 }) => (
-    <div style={{ marginBottom: 14 }}>
-      <label style={labelStyle}>{label}</label>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {Array.from({ length: max }, (_, i) => i + 1).map(n => (
-          <button key={n} onClick={() => update(k, n.toString())} style={{ width: 36, height: 36, borderRadius: 8, border: `1.5px solid ${form[k] === n.toString() ? C.accent : C.border}`, background: form[k] === n.toString() ? C.accent : C.faint, color: form[k] === n.toString() ? '#000' : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{n}</button>
-        ))}
-      </div>
-    </div>
-  )
-
-  const Select = ({ k, label, options }) => (
-    <div style={{ marginBottom: 14 }}>
-      <label style={labelStyle}>{label}</label>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {options.map(opt => (
-          <button key={opt} onClick={() => update(k, opt)} style={{ padding: '9px 14px', borderRadius: 8, border: `1.5px solid ${form[k] === opt ? C.accent : C.border}`, background: form[k] === opt ? C.accent + '15' : C.faint, color: form[k] === opt ? C.accent : C.text, fontFamily: 'Montserrat,sans-serif', fontWeight: form[k] === opt ? 700 : 500, fontSize: 12, cursor: 'pointer', textAlign: 'left' }}>{opt}</button>
-        ))}
-      </div>
-    </div>
-  )
-
-  const MultiSelect = ({ k, label, options }) => (
-    <div style={{ marginBottom: 14 }}>
-      <label style={labelStyle}>{label}</label>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {options.map(opt => {
-          const selected = (form[k] || []).includes(opt)
-          return (
-            <button key={opt} onClick={() => toggleArray(k, opt)} style={{ padding: '8px 14px', borderRadius: 8, border: `1.5px solid ${selected ? C.accent : C.border}`, background: selected ? C.accent + '15' : C.faint, color: selected ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>{opt}</button>
-          )
-        })}
-      </div>
-    </div>
-  )
+  // Shorthand props passed to all sub-components
+  const fp = { form, update, errors, labelStyle, inputStyle }
 
   return (
     <div style={{ maxWidth: 600, margin: '0 auto', padding: '0 24px 32px' }}>
@@ -1268,112 +1347,152 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
       {/* ── Personal Information ── */}
       <div style={sectionStyle}>
         {sectionTitle('👤', 'Personal Information')}
-        <TextInput k="name" label="Full Name" required placeholder="e.g. John Smith" />
-        <TextInput k="phone" label="Phone Number" type="tel" placeholder="e.g. (555) 123-4567" />
-        <TextInput k="email" label="Email Address" type="email" placeholder="e.g. john@example.com" />
-        <TextInput k="dob" label="Date of Birth" type="date" />
-        <Select k="gender" label="Gender" options={['Male', 'Female', 'Other']} />
-        <TextInput k="occupation" label="Occupation" placeholder="e.g. Office worker, construction, nurse..." />
+        <IntakeTextInput k="name" label="Full Name" required placeholder="e.g. John Smith" {...fp} />
+        <IntakeTextInput k="phone" label="Phone Number" type="tel" placeholder="e.g. (555) 123-4567" {...fp} />
+        <IntakeTextInput k="email" label="Email Address" type="email" placeholder="e.g. john@example.com" {...fp} />
+        <IntakeTextInput k="address" label="Address" placeholder="e.g. 123 Main St, City, State ZIP" {...fp} />
+        <IntakeTextInput k="dob" label="Date of Birth" type="date" {...fp} />
+        <IntakeSelect k="gender" label="Gender" options={['Male', 'Female', 'Other']} {...fp} />
+        <IntakeTextInput k="occupation" label="Occupation" placeholder="e.g. Office worker, construction, nurse..." {...fp} />
       </div>
 
       {/* ── Health & Medical ── */}
       <div style={sectionStyle}>
         {sectionTitle('🩺', 'Health & Medical Information')}
-        <YesNo k="taking_medication" label="Are you currently taking any medication?" />
-        {form.taking_medication === 'Yes' && <TextArea k="medication_list" label="If yes, please list them" placeholder="List all current medications..." rows={2} />}
-        <YesNo k="pre_existing_conditions" label="Do you have any pre-existing injuries or medical conditions?" />
-        {form.pre_existing_conditions === 'Yes' && <TextArea k="conditions_description" label="If yes, please describe" placeholder="Describe injuries, conditions, surgeries..." rows={2} />}
+        <IntakeYesNo k="taking_medication" label="Are you currently taking any medication?" {...fp} />
+        {form.taking_medication === 'Yes' && <IntakeTextArea k="medication_list" label="If yes, please list them" placeholder="List all current medications..." rows={2} {...fp} />}
+        <IntakeYesNo k="pre_existing_conditions" label="Do you have any pre-existing injuries or medical conditions?" {...fp} />
+        {form.pre_existing_conditions === 'Yes' && <IntakeTextArea k="conditions_description" label="If yes, please describe" placeholder="Describe injuries or conditions..." rows={2} {...fp} />}
+        <IntakeYesNo k="had_surgery" label="Have you ever had surgery?" {...fp} />
+        {form.had_surgery === 'Yes' && <IntakeTextArea k="surgery_description" label="If yes, please describe" placeholder="Type of surgery, when, any lasting effects..." rows={2} {...fp} />}
       </div>
 
       {/* ── Nutrition ── */}
       <div style={sectionStyle}>
         {sectionTitle('🥗', 'Nutrition')}
-        <Rating k="nutrition_rating" label="How would you rate your overall nutrition in the last 90 days? (1 = poor, 10 = excellent)" />
-        <YesNo k="follows_diet" label="Do you follow any specific diet or nutrition plan?" />
-        {form.follows_diet === 'Yes' && <TextArea k="diet_description" label="If yes, please describe" placeholder="e.g. Keto, intermittent fasting, meal prep..." rows={2} />}
+        <IntakeRating k="nutrition_rating" label="How would you rate your overall nutrition in the last 90 days? (1 = poor, 10 = excellent)" {...fp} />
+        <IntakeTextArea k="nutrition_failure" label="What causes you to fail nutritionally?" placeholder="e.g. Late night snacking, skipping meals, fast food convenience..." rows={3} {...fp} />
+        <IntakeYesNo k="follows_diet" label="Do you follow any specific diet or nutrition plan?" {...fp} />
+        {form.follows_diet === 'Yes' && <IntakeTextArea k="diet_description" label="If yes, please describe" placeholder="e.g. Keto, intermittent fasting, meal prep..." rows={2} {...fp} />}
       </div>
 
       {/* ── Goals ── */}
       <div style={sectionStyle}>
         {sectionTitle('🎯', 'Goals')}
-        <TextArea k="short_term_goals" label="What are your short-term goals? (within the next 3-6 months)" placeholder="e.g. Lose 10 lbs, improve flexibility, reduce back pain..." rows={3} />
-        <TextArea k="long_term_goals" label="What are your long-term goals? (6 months and beyond)" placeholder="e.g. Run a marathon, build lean muscle, maintain active lifestyle..." rows={3} />
+        <IntakeTextArea k="goal_3_month" label="What is your 3-month goal?" placeholder="e.g. Lose 10 lbs, reduce back pain, build consistency..." rows={3} {...fp} />
+        <IntakeTextArea k="goal_6_month" label="What is your 6-month goal?" placeholder="e.g. Gain lean muscle, improve mobility, run a 5K..." rows={3} {...fp} />
+        <IntakeTextArea k="goal_1_year" label="What is your 1-year goal?" placeholder="e.g. Complete a transformation, maintain active lifestyle..." rows={3} {...fp} />
       </div>
 
       {/* ── Commitment & Motivation ── */}
       <div style={sectionStyle}>
         {sectionTitle('💪', 'Commitment & Motivation')}
-        <Rating k="commitment_rating" label="How would you rate your overall commitment to achieving your fitness goals? (1 = low, 10 = high)" />
-        <TextArea k="motivation" label="What motivates you to achieve your goals?" placeholder="What drives you? What does success look like?" rows={3} />
+        <IntakeRating k="commitment_rating" label="How would you rate your overall commitment to achieving your fitness goals? (1 = low, 10 = high)" {...fp} />
+        <IntakeTextArea k="motivation" label="What motivates you to achieve your goals?" placeholder="What drives you? What does success look like?" rows={3} {...fp} />
       </div>
 
       {/* ── Lifestyle & Activity Level ── */}
       <div style={sectionStyle}>
         {sectionTitle('🏃', 'Lifestyle & Activity Level')}
-        <Select k="activity_level" label="How would you describe your current activity level?" options={[
+        <IntakeSelect k="activity_level" label="How would you describe your current activity level?" options={[
           'Sedentary (little or no exercise)',
           'Lightly active (light exercise or sports 1-3 days/week)',
           'Moderately active (moderate exercise or sports 3-5 days/week)',
           'Very active (hard exercise or sports 6-7 days/week)',
           'Super active (very intense exercise or physical job)',
-        ]} />
-        <Select k="sleep_hours" label="How many hours of sleep do you typically get each night?" options={[
+        ]} {...fp} />
+        <IntakeSelect k="sleep_hours" label="How many hours of sleep do you typically get each night?" options={[
           'Less than 5 hours',
           '5-6 hours',
           '7-8 hours',
           '9+ hours',
-        ]} />
-        <Rating k="stress_rating" label="On a scale of 1-10, how would you rate your current stress levels? (1 = low, 10 = high)" />
-        <YesNo k="mental_health_challenges" label="Do you currently deal with any mental health challenges? (e.g., anxiety, depression)" />
-        {form.mental_health_challenges === 'Yes' && <YesNo k="mental_health_discuss" label="Would you like to discuss this further?" />}
+        ]} {...fp} />
+        <IntakeRating k="stress_rating" label="On a scale of 1-10, how would you rate your current stress levels? (1 = low, 10 = high)" {...fp} />
+        <IntakeYesNo k="mental_health_challenges" label="Do you currently deal with any mental health challenges? (e.g., anxiety, depression)" {...fp} />
+        {form.mental_health_challenges === 'Yes' && (
+          <>
+            <IntakeYesNo k="mental_health_discuss" label="Would you like to discuss this further?" {...fp} />
+            {form.mental_health_discuss === 'Yes' && <IntakeTextArea k="mental_health_notes" label="Please share anything you'd like us to know" placeholder="Share as much or as little as you're comfortable with..." rows={3} {...fp} />}
+          </>
+        )}
       </div>
 
       {/* ── Fitness Experience ── */}
       <div style={sectionStyle}>
         {sectionTitle('🏋️', 'Fitness Experience')}
-        <Select k="fitness_experience" label="What is your previous experience with fitness or personal training?" options={['Beginner', 'Intermediate', 'Advanced']} />
-        <TextArea k="training_methods" label="Any specific training methods or programs you've followed?" placeholder="e.g. CrossFit, bodybuilding, yoga, P90X..." rows={2} />
+        <IntakeSelect k="fitness_experience" label="What is your previous experience with fitness or personal training?" options={['Beginner', 'Intermediate', 'Advanced']} {...fp} />
+        <IntakeTextArea k="training_methods" label="Any specific training methods or programs you've followed?" placeholder="e.g. CrossFit, bodybuilding, yoga, P90X..." rows={2} {...fp} />
       </div>
 
       {/* ── Support System ── */}
       <div style={sectionStyle}>
         {sectionTitle('🤝', 'Support System')}
-        <YesNo k="support_system" label="Do you have a support system in place (e.g., friends, family) to help you achieve your fitness goals?" />
+        <IntakeTextArea k="support_system" label="Describe your support system (e.g., friends, family, accountability partners)" placeholder="Who supports your fitness journey? How do they help?" rows={3} {...fp} />
       </div>
 
       {/* ── Scheduling Preferences ── */}
       <div style={sectionStyle}>
         {sectionTitle('📅', 'Scheduling Preferences')}
-        <MultiSelect k="preferred_days" label="Preferred days for personal training sessions" options={['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']} />
-        <MultiSelect k="preferred_times" label="Preferred times for sessions" options={['Morning (7 AM - 12 PM)', 'Afternoon (12 PM - 5 PM)', 'Evening (5 PM - 9 PM)']} />
+        <label style={labelStyle}>Select your preferred day(s) and time for each</label>
+        {DAYS_OF_WEEK.map(day => {
+          const dayData = form.schedule[day] || {}
+          const isPreferred = dayData.preferred === true
+          return (
+            <div key={day} style={{ marginBottom: 10, padding: '10px 14px', background: isPreferred ? C.accent + '08' : C.faint, border: `1.5px solid ${isPreferred ? C.accent + '44' : C.border}`, borderRadius: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isPreferred ? 8 : 0 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{day}</span>
+                <button onClick={() => updateSchedule(day, 'preferred', !isPreferred)} style={{ padding: '5px 14px', borderRadius: 7, border: `1.5px solid ${isPreferred ? C.accent : C.border}`, background: isPreferred ? C.accent + '15' : 'transparent', color: isPreferred ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
+                  {isPreferred ? '✓ Preferred' : 'Select'}
+                </button>
+              </div>
+              {isPreferred && (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {TIME_OPTIONS.map(time => (
+                    <button key={time} onClick={() => updateSchedule(day, 'time', time)} style={{ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${dayData.time === time ? C.accent : C.border}`, background: dayData.time === time ? C.accent + '15' : 'transparent', color: dayData.time === time ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 600, fontSize: 11, cursor: 'pointer' }}>{time}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
 
       {/* ── Gym Membership ── */}
       <div style={sectionStyle}>
         {sectionTitle('🏢', 'Gym Membership')}
-        <YesNo k="has_gym" label="Do you currently belong to a gym?" />
-        {form.has_gym === 'Yes' && <TextInput k="gym_name" label="Which gym?" placeholder="e.g. Planet Fitness, LA Fitness..." />}
-        {form.has_gym === 'No' && <YesNo k="planning_gym" label="Are you planning to join a gym in the near future?" />}
+        <IntakeYesNo k="has_gym" label="Do you currently belong to a gym?" {...fp} />
+        {form.has_gym === 'Yes' && <IntakeTextInput k="gym_name" label="Which gym?" placeholder="e.g. Planet Fitness, LA Fitness..." {...fp} />}
+        {form.has_gym === 'No' && <IntakeYesNo k="planning_gym" label="Are you planning to join a gym in the near future?" {...fp} />}
       </div>
 
       {/* ── Financial Considerations ── */}
       <div style={sectionStyle}>
         {sectionTitle('💰', 'Financial Considerations')}
-        <YesNo k="financial_concerns" label="Are there any concerns you have about committing to personal training sessions?" />
-        {form.financial_concerns === 'Yes' && <TextArea k="financial_concerns_description" label="If yes, please briefly describe" placeholder="Budget constraints, scheduling conflicts..." rows={2} />}
+        <IntakeYesNo k="financial_concerns" label="Are there any concerns you have about committing to personal training sessions?" {...fp} />
+        {form.financial_concerns === 'Yes' && <IntakeTextArea k="financial_concerns_description" label="If yes, please briefly describe" placeholder="Budget constraints, scheduling conflicts..." rows={2} {...fp} />}
       </div>
 
       {/* ── Referral Source ── */}
       <div style={sectionStyle}>
         {sectionTitle('📣', 'Referral Source')}
-        <Select k="referral_source" label="How did you hear about FreddyFit Personal Training?" options={['Social Media', 'Referral from a friend/family', 'Google Search', 'Advertisement', 'Other']} />
-        {form.referral_source === 'Other' && <TextInput k="referral_other" label="Please specify" placeholder="How did you find us?" />}
+        <IntakeSelect k="referral_source" label="How did you hear about FreddyFit Personal Training?" options={['Social Media', 'Referral from a friend/family', 'Google Search', 'Advertisement', 'Other']} {...fp} />
+        {form.referral_source === 'Other' && <IntakeTextInput k="referral_other" label="Please specify" placeholder="How did you find us?" {...fp} />}
       </div>
 
       {/* ── Additional Information ── */}
       <div style={sectionStyle}>
         {sectionTitle('📝', 'Additional Information')}
-        <TextArea k="additional_info" label="Is there anything else you'd like us to know about you, your fitness journey, or your goals?" placeholder="Anything else we should know..." rows={4} />
+        <IntakeTextArea k="additional_info" label="Is there anything else you'd like us to know about you, your fitness journey, or your goals?" placeholder="Anything else we should know..." rows={4} {...fp} />
+      </div>
+
+      {/* ── Waiver & Signature ── */}
+      <div style={sectionStyle}>
+        {sectionTitle('✍️', 'Waiver & Signature')}
+        <div style={{ fontSize: 12, color: C.text, lineHeight: 1.8, marginBottom: 16, padding: '14px 16px', background: C.faint, borderRadius: 10, border: `1px solid ${C.border}` }}>
+          {WAIVER_TEXT}
+        </div>
+        <label style={labelStyle}>Client Signature</label>
+        <SignaturePad value={form.waiver_signature} onChange={val => update('waiver_signature', val)} />
       </div>
 
       {/* ── Save ── */}
