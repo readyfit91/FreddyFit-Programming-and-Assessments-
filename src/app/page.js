@@ -1430,6 +1430,10 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
     referral_other: existingIntake.referral_other || '',
     additional_info: existingIntake.additional_info || '',
     waiver_signature: existingIntake.waiver_signature || '',
+    functional_fit_commit: existingIntake.functional_fit_commit || '',
+    functional_fit_initial_1: existingIntake.functional_fit_initial_1 || '',
+    functional_fit_initial_2: existingIntake.functional_fit_initial_2 || '',
+    functional_fit_initial_3: existingIntake.functional_fit_initial_3 || '',
   })
   const [saving, setSaving] = useState(false)
   const [errors, setErrors] = useState({})
@@ -1747,6 +1751,71 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
         </div>
         <label style={labelStyle}>Client Signature</label>
         <SignaturePad value={form.waiver_signature} onChange={val => update('waiver_signature', val)} />
+      </div>
+
+      {/* ── Functional Fit Package ── */}
+      <div style={sectionStyle}>
+        {sectionTitle('🎯', 'Functional Fit Package')}
+        <IntakeYesNo k="functional_fit_commit" label="Are you ready to commit to the Functional Fit Package?" {...fp} />
+
+        {form.functional_fit_commit === 'Yes' && (
+          <div style={{ marginTop: 8 }}>
+            {/* QR Code placeholder */}
+            <div style={{ textAlign: 'center', padding: '20px 16px', background: C.faint, borderRadius: 10, border: `1px solid ${C.border}`, marginBottom: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 1.5, color: C.sub, textTransform: 'uppercase', marginBottom: 10 }}>Scan to Complete Payment</div>
+              <div style={{ width: 160, height: 160, margin: '0 auto', background: 'white', borderRadius: 12, border: `2px dashed ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.sub, fontSize: 11, fontWeight: 600 }}>QR Code Here</div>
+              <div style={{ fontSize: 10, color: C.sub, marginTop: 8 }}>QR code will be placed here</div>
+            </div>
+
+            {/* Agreement initials */}
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 1.5, color: C.sub, textTransform: 'uppercase', marginBottom: 12 }}>Please initial each statement below</div>
+
+            {/* Statement 1 */}
+            <div style={{ padding: '14px 16px', background: C.faint, borderRadius: 10, border: `1px solid ${C.border}`, marginBottom: 10 }}>
+              <div style={{ fontSize: 12, lineHeight: 1.7, color: C.text, marginBottom: 10 }}>
+                I understand that I will receive four (4) one-on-one personal training sessions to be scheduled and completed within the next 3–4 weeks from the date of purchase.
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <label style={{ fontSize: 11, fontWeight: 700, color: C.sub, whiteSpace: 'nowrap' }}>Initials:</label>
+                <input type="text" value={form.functional_fit_initial_1} onChange={e => update('functional_fit_initial_1', e.target.value.toUpperCase())} placeholder="e.g. JS" maxLength={5} style={{ width: 70, padding: '6px 10px', borderRadius: 7, border: `1.5px solid ${form.functional_fit_initial_1 ? C.green : C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 14, fontWeight: 800, textAlign: 'center', color: C.text, outline: 'none', background: form.functional_fit_initial_1 ? C.green + '08' : 'white' }} />
+              </div>
+            </div>
+
+            {/* Statement 2 */}
+            <div style={{ padding: '14px 16px', background: C.faint, borderRadius: 10, border: `1px solid ${C.border}`, marginBottom: 10 }}>
+              <div style={{ fontSize: 12, lineHeight: 1.7, color: C.text, marginBottom: 10 }}>
+                I understand that this package comes with a 100% satisfaction guarantee. If, upon completion of all four (4) sessions, I am not satisfied with the service provided, I am eligible for a full refund. To exercise this guarantee, I must submit my refund request in writing.
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <label style={{ fontSize: 11, fontWeight: 700, color: C.sub, whiteSpace: 'nowrap' }}>Initials:</label>
+                <input type="text" value={form.functional_fit_initial_2} onChange={e => update('functional_fit_initial_2', e.target.value.toUpperCase())} placeholder="e.g. JS" maxLength={5} style={{ width: 70, padding: '6px 10px', borderRadius: 7, border: `1.5px solid ${form.functional_fit_initial_2 ? C.green : C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 14, fontWeight: 800, textAlign: 'center', color: C.text, outline: 'none', background: form.functional_fit_initial_2 ? C.green + '08' : 'white' }} />
+              </div>
+            </div>
+
+            {/* Statement 3 */}
+            <div style={{ padding: '14px 16px', background: C.faint, borderRadius: 10, border: `1px solid ${C.border}`, marginBottom: 10 }}>
+              <div style={{ fontSize: 12, lineHeight: 1.7, color: C.text, marginBottom: 10 }}>
+                I understand the cancellation policy: if I cancel a scheduled session with less than 12 hours{"'"} notice, the session will be forfeited and counted as used. If my trainer cancels a session, the next session will be complimentary at no charge to me.
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <label style={{ fontSize: 11, fontWeight: 700, color: C.sub, whiteSpace: 'nowrap' }}>Initials:</label>
+                <input type="text" value={form.functional_fit_initial_3} onChange={e => update('functional_fit_initial_3', e.target.value.toUpperCase())} placeholder="e.g. JS" maxLength={5} style={{ width: 70, padding: '6px 10px', borderRadius: 7, border: `1.5px solid ${form.functional_fit_initial_3 ? C.green : C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 14, fontWeight: 800, textAlign: 'center', color: C.text, outline: 'none', background: form.functional_fit_initial_3 ? C.green + '08' : 'white' }} />
+              </div>
+            </div>
+
+            {form.functional_fit_initial_1 && form.functional_fit_initial_2 && form.functional_fit_initial_3 && (
+              <div style={{ marginTop: 12, padding: '10px 14px', background: C.green + '10', borderRadius: 8, border: `1px solid ${C.green}33`, fontSize: 12, color: C.green, fontWeight: 700, textAlign: 'center' }}>
+                All statements initialed — Functional Fit Package agreement complete
+              </div>
+            )}
+          </div>
+        )}
+
+        {form.functional_fit_commit === 'No' && (
+          <div style={{ padding: '12px 16px', background: C.orange + '10', borderRadius: 10, border: `1px solid ${C.orange}33`, marginTop: 4 }}>
+            <div style={{ fontSize: 12, color: C.orange, fontWeight: 700 }}>Client is not ready to commit at this time. Follow up at a later date.</div>
+          </div>
+        )}
       </div>
 
       {/* ── Save ── */}
@@ -2136,6 +2205,12 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
                   ['Support system', intake.support_system],
                   ['Financial concerns', intake.financial_concerns === 'Yes' ? intake.financial_concerns_description || 'Yes' : intake.financial_concerns],
                   ['Additional info', intake.additional_info],
+                ]} />
+                <Section title="Functional Fit Package" items={[
+                  ['Committed', intake.functional_fit_commit],
+                  ['Initialed: 4 sessions / 3-4 weeks', intake.functional_fit_initial_1 || ''],
+                  ['Initialed: 100% guarantee', intake.functional_fit_initial_2 || ''],
+                  ['Initialed: Cancellation policy', intake.functional_fit_initial_3 || ''],
                 ]} />
               </div>
             )
