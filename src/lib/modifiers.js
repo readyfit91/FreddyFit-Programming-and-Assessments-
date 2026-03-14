@@ -166,53 +166,54 @@ export const FIELD_MODIFIERS = {
   // ═══════════════════════════════════════════════════════════════════════════
   // NECK & SHOULDER GAUNTLET
   // ═══════════════════════════════════════════════════════════════════════════
-  ns_hip_swing: [
+  ns_hip_swing_right: [
     'Chin tuck position then retest hip swing',
     'Cervical retraction hold during swing',
     'Upper trap release then retest',
     'No modifier worked',
   ],
-  ns_trex: [
+  ns_hip_swing_left: [
+    'Chin tuck position then retest hip swing',
+    'Cervical retraction hold during swing',
+    'Upper trap release then retest',
+    'No modifier worked',
+  ],
+  ns_trex_right: [
     'Cervical retraction (chin tuck) then retest',
     'Neural flossing — radial nerve glide',
     'Forearm extensor stretch + retest',
     'Scalene release then retest',
     'No modifier worked',
   ],
-  ns_trex_side: [
-    'Targeted nerve glide on affected side',
-    'Cervical lateral glide toward affected side',
-    'Upper trap release on affected side',
+  ns_trex_left: [
+    'Cervical retraction (chin tuck) then retest',
+    'Neural flossing — radial nerve glide',
+    'Forearm extensor stretch + retest',
+    'Scalene release then retest',
     'No modifier worked',
   ],
-  ns_full_can: [
+  ns_full_can_right: [
     'Scapular setting (retract + depress) then retest',
     'Thoracic extension mobilisation then retest',
     'Rotator cuff warm-up (band ER) then retest',
     'No modifier worked',
   ],
-  ns_full_can_side: [
-    'Scapula wall slide on affected side',
-    'Targeted ER activation on affected side',
-    'Thoracic rotation toward affected side',
+  ns_full_can_left: [
+    'Scapular setting (retract + depress) then retest',
+    'Thoracic extension mobilisation then retest',
+    'Rotator cuff warm-up (band ER) then retest',
     'No modifier worked',
   ],
-  ns_empty_can: [
+  ns_empty_can_right: [
     'King Atlas neck reset then retest',
     'Scapular retraction cue then retest',
     'Reduce resistance and retest',
     'No modifier worked',
   ],
-  ns_empty_can_side: [
-    'Targeted supraspinatus activation on affected side',
-    'Scapula stabilisation on affected side',
-    'Cervical lateral glide then retest',
-    'No modifier worked',
-  ],
-  ns_mental_stress: [
-    'Diaphragmatic breathing (5 cycles) then retest',
-    'Progressive muscle relaxation (90s)',
-    'Guided body scan + retest aggravating movement',
+  ns_empty_can_left: [
+    'King Atlas neck reset then retest',
+    'Scapular retraction cue then retest',
+    'Reduce resistance and retest',
     'No modifier worked',
   ],
 
