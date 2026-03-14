@@ -2209,6 +2209,16 @@ const PACKAGE_OPTIONS = [
   { label: '25 Sessions', sessions: 25 },
   { label: '6 Months — 48 Sessions', sessions: 48 },
   { label: '12 Months — 96 Sessions', sessions: 96 },
+  { label: 'Ben McNamara — 32 Remaining', sessions: 32 },
+  { label: 'Stephanie Boyer — 45 Remaining', sessions: 45 },
+  { label: 'John Purcelli — 94 Remaining', sessions: 94 },
+  { label: 'Denise Rallo — 18 Remaining', sessions: 18 },
+  { label: 'Nick Rallo — 12 Remaining', sessions: 12 },
+  { label: 'Phruttitum — 34 Remaining', sessions: 34 },
+  { label: 'Timothy Ryner — 26 Remaining', sessions: 26 },
+  { label: 'Laura Reitz — 75 Remaining', sessions: 75 },
+  { label: 'Erin Larkin — 18 Remaining', sessions: 18 },
+  { label: 'Chris Mataya — 2 Remaining', sessions: 2 },
 ]
 
 function SignInSheet({ client, onBack, onUpdate }) {
