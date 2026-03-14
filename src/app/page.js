@@ -469,6 +469,109 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
                   <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{f.failNotes}</pre>
                 </div>
               )}
+              {/* Knee Cap Height — show prompt when Right Higher or Left Higher selected */}
+              {f.kneeCapHeight && answers[f.id] && answers[f.id] !== 'Equal' && (
+                <div style={{ marginTop: 10, padding: '12px 16px', background: C.orange + '08', border: `1px solid ${C.orange}22`, borderRadius: 10 }}>
+                  <div style={{ fontSize: 10, color: C.orange, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 High Knee Cap — {answers[f.id]}</div>
+                  <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{"A high knee cap can be due to rectus femoris tightness, or a pelvic imbalance (rotation or tilt).\n\n• High knee caps can grind into the articular cartilage, leading to accelerated wear and tear.\n\nConsider applying the Bees Knees High Knee Cap / Tight Quad protocol, then re-test patella alignment right after — in most cases, the kneecap shifts into better alignment immediately."}</pre>
+                </div>
+              )}
+              {/* Bow-Legged — auto-flag when finger widths > 2 */}
+              {f.kneeVarusFingers && answers[f.id] && !isNaN(parseFloat(answers[f.id])) && (() => {
+                const fw = parseFloat(answers[f.id])
+                if (fw <= 2) return (
+                  <div style={{ marginTop: 8, padding: '8px 12px', background: C.green + '12', borderRadius: 8, border: `1px solid ${C.green}44` }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: C.green }}>{"✓ Pass — "}{fw} finger width{fw !== 1 ? 's' : ''} (within normal range)</div>
+                  </div>
+                )
+                return (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ padding: '8px 12px', background: C.red + '12', borderRadius: 8, border: `1px solid ${C.red}44`, marginBottom: 10 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: C.red }}>{"✗ Bowlegged — "}{fw} finger widths (more than 2)</div>
+                    </div>
+                    <div style={{ padding: '12px 16px', background: C.orange + '08', border: `1px solid ${C.orange}22`, borderRadius: 10 }}>
+                      <div style={{ fontSize: 10, color: C.orange, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 Bowlegged Assessment Notes</div>
+                      <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{"Sometimes happens on only one side, due to skeletal problems, nerve tension, infection, and/or tumors. If it happens on one side and is trauma induced it can be much easier to straighten out according to Dr. George Roth.\n\nConsider applying the Bees Knees Bowlegged protocol (it can reduce bow-legged alignment by 1-2 finger widths instantly). Also consider using the Bow Jackson Workout and/or Block Sabbath Workout (from the Knee Programming Specialist Online Course).\n\nNOTE: In rare cases, a client may fail both this test and the postural knee hyperextension test. When this happens, do not apply the standard bowlegged protocol. Although medial hip rotation combined with knee hyperextension can appear bowlegged, it actually requires a different strategy. In these situations: Focus on releasing the groin (using percussion or foam rolling). Strengthen the quadriceps, calves, and glute medius. Do lots of heels elevated squats and calf raises."}</pre>
+                    </div>
+                  </div>
+                )
+              })()}
+              {/* Knock-Kneed — show prompt when Knock Kneed or Wide Hips selected */}
+              {f.kneeValgus && answers[f.id] && answers[f.id] !== 'Pass' && (
+                <div style={{ marginTop: 10, padding: '12px 16px', background: C.orange + '08', border: `1px solid ${C.orange}22`, borderRadius: 10 }}>
+                  <div style={{ fontSize: 10, color: C.orange, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 {answers[f.id] === 'Wide Hips / V-Taper' ? 'Wide Hips / V-Taper' : 'Knock-Kneed'} — Assessment Notes</div>
+                  <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{"WIDE HIPS / V-TAPER: If the client stands with their feet together, side by side, touching, and they have wide hips or a V-taper shape, treat them the same way you would for knock-kneed posture. These individuals often have a larger Q-angle — the angle between the ASIS (anterior superior iliac spine) and the patella — which increases the likelihood of inward knee stress and related alignment issues.\n\nFUNCTION IS KING: If someone appears to have knock knees or wide hips, use the Hip Swing Test to confirm whether it's functionally affecting them, as demonstrated by weakness in the test.\n\nConsider applying the Bees Knees Knock Kneed Corrective protocol, and the Ball McCartney Workout (from the Knee Programming Specialist Online Course)."}</pre>
+                </div>
+              )}
+              {/* Baker's Cyst — show prompt when Yes on either leg */}
+              {f.kneeBakers && answers[f.id] === 'Yes' && (
+                <div style={{ marginTop: 10, padding: '12px 16px', background: C.orange + '08', border: `1px solid ${C.orange}22`, borderRadius: 10 }}>
+                  <div style={{ fontSize: 10, color: C.orange, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 Baker's Cyst Detected — {f.id === 'k_bakers_right' ? 'Right Knee' : 'Left Knee'}</div>
+                  <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{"Baker's Cyst is a cystic sac, resulting from an abnormal accumulation of synovial fluid in the medial aspect of the popliteal fossa.\n\nIf they have a Baker's Cyst, it can be a sign that there is an issue in the body:\n\n• Baker's cyst may result from a meniscus tear, rheumatoid arthritis, or hamstring tendinitis (Waldman, Dr Steven (2002) Atlas of Common Pain Syndromes. W.B. Saunders Company. An imprint of Elsevier Science. Toronto ON.).\n\n• Use a low back assessment as a breakout test: When the body tries to offload pressure from pinched lower lumbar nerves, it may compensate with postural knee flexion, increasing stress on the back of the knee. Over time, this can contribute to the development of Baker's cysts.\n\n• In some cases, Baker's cysts may also stem from long-standing hamstring dysfunction. To rule out nerve involvement, refer to the Core Mastery Course and perform the myotome assessments to check if hamstring function is being inhibited by compression at the L5 nerve root."}</pre>
+                </div>
+              )}
+              {/* Hyperextension — show prompt when Yes on either leg */}
+              {f.kneeHyperext && answers[f.id] === 'Yes' && (
+                <div style={{ marginTop: 10, padding: '12px 16px', background: C.orange + '08', border: `1px solid ${C.orange}22`, borderRadius: 10 }}>
+                  <div style={{ fontSize: 10, color: C.orange, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 Postural Knee Hyperextension — {f.id === 'k_hyperext_right' ? 'Right Leg' : 'Left Leg'}</div>
+                  <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{"FROM THE SIDE, assess upper and lower leg bones. Instruct them to LOCK OUT KNEES ALL THE WAY.\n\nDo the knees look to bend backward? If yes it's postural knee hyperextension.\n\nSome people have overdeveloped quads and small hamstrings (which looks like hyperextension). Focus on the LEG BONES.\n\nFOR EXTRA PRECISION: Hang a measuring tape, or string straight down from the mid-hip and thigh to mid-ankle. THE KNEE SHOULD BE IN THE MIDDLE. If the knee is BEHIND THE VERTICAL AXIS, the knees are in postural hyperextension.\n\n• Extra pressure can be focused on the anterior (front) of the knee joint, which can lead to pain over time.\n\n• Can be due to loose ligaments, and hypermobility, a backward slant of tibia plateau, (normal is 5.5 degrees), or backward concavity of shaft of lower leg bone due to calf tightness (\"retroflexion\"), or it may be a compensation for rigid feet (when the foot doesn't dorsiflex during walking, as knee hyperextension or hip lateral rotation, can be a long-term compensation).\n\n• Try using Bees Knees HyperExtended Knees Corrective & Sloop John Bosu workout (Knee Programming Specialist Online Course)."}</pre>
+                </div>
+              )}
+              {/* Knee Flexion — show prompt when Yes on either leg */}
+              {f.kneeFlexion && answers[f.id] === 'Yes' && (
+                <div style={{ marginTop: 10, padding: '12px 16px', background: C.orange + '08', border: `1px solid ${C.orange}22`, borderRadius: 10 }}>
+                  <div style={{ fontSize: 10, color: C.orange, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 Postural Knee Flexion — {f.id === 'k_flexion_right' ? 'Right Leg' : 'Left Leg'}</div>
+                  <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{"FROM THE SIDE, assess upper and lower leg bones. Does one knee seem to stick out in front of the other?\n\nFOR EXTRA PRECISION: Hang a measuring tape, or string straight down from the mid-hip and thigh. THE KNEE SHOULD BE IN THE MIDDLE. If a knee is IN FRONT OF THE VERTICAL AXIS, the knee is in postural flexion.\n\n• Extra pressure can be focused on the posterior (back) of the knee joint, which can lead to pain over time.\n\n• CAUSES: A flexed knee could be the symptom of a meniscal tear, degenerative changes (like arthritis), or nerve pressure (stemming from neck or low back, the spine goes flat and knee goes bent to reduce nerve pressure by opening the neural foramina). Assess neck and low back. A flexed knee could indicate a twist through the pelvis: Consider a Hip and Pelvis Assessment.\n\n• Try using Bees Knees Flexed Knees (Knee Programming Specialist Online Course)."}</pre>
+                </div>
+              )}
+              {/* Patella Press — show rating result and alarm at 6+ */}
+              {f.kneePatella && answers[f.id] && !isNaN(parseInt(answers[f.id])) && (() => {
+                const rating = parseInt(answers[f.id])
+                const legName = f.id === 'k_patella_right_rating' ? 'Right Knee' : 'Left Knee'
+                if (rating === 0) return (
+                  <div style={{ marginTop: 8, padding: '8px 12px', background: C.green + '12', borderRadius: 8, border: `1px solid ${C.green}44` }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: C.green }}>{"✓ No pain — "}{legName}</div>
+                  </div>
+                )
+                const isAlarming = rating >= 6
+                return (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ padding: '8px 12px', background: (isAlarming ? C.red : C.orange) + '12', borderRadius: 8, border: `1px solid ${(isAlarming ? C.red : C.orange)}44`, marginBottom: 10 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: isAlarming ? C.red : C.orange }}>{isAlarming ? '⚠ ALARMING' : '⚠ Pain detected'} — {legName}: {rating}/10</div>
+                    </div>
+                    <div style={{ padding: '12px 16px', background: C.orange + '08', border: `1px solid ${C.orange}22`, borderRadius: 10 }}>
+                      <div style={{ fontSize: 10, color: C.orange, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 Patella Press — {legName}</div>
+                      <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{"When they have pain on this test, it's normally slight, only a 2 or 3 out of 10.\n\n• Pain could indicate Chondromalacia Patella, which is a common cause of chronic anterior knee pain. It results from degeneration of cartilage due to poor alignment of the kneecap (patella) as it slides over the lower thighbone (femur).\n\nPain could result from the knee cap being out of position — consider the Bees Knees High Knee Cap / Tight Quad protocol.\n\nTry the Boston Knee Party or Knights Who Say \"Knee\" workouts from the Knee Programming Specialist Online Course.\n\nOther Considerations: Modify lifestyle behaviors to reduce kneeling. If you must kneel, consider using knee pads (such as athletic knee pads), or kneel on a more forgiving surface, like a bosu ball."}</pre>
+                    </div>
+                  </div>
+                )
+              })()}
+              {/* Joint Line Compression — show prompt at 9+ */}
+              {f.kneeJointLine && answers[f.id] && !isNaN(parseInt(answers[f.id])) && (() => {
+                const rating = parseInt(answers[f.id])
+                const legName = f.id === 'k_joint_right_rating' ? 'Right Knee' : 'Left Knee'
+                if (rating === 0) return (
+                  <div style={{ marginTop: 8, padding: '8px 12px', background: C.green + '12', borderRadius: 8, border: `1px solid ${C.green}44` }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: C.green }}>{"✓ No pain — "}{legName}</div>
+                  </div>
+                )
+                if (rating < 9) return (
+                  <div style={{ marginTop: 8, padding: '8px 12px', background: C.orange + '12', borderRadius: 8, border: `1px solid ${C.orange}44` }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: C.orange }}>{"⚠ Pain detected — "}{legName}: {rating}/10</div>
+                  </div>
+                )
+                return (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ padding: '8px 12px', background: C.red + '12', borderRadius: 8, border: `1px solid ${C.red}44`, marginBottom: 10 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: C.red }}>{"⚠ ALARMING — "}{legName}: {rating}/10</div>
+                    </div>
+                    <div style={{ padding: '12px 16px', background: C.orange + '08', border: `1px solid ${C.orange}22`, borderRadius: 10 }}>
+                      <div style={{ fontSize: 10, color: C.orange, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 Joint Line Compression — {legName}</div>
+                      <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{"If pain is 9 or 10/10: Could be meniscal tear or bone on bone irritation.\n\nIf they do have pain here, progress onto the next tests to support a meniscal tear theory.\n\nFor medial knee pain, try loosening the TFL (this is in the Hip Hip Hooray series). Re-test for improvement immediately after.\n\nIf they can't find the joint lines: Ask them just to press everywhere along the sides of the knee, looking for tenderness. Make note of what they find."}</pre>
+                    </div>
+                  </div>
+                )
+              })()}
               {/* Auto-comparison for thigh girth — show after left leg is entered */}
               {f.id === 'k_thigh_left' && answers.k_thigh_right && answers.k_thigh_left && !isNaN(parseFloat(answers.k_thigh_right)) && !isNaN(parseFloat(answers.k_thigh_left)) && (() => {
                 const r = parseFloat(answers.k_thigh_right)
