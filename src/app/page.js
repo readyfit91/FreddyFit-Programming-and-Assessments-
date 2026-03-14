@@ -479,6 +479,32 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
                   <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{f.failNotes}</pre>
                 </div>
               )}
+              {/* W-Sit + Yoga-Sit combo outcome */}
+              {assessment.id === 'structural' && f.id === 'st_yogasit' && answers['st_wsit'] && answers['st_yogasit'] && (() => {
+                const wSit = answers['st_wsit'] === 'Yes'
+                const yogaSit = answers['st_yogasit'] === 'Yes'
+                let outcome = ''
+                let color = C.green
+                if (!wSit && !yogaSit) {
+                  outcome = "NORMAL — Can't do both W-Sit and Yoga Sit. Likely about 14 degrees angle in neck of femur."
+                  color = C.green
+                } else if (wSit && yogaSit) {
+                  outcome = "HYPERMOBILE OR LOW MUSCLE TONE — Can do both W-Sit and Yoga Sit."
+                  color = C.orange
+                } else if (wSit && !yogaSit) {
+                  outcome = "ANTETORSION (anteversion/medial hip rotation) — Can do W-Sit, but can't do Yoga Sit.\n\nPathologic increase in angle of torsion. These people may appear to have genu valgus (knock-knees). If these individuals also have postural knee hyperextension (common with hypermobile people), then they can look bowlegged (but they aren't actually bowlegged). Hip or knee pain can develop because of excessive medial rotation. Hip antetorsion on one side only is common.\n\n• In general, keep FEET POINTED OUT during conventional exercise.\n\n• Try the Lucky Nuggets Antetorsion Protocol and re-test for improvement.\n\n• Also consider the Ant Hilda workout (Hip Online Programming Specialist)."
+                  color = C.red
+                } else if (!wSit && yogaSit) {
+                  outcome = "RETROTORSION (retroversion/lateral hip rotation) — Can't do W-Sit, but can do Yoga Sit.\n\nPathologic decrease in angle of torsion. These people tend to have the feet turned out (i.e. Duck Walk or Charlie Chaplin gait).\n\n• In general KEEP FEET POINTED STRAIGHT AHEAD OR INWARD during conventional exercise.\n\n• Try the Lucky Nuggets Retrotorsion Protocol and re-test for improvement.\n\n• Also consider the Retro Joe workout (Hip Online Programming Specialist)."
+                  color = C.red
+                }
+                return (
+                  <div style={{ marginTop: 10, background: color + '10', border: `1px solid ${color}33`, borderRadius: 10, padding: '12px 16px' }}>
+                    <div style={{ fontSize: 10, color, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📋 W-Sit & Yoga-Sit Combined Result</div>
+                    <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{outcome}</pre>
+                  </div>
+                )
+              })()}
               {/* Knee Cap Height — show prompt when Right Higher or Left Higher selected */}
               {f.kneeCapHeight && answers[f.id] && answers[f.id] !== 'Equal' && (
                 <div style={{ marginTop: 10, padding: '12px 16px', background: C.orange + '08', border: `1px solid ${C.orange}22`, borderRadius: 10 }}>
