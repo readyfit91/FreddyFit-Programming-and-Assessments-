@@ -220,18 +220,6 @@ export const FIELD_MODIFIERS = {
   // ═══════════════════════════════════════════════════════════════════════════
   // KNEE POSTURE ASSESSMENT
   // ═══════════════════════════════════════════════════════════════════════════
-  k_thigh_right: [
-    'VMO activation drill — Right',
-    'Quad setting exercise — Right',
-    'Single-leg press assessment — Right',
-    'No modifier worked',
-  ],
-  k_thigh_left: [
-    'VMO activation drill — Left',
-    'Quad setting exercise — Left',
-    'Single-leg press assessment — Left',
-    'No modifier worked',
-  ],
   k_meniscus_survey: [
     'Avoid deep flexion under load',
     'Modify squat depth (parallel only)',
