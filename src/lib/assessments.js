@@ -416,7 +416,7 @@ export const ALL_ASSESSMENTS = {
           failNotes:"Sometimes they might look \"crooked\" in standing, but it balances out when bent forward. This could be due to a leg length discrepancy.\n\n• Causes: Could be organ issues (because everything is attached via connective tissue), true leg length discrepancy, hemi pelvis, atlas subluxation, eye imbalance, pelvic torsion, a vertebrae that has rotated and locked out of position, inner ear imbalance, etc.\n\n• Bracing: It may not make sense to wear a brace for scoliosis other than when you're sleeping. Otherwise it weakens you too much, and problems are worse when the brace is removed.\n\n• Corrective Considerations: Correct rotational imbalances. Stretch inside the \"cave\", strengthen outside the \"cave\" is a common philosophy. Try the Little Lucky Arrow Corrective Protocol (ETA Core)." },
         { id:"st_wsit", label:"W-Sit Test — able to W-sit", type:"passfail", options:["No","Yes"],
           failNotes:"Being able to W-sit may be associated with:\n\n1. Joint hypermobility\n\n2. Low muscle tone\n\n3. Hip antetorsion (an increased angle in the neck of the femur, as it enters the hip socket)." },
-        { id:"st_yogasit", label:"Yoga-Sit test — able to yoga sit", type:"passfail", options:["Yes","No"] },
+        { id:"st_yogasit", label:"Yoga-Sit Test — able to yoga sit", type:"passfail", options:["Yes","No"] },
         { id:"st_referral", label:"Doctor referral recommended", type:"passfail", options:["No","Yes"] },
         { id:"st_notes", label:"Structural notes", type:"textarea" },
       ]}
