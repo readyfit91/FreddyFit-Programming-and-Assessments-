@@ -348,6 +348,12 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
       {assessment.sections.map(s => (
         <div key={s.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '20px 22px', marginBottom: 16 }}>
           <div style={{ fontWeight: 700, fontSize: 13, color: assessment.color, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 16 }}>{s.title}</div>
+          {s.importantNote && (
+            <div style={{ marginBottom: 16, background: C.accent + '10', border: `1px solid ${C.accent}33`, borderRadius: 10, padding: '12px 16px' }}>
+              <div style={{ fontSize: 10, color: C.accent, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>📌 Important</div>
+              <pre style={{ fontSize: 12, lineHeight: 1.7, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{s.importantNote}</pre>
+            </div>
+          )}
           {s.fields.map(f => {
             // Hide lying squat sub-questions when "Not needed" is selected
             const lyingSubFields = ['bms_sq_lying_arms','bms_sq_lying_knees','bms_sq_lying_ankles','bms_sq_lying_result']
