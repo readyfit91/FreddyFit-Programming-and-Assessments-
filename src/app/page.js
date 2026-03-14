@@ -361,6 +361,10 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
               const labelWithLeg = f.label.replace(/\?$/, ` (${smallerLeg} leg)?`)
               f = { ...f, label: labelWithLeg }
             }
+            // Hide fields until parent has a specific value
+            if (f.showWhenParent) {
+              if (answers[f.showWhenParent] !== f.showWhenParentValue) return null
+            }
             // Hide conditional fields until their parent meets criteria
             if (f.showWhenFail) {
               const parentVal = parseFloat(answers[f.showWhenFail])
