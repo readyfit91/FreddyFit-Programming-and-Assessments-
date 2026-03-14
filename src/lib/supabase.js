@@ -135,3 +135,57 @@ export async function saveWorkout(clientId, content, prompt) {
     .insert({ client_id: clientId, content, prompt, generated_at: new Date().toISOString() })
   if (error) throw error
 }
+
+// ── CHECKINS (Sign-In Sheets) ───────────────────────────────────────────────
+
+export async function getCheckinsByDate(sessionDate) {
+  const { data, error } = await supabase
+    .from('checkins')
+    .select('*, clients(name)')
+    .eq('session_date', sessionDate)
+    .order('time_in', { ascending: true })
+  if (error) throw error
+  return data || []
+}
+
+export async function createCheckin(clientId, sessionDate, sessionType) {
+  const { data, error } = await supabase
+    .from('checkins')
+    .insert({
+      client_id: clientId,
+      session_date: sessionDate,
+      time_in: new Date().toISOString(),
+      session_type: sessionType || 'Training'
+    })
+    .select('*, clients(name)')
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function signOutCheckin(checkinId) {
+  const { data, error } = await supabase
+    .from('checkins')
+    .update({ time_out: new Date().toISOString() })
+    .eq('id', checkinId)
+    .select('*, clients(name)')
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function updateCheckinNotes(checkinId, notes) {
+  const { error } = await supabase
+    .from('checkins')
+    .update({ notes })
+    .eq('id', checkinId)
+  if (error) throw error
+}
+
+export async function deleteCheckin(checkinId) {
+  const { error } = await supabase
+    .from('checkins')
+    .delete()
+    .eq('id', checkinId)
+  if (error) throw error
+}

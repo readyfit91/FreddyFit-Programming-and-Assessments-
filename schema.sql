@@ -45,3 +45,19 @@ create policy "allow all" on clients for all using (true) with check (true);
 create policy "allow all" on assessments for all using (true) with check (true);
 create policy "allow all" on programs for all using (true) with check (true);
 create policy "allow all" on workouts for all using (true) with check (true);
+
+-- ── SIGN-IN SHEETS ──────────────────────────────────────────────────────────
+
+create table if not exists checkins (
+  id uuid primary key default gen_random_uuid(),
+  client_id text references clients(id) on delete cascade,
+  session_date date not null default current_date,
+  time_in timestamptz not null default now(),
+  time_out timestamptz,
+  session_type text default 'Training',
+  notes text,
+  created_at timestamptz default now()
+);
+
+alter table checkins enable row level security;
+create policy "allow all" on checkins for all using (true) with check (true);

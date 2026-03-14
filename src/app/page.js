@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient } from '../lib/supabase'
+import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getCheckinsByDate, createCheckin, signOutCheckin, updateCheckinNotes, deleteCheckin } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
 
 const makeId = () => Math.random().toString(36).slice(2,10)
@@ -707,6 +707,224 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
   )
 }
 
+// ── SIGN-IN SHEET ────────────────────────────────────────────────────────────
+function SignInSheet({ onBack }) {
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0])
+  const [checkins, setCheckins] = useState([])
+  const [clients, setClients] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [showAdd, setShowAdd] = useState(false)
+  const [selectedClient, setSelectedClient] = useState('')
+  const [sessionType, setSessionType] = useState('Training')
+  const [clientSearch, setClientSearch] = useState('')
+
+  const SESSION_TYPES = ['Training', 'Assessment', 'Program Review', 'Intro/Consult', 'Recovery']
+
+  const loadData = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [allClients, dayCheckins] = await Promise.all([
+        getAllClients(),
+        getCheckinsByDate(date)
+      ])
+      setClients(allClients)
+      setCheckins(dayCheckins)
+    } catch (e) {
+      console.error('Error loading sign-in data:', e)
+    }
+    setLoading(false)
+  }, [date])
+
+  useEffect(() => { loadData() }, [loadData])
+
+  const checkedInIds = checkins.map(c => c.client_id)
+  const availableClients = clients.filter(c =>
+    !checkedInIds.includes(c.id) &&
+    c.name.toLowerCase().includes(clientSearch.toLowerCase())
+  )
+
+  const addCheckin = async () => {
+    if (!selectedClient) return
+    try {
+      await createCheckin(selectedClient, date, sessionType)
+      setSelectedClient('')
+      setSessionType('Training')
+      setClientSearch('')
+      setShowAdd(false)
+      await loadData()
+    } catch (e) { alert('Error: ' + e.message) }
+  }
+
+  const handleSignOut = async (checkinId) => {
+    try {
+      await signOutCheckin(checkinId)
+      await loadData()
+    } catch (e) { alert('Error: ' + e.message) }
+  }
+
+  const handleNotesChange = async (checkinId, notes) => {
+    try {
+      await updateCheckinNotes(checkinId, notes)
+    } catch (e) { console.error(e) }
+  }
+
+  const handleDelete = async (checkinId) => {
+    if (!confirm('Remove this check-in?')) return
+    try {
+      await deleteCheckin(checkinId)
+      await loadData()
+    } catch (e) { alert('Error: ' + e.message) }
+  }
+
+  const fmtTime = (iso) => {
+    if (!iso) return '—'
+    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+
+  const dateLabel = (() => {
+    const today = new Date().toISOString().split('T')[0]
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
+    if (date === today) return 'Today'
+    if (date === yesterday) return 'Yesterday'
+    return new Date(date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
+  })()
+
+  const printSheet = () => window.print()
+
+  return (
+    <div style={{ maxWidth: 860, margin: '0 auto', padding: '32px 24px' }}>
+      <button onClick={onBack} className="no-print" style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 24 }}>← Back to Roster</button>
+
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16, marginBottom: 24 }}>
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 4, color: C.text }}>SIGN-IN SHEET</div>
+          <div style={{ fontSize: 13, color: C.sub, marginTop: 4 }}>{dateLabel} · {checkins.length} check-in{checkins.length !== 1 ? 's' : ''}</div>
+        </div>
+        <div className="no-print" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ background: C.faint, border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 12px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', color: C.text }} />
+          <Btn onClick={printSheet} outline small>🖨 Print</Btn>
+          <Btn onClick={() => setShowAdd(true)}>+ Sign In Client</Btn>
+        </div>
+      </div>
+
+      {/* Add Check-in Panel */}
+      {showAdd && (
+        <div className="no-print" style={{ background: C.card, border: `1px solid ${C.accent}44`, borderRadius: 14, padding: '20px 24px', marginBottom: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 14 }}>NEW CHECK-IN</div>
+
+          {/* Client Search */}
+          <input
+            value={clientSearch}
+            onChange={e => { setClientSearch(e.target.value); setSelectedClient('') }}
+            placeholder="Search clients..."
+            style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 14px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', marginBottom: 10 }}
+          />
+
+          {/* Client List */}
+          <div style={{ maxHeight: 180, overflowY: 'auto', marginBottom: 14, border: `1px solid ${C.border}`, borderRadius: 10, background: C.faint }}>
+            {availableClients.length === 0 ? (
+              <div style={{ padding: 16, textAlign: 'center', fontSize: 12, color: C.sub }}>
+                {clients.length === 0 ? 'No clients yet' : 'All clients already checked in today'}
+              </div>
+            ) : availableClients.map(c => (
+              <button key={c.id} onClick={() => { setSelectedClient(c.id); setClientSearch(c.name) }}
+                style={{ display: 'block', width: '100%', padding: '10px 14px', background: selectedClient === c.id ? C.accent + '15' : 'transparent', border: 'none', borderBottom: `1px solid ${C.border}`, textAlign: 'left', cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', fontSize: 13, color: selectedClient === c.id ? C.accent : C.text, fontWeight: selectedClient === c.id ? 700 : 400 }}>
+                {c.name}
+                {c.goal && <span style={{ fontSize: 11, color: C.sub, marginLeft: 8 }}>· {c.goal}</span>}
+              </button>
+            ))}
+          </div>
+
+          {/* Session Type */}
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>Session Type</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
+            {SESSION_TYPES.map(t => (
+              <button key={t} onClick={() => setSessionType(t)}
+                style={{ padding: '7px 14px', borderRadius: 20, border: `1.5px solid ${sessionType === t ? C.accent : C.border}`, background: sessionType === t ? C.accent + '18' : 'white', color: sessionType === t ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 600, fontSize: 11, cursor: 'pointer' }}>
+                {t}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Btn onClick={addCheckin} disabled={!selectedClient}>✓ Sign In</Btn>
+            <Btn onClick={() => { setShowAdd(false); setClientSearch(''); setSelectedClient('') }} outline color={C.sub}>Cancel</Btn>
+          </div>
+        </div>
+      )}
+
+      {/* Sign-In List */}
+      {loading ? <Spinner /> : checkins.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 60, color: C.sub, fontSize: 14 }}>No check-ins for {dateLabel.toLowerCase()}.</div>
+      ) : (
+        <div>
+          {/* Print Header */}
+          <div className="print-only" style={{ display: 'none', textAlign: 'center', marginBottom: 20 }}>
+            <div style={{ fontWeight: 800, fontSize: 20, letterSpacing: 3 }}>FREDDY FIT — SIGN-IN SHEET</div>
+            <div style={{ fontSize: 13, marginTop: 4 }}>{new Date(date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+          </div>
+
+          {/* Table */}
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden' }}>
+            {/* Table Header */}
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 2fr 60px', gap: 0, padding: '12px 20px', background: C.faint, borderBottom: `1px solid ${C.border}`, fontSize: 10, fontWeight: 700, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>
+              <div>Client</div>
+              <div>Type</div>
+              <div>Time In</div>
+              <div>Time Out</div>
+              <div>Notes</div>
+              <div></div>
+            </div>
+
+            {/* Rows */}
+            {checkins.map((ci, i) => (
+              <div key={ci.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 2fr 60px', gap: 0, padding: '14px 20px', borderBottom: i < checkins.length - 1 ? `1px solid ${C.border}` : 'none', alignItems: 'center' }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: C.text }}>{ci.clients?.name || 'Unknown'}</div>
+                <div style={{ fontSize: 11, color: C.sub }}>{ci.session_type}</div>
+                <div style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>{fmtTime(ci.time_in)}</div>
+                <div>
+                  {ci.time_out ? (
+                    <span style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>{fmtTime(ci.time_out)}</span>
+                  ) : (
+                    <button className="no-print" onClick={() => handleSignOut(ci.id)} style={{ padding: '4px 12px', borderRadius: 6, border: `1.5px solid ${C.accent}`, background: C.accent + '12', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer', letterSpacing: 0.5 }}>Sign Out</button>
+                  )}
+                </div>
+                <div>
+                  <input
+                    defaultValue={ci.notes || ''}
+                    onBlur={e => handleNotesChange(ci.id, e.target.value)}
+                    placeholder="Add notes..."
+                    className="no-print-border"
+                    style={{ width: '100%', background: 'transparent', border: `1px solid ${C.border}`, borderRadius: 6, padding: '5px 8px', fontFamily: 'Montserrat,sans-serif', fontSize: 11, color: C.text, outline: 'none' }}
+                  />
+                </div>
+                <div className="no-print" style={{ textAlign: 'right' }}>
+                  <button onClick={() => handleDelete(ci.id)} style={{ background: 'none', border: 'none', color: C.sub, cursor: 'pointer', fontSize: 14, padding: '2px 6px' }}>✕</button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Summary */}
+          <div style={{ marginTop: 16, padding: '12px 20px', background: C.faint, borderRadius: 10, display: 'flex', justifyContent: 'space-between', fontSize: 12, color: C.sub }}>
+            <span>Total: <strong style={{ color: C.text }}>{checkins.length}</strong> client{checkins.length !== 1 ? 's' : ''}</span>
+            <span>Signed out: <strong style={{ color: C.text }}>{checkins.filter(c => c.time_out).length}</strong> / {checkins.length}</span>
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          .print-only { display: block !important; }
+          .no-print-border { border: none !important; }
+        }
+      `}</style>
+    </div>
+  )
+}
+
 // ── CLIENT ROSTER ─────────────────────────────────────────────────────────────
 function ClientRoster({ onSelectClient }) {
   const [clients, setClients] = useState([])
@@ -827,16 +1045,22 @@ export default function App() {
           <div style={{ width: 1, height: 20, background: C.border }} />
           <div style={{ fontSize: 11, color: C.sub, letterSpacing: 2, fontWeight: 600, textTransform: 'uppercase' }}>TrainDesk</div>
         </button>
-        {client && view !== 'roster' && (
-          <div style={{ fontSize: 12, color: C.sub }}>
-            {view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : client.name}
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          {view !== 'signin' && (
+            <button onClick={() => setView('signin')} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '5px 12px', fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', fontWeight: 600, letterSpacing: 0.5 }}>📋 Sign-In Sheet</button>
+          )}
+          {client && view !== 'roster' && view !== 'signin' && (
+            <div style={{ fontSize: 12, color: C.sub }}>
+              {view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : client.name}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Content */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {view === 'roster' && <ClientRoster onSelectClient={goToClient} />}
+        {view === 'signin' && <SignInSheet onBack={() => setView('roster')} />}
         {view === 'client' && client && (
           <ClientProfile
             client={client}
