@@ -1427,7 +1427,7 @@ function InitialPad({ value, onChange }) {
     ctx.lineJoin = 'round'
     ctx.lineWidth = 2
     ctx.strokeStyle = '#1a1a2e'
-    if (value) {
+    if (value && value.startsWith('data:')) {
       const img = new Image()
       img.onload = () => { ctx.drawImage(img, 0, 0, rect.width, rect.height) }
       img.src = value
@@ -2329,9 +2329,9 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
                 ]} />
                 <Section title="Functional Fit Package" items={[
                   ['Committed', intake.functional_fit_commit],
-                  ['Initialed: 4 sessions / 3-4 weeks', intake.functional_fit_initial_1 || ''],
-                  ['Initialed: 100% guarantee', intake.functional_fit_initial_2 || ''],
-                  ['Initialed: Cancellation policy', intake.functional_fit_initial_3 || ''],
+                  ['Initialed: 4 sessions / 3-4 weeks', intake.functional_fit_initial_1 ? '✓ Signed' : ''],
+                  ['Initialed: 100% guarantee', intake.functional_fit_initial_2 ? '✓ Signed' : ''],
+                  ['Initialed: Cancellation policy', intake.functional_fit_initial_3 ? '✓ Signed' : ''],
                 ]} />
               </div>
             )
