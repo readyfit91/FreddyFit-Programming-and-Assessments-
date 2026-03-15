@@ -461,6 +461,12 @@ export const ALL_ASSESSMENTS = {
         { id:"np_ear_left", label:"Push On Side of Ear — Left", type:"scale", min:1, max:10, passThreshold:8,
           failNotes:"✗ FAIL — score below 8",
           passNotes:"Try King Atlas Protocol for the LEFT side" },
+        { id:"np_seated_hip_right", label:"Seated Hip Swing (push on side of neck) — Right", type:"scale", min:1, max:10, passThreshold:8,
+          failNotes:"✗ FAIL — score below 8",
+          passNotes:"Try King Atlas Protocol for the RIGHT side" },
+        { id:"np_seated_hip_left", label:"Seated Hip Swing (push on side of neck) — Left", type:"scale", min:1, max:10, passThreshold:8,
+          failNotes:"✗ FAIL — score below 8",
+          passNotes:"Try King Atlas Protocol for the LEFT side" },
       ]},
       { id:"np2", title:"Nerve Function Screen C3–C8", fields:[
         { id:"np_empty_can", label:"Empty Can + King Atlas — weak or painful", type:"passfail", options:["Pass","Fail"] },
