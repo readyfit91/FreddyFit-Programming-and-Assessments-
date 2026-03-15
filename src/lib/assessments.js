@@ -467,6 +467,7 @@ export const ALL_ASSESSMENTS = {
         { id:"np_seated_hip_left", label:"Seated Hip Swing — Left", type:"dualRating",
           firstLabel:"Without pressing on neck", secondLabel:"While pressing on side of neck",
           passThreshold:8, passNotes:"Try King Atlas Protocol for the LEFT side" },
+        { id:"np_neck_conclusion", label:"Neck Pressure Conclusion", type:"neckConclusion" },
       ]},
       { id:"np2", title:"Nerve Function Screen C3–C8", fields:[
         { id:"np_empty_can", label:"Empty Can + King Atlas — weak or painful", type:"passfail", options:["Pass","Fail"] },

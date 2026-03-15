@@ -195,6 +195,35 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
         </div>
       )
     }
+    if (f.type === 'neckConclusion') {
+      const threshold = 8
+      const earRightWith = parseInt(answers['np_ear_right_with']) || 0
+      const earLeftWith = parseInt(answers['np_ear_left_with']) || 0
+      const hipRightWith = parseInt(answers['np_seated_hip_right_with']) || 0
+      const hipLeftWith = parseInt(answers['np_seated_hip_left_with']) || 0
+      const rightStrong = (earRightWith >= threshold) || (hipRightWith >= threshold)
+      const leftStrong = (earLeftWith >= threshold) || (hipLeftWith >= threshold)
+      const hasData = earRightWith > 0 || earLeftWith > 0 || hipRightWith > 0 || hipLeftWith > 0
+      if (!hasData) return <div style={{ fontSize: 12, color: C.sub, fontStyle: 'italic' }}>Complete the tests above to see conclusion</div>
+      let conclusion = ''
+      let color = C.accent
+      if (rightStrong && leftStrong) {
+        conclusion = 'Stronger on BOTH sides with hand on neck → Perform Neck Mate or Leonardo Da Necky'
+      } else if (rightStrong) {
+        conclusion = 'Stronger on RIGHT side with hand on neck → Perform King Atlas Right Upper Neck Protocol'
+      } else if (leftStrong) {
+        conclusion = 'Stronger on LEFT side with hand on neck → Perform King Atlas Left Upper Neck Protocol'
+      } else {
+        conclusion = 'No improvement with neck pressure on either side'
+        color = C.sub
+      }
+      return (
+        <div style={{ padding: '14px 18px', background: color + '12', border: `2px solid ${color}44`, borderRadius: 12 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color, textTransform: 'uppercase', marginBottom: 8 }}>Conclusion</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, lineHeight: 1.6 }}>{conclusion}</div>
+        </div>
+      )
+    }
     if (f.type === 'dualRating') {
       const firstKey = f.id
       const secondKey = `${f.id}_with`
@@ -289,7 +318,7 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
   }
 
   const renderRatingAndModifier = (f) => {
-    if (f.type === 'textarea' || f.type === 'scale' || f.type === 'dualRating') return null
+    if (f.type === 'textarea' || f.type === 'scale' || f.type === 'dualRating' || f.type === 'neckConclusion') return null
     const isPrime8 = assessment.id === 'prime8'
     // Only show rating system for fields that have modifiers (Prime 8 inline or FIELD_MODIFIERS)
     const hasModifiers = !!(f.modifiers || FIELD_MODIFIERS[f.id])
