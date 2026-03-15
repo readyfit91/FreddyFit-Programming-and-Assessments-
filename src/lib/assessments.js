@@ -470,6 +470,8 @@ export const ALL_ASSESSMENTS = {
         { id:"np_neck_conclusion", label:"Neck Pressure Conclusion", type:"neckConclusion" },
       ]},
       { id:"np2", title:"Nerve Function Screen C3–C8", fields:[
+        { id:"np_upward_rotation_note", label:"Clinical Note", type:"info",
+          text:"Mid Cervical Nerve (C3 and C4) nerve issues can cause weakness here, in addition to pain and/or weakness in the Upper Traps and Shoulders, and even the Quads (due to the Lovett Brother Relationship — issues in cervical vertebra get mirrored in lumbar region)" },
         { id:"np_upward_rotation_right", label:"Upward Rotation Test — Right Arm", type:"passfail", options:["Pass","Fail"],
           failNotes:"Rate 1-10. If 7 or below, try modifiers in sequence",
           modifiers:["Chin Tuck → Neck Savvy Excess Curve","Look Up → Neck Savvy Flat / Shoulder Superior","Press on side of mid neck (not atlas bone) → Teddy Neckspin","Press backward protruding neck bone (if present) → Leonardo Da Necky","No modifier helped"] },

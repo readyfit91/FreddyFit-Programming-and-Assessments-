@@ -116,6 +116,11 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
   const renderField = (f) => {
     const val = answers[f.id] || ''
     const base = { width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 13, color: C.text, outline: 'none', background: C.faint }
+    if (f.type === 'info') return (
+      <div style={{ padding: '12px 16px', background: C.sky + '10', border: `1px solid ${C.sky}33`, borderRadius: 10, fontSize: 12, color: C.text, lineHeight: 1.7, fontFamily: 'Montserrat,sans-serif' }}>
+        📋 {f.text}
+      </div>
+    )
     if (f.type === 'textarea') return <textarea value={val} onChange={e => set(f.id, e.target.value)} rows={3} style={{ ...base, resize: 'vertical' }} placeholder={f.placeholder || ''} />
     if (f.type === 'passfail') {
       // Prime 8 and fields with inline modifiers use the rating system instead
@@ -318,7 +323,7 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
   }
 
   const renderRatingAndModifier = (f) => {
-    if (f.type === 'textarea' || f.type === 'scale' || f.type === 'dualRating' || f.type === 'neckConclusion') return null
+    if (f.type === 'textarea' || f.type === 'scale' || f.type === 'dualRating' || f.type === 'neckConclusion' || f.type === 'info') return null
     const isPrime8 = assessment.id === 'prime8'
     // Only show rating system for fields that have modifiers (Prime 8 inline or FIELD_MODIFIERS)
     const hasModifiers = !!(f.modifiers || FIELD_MODIFIERS[f.id])
