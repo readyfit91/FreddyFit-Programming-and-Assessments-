@@ -2253,9 +2253,11 @@ function SignInSheet({ client, onBack, onUpdate }) {
   }
 
   const handleSign = (signature) => {
-    const today = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+    const now = new Date()
+    const today = now.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+    const time = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
     const sessionNum = entries.length + sessionOffset + 1
-    const newEntries = [...entries, { session: sessionNum, date: today, signature }]
+    const newEntries = [...entries, { session: sessionNum, date: today, time, signature }]
     setEntries(newEntries)
     saveData(packageType, newEntries, sessionOffset)
     const remaining = Math.max(0, totalSessions - (newEntries.length + sessionOffset))
@@ -2366,16 +2368,18 @@ function SignInSheet({ client, onBack, onUpdate }) {
           {entries.length > 0 && (
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px' }}>
               <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 14 }}>Sign-In History</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '50px 1fr 80px 40px', gap: '0', fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', padding: '0 0 8px', borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '40px 1fr 70px 70px 32px', gap: '0', fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', padding: '0 0 8px', borderBottom: `1px solid ${C.border}` }}>
                 <div>#</div>
                 <div>Date</div>
+                <div>Time</div>
                 <div>Signature</div>
                 <div />
               </div>
               {[...entries].reverse().map((entry, i) => (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: '50px 1fr 80px 40px', gap: '0', alignItems: 'center', padding: '10px 0', borderBottom: `1px solid ${C.border}11` }}>
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '40px 1fr 70px 70px 32px', gap: '0', alignItems: 'center', padding: '10px 0', borderBottom: `1px solid ${C.border}11` }}>
                   <div style={{ fontSize: 14, fontWeight: 800, color: C.accent }}>{entry.session}</div>
                   <div style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>{entry.date}</div>
+                  <div style={{ fontSize: 12, color: C.sub, fontWeight: 600 }}>{entry.time || '—'}</div>
                   <div>{entry.signature && <img src={entry.signature} alt="sig" style={{ height: 28, borderRadius: 4, border: `1px solid ${C.border}` }} />}</div>
                   <button onClick={() => handleDeleteEntry(entries.length - 1 - i)} style={{ background: 'none', border: 'none', color: C.sub, fontSize: 14, cursor: 'pointer', padding: 0 }} title="Remove">×</button>
                 </div>
@@ -2417,6 +2421,24 @@ function SignInPad({ onSign, saving }) {
   const canvasRef = useRef(null)
   const isDrawing = useRef(false)
   const hasDrawn = useRef(false)
+  const lastPoint = useRef(null)
+
+  const drawGuideLine = (ctx, w, h) => {
+    ctx.save()
+    ctx.strokeStyle = '#ddd'
+    ctx.lineWidth = 1
+    ctx.setLineDash([4, 4])
+    ctx.beginPath()
+    ctx.moveTo(20, h - 20)
+    ctx.lineTo(w - 20, h - 20)
+    ctx.stroke()
+    ctx.restore()
+    ctx.save()
+    ctx.font = '14px Montserrat, sans-serif'
+    ctx.fillStyle = '#ccc'
+    ctx.fillText('\u2715', 8, h - 12)
+    ctx.restore()
+  }
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -2428,23 +2450,24 @@ function SignInPad({ onSign, saving }) {
     ctx.scale(2, 2)
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
-    ctx.lineWidth = 2.5
-    ctx.strokeStyle = '#1a1a2e'
-    // Guide line
-    ctx.save()
-    ctx.strokeStyle = '#ddd'
-    ctx.lineWidth = 1
-    ctx.setLineDash([4, 4])
-    ctx.beginPath()
-    ctx.moveTo(20, rect.height - 20)
-    ctx.lineTo(rect.width - 20, rect.height - 20)
-    ctx.stroke()
-    ctx.restore()
-    ctx.save()
-    ctx.font = '14px Montserrat, sans-serif'
-    ctx.fillStyle = '#ccc'
-    ctx.fillText('✕', 8, rect.height - 12)
-    ctx.restore()
+    drawGuideLine(ctx, rect.width, rect.height)
+
+    // Prevent all default touch behaviors on the canvas
+    const prevent = (e) => e.preventDefault()
+    canvas.addEventListener('touchstart', prevent, { passive: false })
+    canvas.addEventListener('touchmove', prevent, { passive: false })
+    canvas.addEventListener('touchend', prevent, { passive: false })
+    canvas.addEventListener('contextmenu', prevent)
+    canvas.addEventListener('selectstart', prevent)
+    canvas.addEventListener('dblclick', prevent)
+    return () => {
+      canvas.removeEventListener('touchstart', prevent)
+      canvas.removeEventListener('touchmove', prevent)
+      canvas.removeEventListener('touchend', prevent)
+      canvas.removeEventListener('contextmenu', prevent)
+      canvas.removeEventListener('selectstart', prevent)
+      canvas.removeEventListener('dblclick', prevent)
+    }
   }, [])
 
   const getPos = (e) => {
@@ -2456,29 +2479,34 @@ function SignInPad({ onSign, saving }) {
 
   const startDraw = (e) => {
     e.preventDefault()
+    e.stopPropagation()
     hasDrawn.current = true
     isDrawing.current = true
-    const ctx = canvasRef.current.getContext('2d')
-    ctx.strokeStyle = '#1a1a2e'
-    ctx.lineWidth = 2.5
-    ctx.setLineDash([])
-    const pos = getPos(e)
-    ctx.beginPath()
-    ctx.moveTo(pos.x, pos.y)
+    lastPoint.current = getPos(e)
   }
 
   const draw = (e) => {
     if (!isDrawing.current) return
     e.preventDefault()
+    e.stopPropagation()
     const ctx = canvasRef.current.getContext('2d')
     const pos = getPos(e)
+    ctx.strokeStyle = '#1a1a2e'
+    ctx.lineWidth = 2.5
+    ctx.setLineDash([])
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.beginPath()
+    ctx.moveTo(lastPoint.current.x, lastPoint.current.y)
     ctx.lineTo(pos.x, pos.y)
     ctx.stroke()
+    lastPoint.current = pos
   }
 
-  const endDraw = () => {
-    if (!isDrawing.current) return
+  const endDraw = (e) => {
+    if (e) { e.preventDefault(); e.stopPropagation() }
     isDrawing.current = false
+    lastPoint.current = null
   }
 
   const clear = () => {
@@ -2487,27 +2515,13 @@ function SignInPad({ onSign, saving }) {
     const rect = canvas.getBoundingClientRect()
     ctx.clearRect(0, 0, rect.width, rect.height)
     hasDrawn.current = false
-    ctx.save()
-    ctx.strokeStyle = '#ddd'
-    ctx.lineWidth = 1
-    ctx.setLineDash([4, 4])
-    ctx.beginPath()
-    ctx.moveTo(20, rect.height - 20)
-    ctx.lineTo(rect.width - 20, rect.height - 20)
-    ctx.stroke()
-    ctx.restore()
-    ctx.save()
-    ctx.font = '14px Montserrat, sans-serif'
-    ctx.fillStyle = '#ccc'
-    ctx.fillText('✕', 8, rect.height - 12)
-    ctx.restore()
+    drawGuideLine(ctx, rect.width, rect.height)
   }
 
   const handleSubmit = () => {
     if (!hasDrawn.current) return
     const sig = canvasRef.current.toDataURL()
     onSign(sig)
-    // Reset canvas for next sign-in
     setTimeout(() => {
       hasDrawn.current = false
       const canvas = canvasRef.current
@@ -2515,20 +2529,7 @@ function SignInPad({ onSign, saving }) {
       const ctx = canvas.getContext('2d')
       const rect = canvas.getBoundingClientRect()
       ctx.clearRect(0, 0, rect.width, rect.height)
-      ctx.save()
-      ctx.strokeStyle = '#ddd'
-      ctx.lineWidth = 1
-      ctx.setLineDash([4, 4])
-      ctx.beginPath()
-      ctx.moveTo(20, rect.height - 20)
-      ctx.lineTo(rect.width - 20, rect.height - 20)
-      ctx.stroke()
-      ctx.restore()
-      ctx.save()
-      ctx.font = '14px Montserrat, sans-serif'
-      ctx.fillStyle = '#ccc'
-      ctx.fillText('✕', 8, rect.height - 12)
-      ctx.restore()
+      drawGuideLine(ctx, rect.width, rect.height)
     }, 300)
   }
 
@@ -2541,7 +2542,7 @@ function SignInPad({ onSign, saving }) {
         </div>
         <canvas
           ref={canvasRef}
-          style={{ width: '100%', height: 120, border: `2px solid ${C.border}`, borderRadius: 12, background: '#fafbfc', touchAction: 'none', cursor: 'crosshair', position: 'relative', zIndex: 2 }}
+          style={{ width: '100%', height: 120, border: `2px solid ${C.border}`, borderRadius: 12, background: '#fafbfc', touchAction: 'none', cursor: 'crosshair', position: 'relative', zIndex: 2, userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }}
           onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
           onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}
         />
