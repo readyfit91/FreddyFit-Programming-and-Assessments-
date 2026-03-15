@@ -195,6 +195,56 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
         </div>
       )
     }
+    if (f.type === 'dualRating') {
+      const firstKey = f.id
+      const secondKey = `${f.id}_with`
+      const firstRating = parseInt(answers[firstKey]) || 0
+      const secondRating = parseInt(answers[secondKey]) || 0
+      const threshold = f.passThreshold || 8
+      const renderButtons = (key, rating) => (
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          {[1,2,3,4,5,6,7,8,9,10].map(n => {
+            const selected = rating === n
+            const btnFail = n < threshold
+            return (
+              <button key={n} onClick={() => set(key, n.toString())} style={{
+                width: 32, height: 32, borderRadius: 7,
+                border: `1.5px solid ${selected ? (btnFail ? C.red : C.green) : C.border}`,
+                background: selected ? (btnFail ? C.red : C.green) : 'white',
+                color: selected ? 'white' : btnFail ? C.red : C.green,
+                fontWeight: 800, fontSize: 13, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif'
+              }}>{n}</button>
+            )
+          })}
+        </div>
+      )
+      return (
+        <div>
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>{f.firstLabel}</div>
+            {renderButtons(firstKey, firstRating)}
+            {firstRating > 0 && firstRating < threshold && (
+              <div style={{ marginTop: 6, fontSize: 11, fontWeight: 800, color: C.red }}>✗ {firstRating}/10</div>
+            )}
+            {firstRating >= threshold && (
+              <div style={{ marginTop: 6, fontSize: 11, fontWeight: 800, color: C.green }}>✓ {firstRating}/10</div>
+            )}
+          </div>
+          <div>
+            <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>{f.secondLabel}</div>
+            {renderButtons(secondKey, secondRating)}
+            {secondRating > 0 && secondRating < threshold && (
+              <div style={{ marginTop: 6, fontSize: 11, fontWeight: 800, color: C.red }}>✗ FAIL — {secondRating}/10</div>
+            )}
+            {secondRating >= threshold && (
+              <div style={{ marginTop: 8, padding: '10px 14px', background: C.accent + '10', border: `1px solid ${C.accent}33`, borderRadius: 8, fontSize: 12, fontWeight: 700, color: C.accent }}>
+                ✓ PASS — {secondRating}/10 → {f.passNotes}
+              </div>
+            )}
+          </div>
+        </div>
+      )
+    }
     if (f.type === 'scale') {
       if (f.passThreshold) {
         const rating = parseInt(val) || 0
@@ -239,7 +289,7 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
   }
 
   const renderRatingAndModifier = (f) => {
-    if (f.type === 'textarea' || f.type === 'scale') return null
+    if (f.type === 'textarea' || f.type === 'scale' || f.type === 'dualRating') return null
     const isPrime8 = assessment.id === 'prime8'
     // Only show rating system for fields that have modifiers (Prime 8 inline or FIELD_MODIFIERS)
     const hasModifiers = !!(f.modifiers || FIELD_MODIFIERS[f.id])
