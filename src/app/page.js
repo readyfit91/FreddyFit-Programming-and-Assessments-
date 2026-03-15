@@ -133,6 +133,68 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
         </div>
       )
     }
+    if (f.type === 'fingerWidthsHFP') {
+      const fwKey = f.id
+      const fw = parseInt(val) || 0
+      const passLimit = f.fingerWidthsPass || 3
+      const isFail = fw > passLimit
+      const isPass = fw > 0 && fw <= passLimit
+      const wallTestKey = `${f.id}_wall_test`
+      const wallRating = parseInt(answers[wallTestKey]) || 0
+      return (
+        <div>
+          <div style={{ fontSize: 11, color: C.sub, fontWeight: 700, marginBottom: 6 }}>How many finger widths between earlobe and AC joint?</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {[1,2,3,4,5,6].map(n => {
+              const selected = fw === n
+              const fail = n > passLimit
+              return (
+                <button key={n} onClick={() => { set(fwKey, n.toString()); if (n <= passLimit) set(wallTestKey, '') }} style={{
+                  width: 40, height: 40, borderRadius: 8,
+                  border: `2px solid ${selected ? (fail ? C.red : C.green) : C.border}`,
+                  background: selected ? (fail ? C.red : C.green) : 'white',
+                  color: selected ? 'white' : fail ? C.red : C.green,
+                  fontWeight: 800, fontSize: 15, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif'
+                }}>{n}</button>
+              )
+            })}
+          </div>
+          {isPass && (
+            <div style={{ marginTop: 8, fontSize: 11, fontWeight: 800, color: C.green }}>✓ PASS — {fw} finger width{fw !== 1 ? 's' : ''}</div>
+          )}
+          {isFail && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: C.red, marginBottom: 8 }}>✗ FAIL — {fw} finger widths (4+ = forward head posture)</div>
+              <div style={{ padding: '12px 14px', background: C.orange + '10', border: `1px solid ${C.orange}33`, borderRadius: 10 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.orange, textTransform: 'uppercase', marginBottom: 8 }}>Perform Empty Can Against the Wall</div>
+                <div style={{ fontSize: 11, color: C.sub, marginBottom: 8 }}>Rate 1–10 (8+ = Pass)</div>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {[1,2,3,4,5,6,7,8,9,10].map(n => {
+                    const selected = wallRating === n
+                    const btnFail = n <= 7
+                    return (
+                      <button key={n} onClick={() => set(wallTestKey, n.toString())} style={{
+                        width: 32, height: 32, borderRadius: 7,
+                        border: `1.5px solid ${selected ? (btnFail ? C.red : C.green) : C.border}`,
+                        background: selected ? (btnFail ? C.red : C.green) : 'white',
+                        color: selected ? 'white' : btnFail ? C.red : C.green,
+                        fontWeight: 800, fontSize: 13, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif'
+                      }}>{n}</button>
+                    )
+                  })}
+                </div>
+                {wallRating >= 8 && (
+                  <div style={{ marginTop: 8, fontSize: 11, fontWeight: 800, color: C.green }}>✓ PASS — {wallRating}/10 — Forward head posture is causing shoulder problems</div>
+                )}
+                {wallRating > 0 && wallRating <= 7 && (
+                  <div style={{ marginTop: 8, fontSize: 11, fontWeight: 800, color: C.red }}>✗ FAIL — {wallRating}/10</div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )
+    }
     if (f.type === 'scale') return (
       <div>
         <input type="range" min={f.min || 0} max={f.max || 10} value={val || f.min || 0} onChange={e => set(f.id, e.target.value)} style={{ width: '100%', accentColor: C.accent }} />

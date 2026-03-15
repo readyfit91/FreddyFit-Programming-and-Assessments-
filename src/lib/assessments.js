@@ -452,8 +452,9 @@ export const ALL_ASSESSMENTS = {
       { id:"np1", title:"Cervical Posture", fields:[
         { id:"np_curve", label:"Cervical Curve", type:"passfail", options:["Normal","Excess Curve","Straight Curve","Backward Bone"],
           optionNotes:{ "Straight Curve":"Try Neck Savvy Flat Cervical Curve", "Excess Curve":"Try Neck Savvy Excess Cervical Curve", "Backward Bone":"Try Leonardo Da Necky" } },
-        { id:"np_thoracic", label:"Thoracic Tilt — normal / kyphotic / flat", type:"text" },
-        { id:"np_fhp", label:"Head Forward Posture — cm forward of ideal", type:"text" },
+        { id:"np_thoracic", label:"Thoracic Tilt", type:"passfail", options:["Pass","Thoracic Tilt"] },
+        { id:"np_fhp_right", label:"Head Forward Posture — Right (earlobe aligned with AC joint)", type:"fingerWidthsHFP", fingerWidthsPass:3 },
+        { id:"np_fhp_left", label:"Head Forward Posture — Left (earlobe aligned with AC joint)", type:"fingerWidthsHFP", fingerWidthsPass:3 },
       ]},
       { id:"np2", title:"Nerve Function Screen C3–C8", fields:[
         { id:"np_empty_can", label:"Empty Can + King Atlas — weak or painful", type:"passfail", options:["Pass","Fail"] },
