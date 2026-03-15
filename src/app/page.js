@@ -2208,30 +2208,7 @@ const PACKAGE_OPTIONS = [
   { label: '3 Months — 24 Sessions', sessions: 24 },
   { label: '6 Months — 48 Sessions', sessions: 48 },
   { label: '12 Months — 96 Sessions', sessions: 96 },
-  { label: 'Ben McNamara', sessions: 32 },
-  { label: 'Stephanie Boyer', sessions: 45 },
-  { label: 'John Purcelli', sessions: 94 },
-  { label: 'Denise Rallo', sessions: 18 },
-  { label: 'Nick Rallo', sessions: 12 },
-  { label: 'Phruttitum', sessions: 34 },
-  { label: 'Timothy Ryner', sessions: 26 },
-  { label: 'Laura Reitz', sessions: 75 },
-  { label: 'Erin Larkin', sessions: 18 },
-  { label: 'Chris Mataya', sessions: 2 },
 ]
-
-const CLIENT_PACKAGES = {
-  'Ben McNamara': { totalPackage: 96, sessionsUsed: 64, sessionsRemaining: 32 },
-  'Stephanie Boyer': { totalPackage: 96, sessionsUsed: 51, sessionsRemaining: 45 },
-  'John Purcelli': { totalPackage: 96, sessionsUsed: 2, sessionsRemaining: 94 },
-  'Denise Rallo': { totalPackage: 96, sessionsUsed: 78, sessionsRemaining: 18 },
-  'Nick Rallo': { totalPackage: 96, sessionsUsed: 84, sessionsRemaining: 12 },
-  'Phruttitum': { totalPackage: 48, sessionsUsed: 14, sessionsRemaining: 34 },
-  'Timothy Ryner': { totalPackage: 96, sessionsUsed: 70, sessionsRemaining: 26 },
-  'Laura Reitz': { totalPackage: 96, sessionsUsed: 21, sessionsRemaining: 75 },
-  'Erin Larkin': { totalPackage: 24, sessionsUsed: 6, sessionsRemaining: 18 },
-  'Chris Mataya': { totalPackage: 25, sessionsUsed: 23, sessionsRemaining: 2 },
-}
 
 function SignInSheet({ client, onBack, onUpdate }) {
   // Load existing sign-in data from trainerNotes
@@ -2240,7 +2217,6 @@ function SignInSheet({ client, onBack, onUpdate }) {
     try { return JSON.parse(client.trainerNotes) } catch { return {} }
   })()
 
-  const clientPkg = CLIENT_PACKAGES[client.name] || null
   const [packageType, setPackageType] = useState(parsed.sign_in_package || '')
   const [entries, setEntries] = useState(parsed.sign_in_entries || [])
   const [sessionOffset, setSessionOffset] = useState(parsed.sign_in_offset || 0)
@@ -2305,27 +2281,6 @@ function SignInSheet({ client, onBack, onUpdate }) {
       <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 3, color: C.text, marginBottom: 4 }}>Sign-In Sheet</div>
       <div style={{ fontSize: 14, color: C.sub, marginBottom: 24 }}>{client.name}</div>
 
-      {/* Client Package Info */}
-      {clientPkg && (
-        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 20 }}>
-          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 14 }}>{client.name}&apos;s Package</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, textAlign: 'center' }}>
-            <div>
-              <div style={{ fontSize: 24, fontWeight: 800, color: C.text }}>{clientPkg.totalPackage}</div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 }}>Package</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 24, fontWeight: 800, color: C.accent }}>{clientPkg.sessionsUsed}</div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 }}>Used</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 24, fontWeight: 800, color: clientPkg.sessionsRemaining <= 4 ? C.orange : C.green }}>{clientPkg.sessionsRemaining}</div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 }}>Remaining</div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Package Selection */}
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 20 }}>
         <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 10 }}>Select Package</div>
@@ -2335,15 +2290,11 @@ function SignInSheet({ client, onBack, onUpdate }) {
           style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: `2px solid ${packageType ? C.accent : C.border}`, fontSize: 14, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, color: C.text, background: C.card, outline: 'none', cursor: 'pointer', appearance: 'auto' }}
         >
           <option value="">— Choose a package —</option>
-          {PACKAGE_OPTIONS.filter(p => {
-            const isClientPkg = !!CLIENT_PACKAGES[p.label]
-            if (!isClientPkg) return true
-            return p.label === client.name
-          }).map(p => (
+          {PACKAGE_OPTIONS.map(p => (
             <option key={p.label} value={p.label}>{p.label}</option>
           ))}
         </select>
-        {packageType && !clientPkg && (
+        {packageType && (
           <div style={{ marginTop: 12 }}>
             {editingOffset ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -2798,6 +2749,24 @@ function ClientRoster({ onSelectClient, onNewClient }) {
 
   const filtered = clients.filter(c => c.name.toLowerCase().includes(search.toLowerCase()))
 
+  // Birthday countdown
+  const upcomingBirthdays = (() => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    return clients
+      .filter(c => c.dob)
+      .map(c => {
+        const dob = new Date(c.dob + 'T00:00:00')
+        const nextBday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate())
+        if (nextBday < today) nextBday.setFullYear(nextBday.getFullYear() + 1)
+        const diffDays = Math.round((nextBday - today) / (1000 * 60 * 60 * 24))
+        const age = nextBday.getFullYear() - dob.getFullYear()
+        return { name: c.name, daysUntil: diffDays, date: nextBday, age }
+      })
+      .sort((a, b) => a.daysUntil - b.daysUntil)
+      .slice(0, 5)
+  })()
+
   return (
     <div style={{ maxWidth: 700, margin: '0 auto', padding: '0 24px 40px' }}>
       <LogoHeader />
@@ -2810,6 +2779,32 @@ function ClientRoster({ onSelectClient, onNewClient }) {
       </div>
 
       <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search clients..." style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: '12px 16px', fontFamily: 'Montserrat,sans-serif', fontSize: 14, outline: 'none', marginBottom: 16 }} />
+
+      {/* Birthday Countdown */}
+      {!loading && upcomingBirthdays.length > 0 && (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '18px 22px', marginBottom: 20 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 14 }}>Upcoming Birthdays</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {upcomingBirthdays.map((b, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: b.daysUntil === 0 ? C.accent + '18' : C.faint, borderRadius: 10, border: b.daysUntil === 0 ? `2px solid ${C.accent}44` : `1px solid ${C.border}22` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 20 }}>{b.daysUntil === 0 ? '🎂' : '🎈'}</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: C.text }}>{b.name}</div>
+                    <div style={{ fontSize: 11, color: C.sub, marginTop: 1 }}>
+                      {b.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — Turning {b.age}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: b.daysUntil === 0 ? C.accent : b.daysUntil <= 7 ? C.orange : C.text, lineHeight: 1 }}>{b.daysUntil}</div>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 }}>{b.daysUntil === 0 ? 'Today!' : b.daysUntil === 1 ? 'Day' : 'Days'}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {loading ? <Spinner /> : filtered.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 60, color: C.sub, fontSize: 14 }}>{clients.length === 0 ? 'No clients yet. Add your first client above.' : 'No clients match your search.'}</div>
