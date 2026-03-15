@@ -318,9 +318,22 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
           {/* No modifier helped */}
           {isFail && modifier && modifier.startsWith('No modifier') && (
             <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 12, paddingTop: 12 }}>
-              <div style={{ padding: '8px 12px', background: C.red + '10', borderRadius: 8, border: `1px solid ${C.red}33`, fontSize: 11, color: C.red, fontWeight: 700 }}>
+              <div style={{ padding: '8px 12px', background: C.red + '10', borderRadius: 8, border: `1px solid ${C.red}33`, fontSize: 11, color: C.red, fontWeight: 700, marginBottom: 10 }}>
                 ✗ Recorded: {modifier} — flag for deeper investigation / breakout assessments
               </div>
+              {(f.id === 'ns_full_can_right' || f.id === 'ns_full_can_left' || f.id === 'ns_empty_can_right' || f.id === 'ns_empty_can_left') && (
+                <div style={{ background: C.orange + '10', border: `1px solid ${C.orange}33`, borderRadius: 10, padding: '14px 16px' }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.orange, textTransform: 'uppercase', marginBottom: 10 }}>What To Do Next</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginBottom: 8 }}>If pointing to NECK:</div>
+                  <div style={{ fontSize: 12, color: C.text, lineHeight: 1.8, marginBottom: 12, paddingLeft: 12 }}>
+                    • Neck Breakout Assessment<br/>• Neck Sensitivity Screen<br/>• Speedy 6 Neck Mobility
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginBottom: 8 }}>If pointing to SHOULDER:</div>
+                  <div style={{ fontSize: 12, color: C.text, lineHeight: 1.8, paddingLeft: 12 }}>
+                    • Shoulder Breakout Assessment<br/>• Shoulder Sensitivity Screen<br/>• Speedy 7 Shoulder Mobility
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -394,9 +407,22 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
         {/* No modifier helped */}
         {isFail && modifier && modifier.startsWith('No modifier') && (
           <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
-            <div style={{ padding: '8px 12px', background: C.red + '10', borderRadius: 8, border: `1px solid ${C.red}33`, fontSize: 11, color: C.red, fontWeight: 700 }}>
+            <div style={{ padding: '8px 12px', background: C.red + '10', borderRadius: 8, border: `1px solid ${C.red}33`, fontSize: 11, color: C.red, fontWeight: 700, marginBottom: 10 }}>
               ✗ Recorded: {modifier} — flag for deeper investigation / breakout assessments
             </div>
+            {(f.id === 'ns_full_can_right' || f.id === 'ns_full_can_left' || f.id === 'ns_empty_can_right' || f.id === 'ns_empty_can_left') && (
+              <div style={{ background: C.orange + '10', border: `1px solid ${C.orange}33`, borderRadius: 10, padding: '14px 16px' }}>
+                <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.orange, textTransform: 'uppercase', marginBottom: 10 }}>What To Do Next</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginBottom: 8 }}>If pointing to NECK:</div>
+                <div style={{ fontSize: 12, color: C.text, lineHeight: 1.8, marginBottom: 12, paddingLeft: 12 }}>
+                  • Neck Breakout Assessment<br/>• Neck Sensitivity Screen<br/>• Speedy 6 Neck Mobility
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginBottom: 8 }}>If pointing to SHOULDER:</div>
+                <div style={{ fontSize: 12, color: C.text, lineHeight: 1.8, paddingLeft: 12 }}>
+                  • Shoulder Breakout Assessment<br/>• Shoulder Sensitivity Screen<br/>• Speedy 7 Shoulder Mobility
+                </div>
+              </div>
+            )}
           </div>
         )}
 
