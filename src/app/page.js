@@ -195,12 +195,46 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
         </div>
       )
     }
-    if (f.type === 'scale') return (
-      <div>
-        <input type="range" min={f.min || 0} max={f.max || 10} value={val || f.min || 0} onChange={e => set(f.id, e.target.value)} style={{ width: '100%', accentColor: C.accent }} />
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: C.sub }}><span>{f.min ?? 0}</span><span style={{ fontWeight: 700, color: C.accent }}>{val || f.min || 0}</span><span>{f.max ?? 10}</span></div>
-      </div>
-    )
+    if (f.type === 'scale') {
+      if (f.passThreshold) {
+        const rating = parseInt(val) || 0
+        const threshold = f.passThreshold
+        return (
+          <div>
+            <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Rate 1–{f.max || 10}</div>
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              {Array.from({ length: (f.max || 10) - (f.min || 1) + 1 }, (_, i) => i + (f.min || 1)).map(n => {
+                const selected = rating === n
+                const btnFail = n < threshold
+                return (
+                  <button key={n} onClick={() => set(f.id, n.toString())} style={{
+                    width: 32, height: 32, borderRadius: 7,
+                    border: `1.5px solid ${selected ? (btnFail ? C.red : C.green) : C.border}`,
+                    background: selected ? (btnFail ? C.red : C.green) : 'white',
+                    color: selected ? 'white' : btnFail ? C.red : C.green,
+                    fontWeight: 800, fontSize: 13, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif'
+                  }}>{n}</button>
+                )
+              })}
+            </div>
+            {rating > 0 && rating < threshold && f.failNotes && (
+              <div style={{ marginTop: 8, fontSize: 11, fontWeight: 800, color: C.red }}>{f.failNotes} — {rating}/10</div>
+            )}
+            {rating >= threshold && f.passNotes && (
+              <div style={{ marginTop: 8, padding: '10px 14px', background: C.accent + '10', border: `1px solid ${C.accent}33`, borderRadius: 8, fontSize: 12, fontWeight: 700, color: C.accent }}>
+                ✓ PASS — {rating}/10 → {f.passNotes}
+              </div>
+            )}
+          </div>
+        )
+      }
+      return (
+        <div>
+          <input type="range" min={f.min || 0} max={f.max || 10} value={val || f.min || 0} onChange={e => set(f.id, e.target.value)} style={{ width: '100%', accentColor: C.accent }} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: C.sub }}><span>{f.min ?? 0}</span><span style={{ fontWeight: 700, color: C.accent }}>{val || f.min || 0}</span><span>{f.max ?? 10}</span></div>
+        </div>
+      )
+    }
     return <input type="text" value={val} onChange={e => set(f.id, e.target.value)} placeholder={f.placeholder || ''} style={base} />
   }
 

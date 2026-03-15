@@ -455,6 +455,12 @@ export const ALL_ASSESSMENTS = {
         { id:"np_thoracic", label:"Thoracic Tilt", type:"passfail", options:["Pass","Thoracic Tilt"] },
         { id:"np_fhp_right", label:"Head Forward Posture — Right (earlobe aligned with AC joint)", type:"fingerWidthsHFP", fingerWidthsPass:3 },
         { id:"np_fhp_left", label:"Head Forward Posture — Left (earlobe aligned with AC joint)", type:"fingerWidthsHFP", fingerWidthsPass:3 },
+        { id:"np_ear_right", label:"Push On Side of Ear — Right", type:"scale", min:1, max:10, passThreshold:8,
+          failNotes:"✗ FAIL — score below 8",
+          passNotes:"Try King Atlas Protocol for the RIGHT side" },
+        { id:"np_ear_left", label:"Push On Side of Ear — Left", type:"scale", min:1, max:10, passThreshold:8,
+          failNotes:"✗ FAIL — score below 8",
+          passNotes:"Try King Atlas Protocol for the LEFT side" },
       ]},
       { id:"np2", title:"Nerve Function Screen C3–C8", fields:[
         { id:"np_empty_can", label:"Empty Can + King Atlas — weak or painful", type:"passfail", options:["Pass","Fail"] },
