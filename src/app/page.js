@@ -2212,27 +2212,31 @@ const PACKAGE_OPTIONS = [
 
 function SignInSheet({ client, onBack, onUpdate }) {
   // Load existing sign-in data from trainerNotes
-  const parsed = (() => {
+  const initialData = (() => {
     if (!client.trainerNotes) return {}
     try { return JSON.parse(client.trainerNotes) } catch { return {} }
   })()
 
-  const [packageType, setPackageType] = useState(parsed.sign_in_package || '')
-  const [entries, setEntries] = useState(parsed.sign_in_entries || [])
-  const [sessionOffset, setSessionOffset] = useState(parsed.sign_in_offset || 0)
+  const [packageType, setPackageType] = useState(initialData.sign_in_package || '')
+  const [entries, setEntries] = useState(initialData.sign_in_entries || [])
+  const [sessionOffset, setSessionOffset] = useState(initialData.sign_in_offset || 0)
+  const [packageLocked, setPackageLocked] = useState(!!initialData.sign_in_package)
   const [showPopup, setShowPopup] = useState(null) // { remaining, total, session }
   const [saving, setSaving] = useState(false)
   const [editingOffset, setEditingOffset] = useState(false)
-  const [tempOffset, setTempOffset] = useState(String(sessionOffset))
+  const [tempOffset, setTempOffset] = useState(String(initialData.sign_in_offset || 0))
 
   const totalSessions = PACKAGE_OPTIONS.find(p => p.label === packageType)?.sessions || 0
   const sessionsUsed = entries.length + sessionOffset
   const sessionsRemaining = Math.max(0, totalSessions - sessionsUsed)
 
-  const saveData = async (newPackage, newEntries, newOffset) => {
+  const saveData = async (pkg, ents, offset) => {
     setSaving(true)
     try {
-      const updatedNotes = { ...parsed, sign_in_package: newPackage, sign_in_entries: newEntries, sign_in_offset: newOffset !== undefined ? newOffset : sessionOffset }
+      // Re-read current trainerNotes to avoid overwriting other fields
+      let base = {}
+      try { base = JSON.parse(client.trainerNotes || '{}') } catch {}
+      const updatedNotes = { ...base, sign_in_package: pkg, sign_in_entries: ents, sign_in_offset: offset }
       const updatedClient = { ...client, trainerNotes: JSON.stringify(updatedNotes) }
       await saveClient(updatedClient)
       onUpdate(updatedClient)
@@ -2244,7 +2248,8 @@ function SignInSheet({ client, onBack, onUpdate }) {
 
   const handlePackageChange = (val) => {
     setPackageType(val)
-    saveData(val, entries)
+    setPackageLocked(true)
+    saveData(val, entries, sessionOffset)
   }
 
   const handleSign = (signature) => {
@@ -2252,7 +2257,7 @@ function SignInSheet({ client, onBack, onUpdate }) {
     const sessionNum = entries.length + sessionOffset + 1
     const newEntries = [...entries, { session: sessionNum, date: today, signature }]
     setEntries(newEntries)
-    saveData(packageType, newEntries)
+    saveData(packageType, newEntries, sessionOffset)
     const remaining = Math.max(0, totalSessions - (newEntries.length + sessionOffset))
     setShowPopup({ remaining, total: totalSessions, session: sessionNum })
   }
@@ -2260,7 +2265,7 @@ function SignInSheet({ client, onBack, onUpdate }) {
   const handleDeleteEntry = (idx) => {
     const newEntries = entries.filter((_, i) => i !== idx).map((e, i) => ({ ...e, session: i + sessionOffset + 1 }))
     setEntries(newEntries)
-    saveData(packageType, newEntries)
+    saveData(packageType, newEntries, sessionOffset)
   }
 
   const handleOffsetSave = () => {
@@ -2283,21 +2288,27 @@ function SignInSheet({ client, onBack, onUpdate }) {
 
       {/* Package Selection */}
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 20 }}>
-        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 10 }}>Select Package</div>
-        <select
-          value={packageType}
-          onChange={e => handlePackageChange(e.target.value)}
-          style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: `2px solid ${packageType ? C.accent : C.border}`, fontSize: 14, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, color: C.text, background: C.card, outline: 'none', cursor: 'pointer', appearance: 'auto' }}
-        >
-          <option value="">— Choose a package —</option>
-          {PACKAGE_OPTIONS.map(p => (
-            <option key={p.label} value={p.label}>{p.label}</option>
-          ))}
-        </select>
+        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 10 }}>{packageLocked ? 'Package' : 'Select Package'}</div>
+        {packageLocked ? (
+          <div style={{ padding: '12px 14px', borderRadius: 10, border: `2px solid ${C.accent}`, fontSize: 14, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, color: C.text, background: C.faint }}>
+            {packageType}
+          </div>
+        ) : (
+          <select
+            value={packageType}
+            onChange={e => handlePackageChange(e.target.value)}
+            style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: `2px solid ${packageType ? C.accent : C.border}`, fontSize: 14, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, color: C.text, background: C.card, outline: 'none', cursor: 'pointer', appearance: 'auto' }}
+          >
+            <option value="">— Choose a package —</option>
+            {PACKAGE_OPTIONS.map(p => (
+              <option key={p.label} value={p.label}>{p.label}</option>
+            ))}
+          </select>
+        )}
         {packageType && (
           <div style={{ marginTop: 12 }}>
             {editingOffset ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 12, fontWeight: 700, color: C.sub }}>Previous sessions completed:</span>
                 <input
                   type="number"
