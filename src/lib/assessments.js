@@ -450,7 +450,8 @@ export const ALL_ASSESSMENTS = {
     color:C.sky, colorDim:C.sky+"12",
     sections:[
       { id:"np1", title:"Cervical Posture", fields:[
-        { id:"np_curve", label:"Cervical Curve", type:"passfail", options:["Normal","Excess Curve","Straight Curve","Backward Bone"] },
+        { id:"np_curve", label:"Cervical Curve", type:"passfail", options:["Normal","Excess Curve","Straight Curve","Backward Bone"],
+          optionNotes:{ "Straight Curve":"Try Neck Savvy Flat Cervical Curve", "Excess Curve":"Try Neck Savvy Excess Cervical Curve", "Backward Bone":"Try Leonardo Da Necky" } },
         { id:"np_thoracic", label:"Thoracic Tilt — normal / kyphotic / flat", type:"text" },
         { id:"np_fhp", label:"Head Forward Posture — cm forward of ideal", type:"text" },
       ]},

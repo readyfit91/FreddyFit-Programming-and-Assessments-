@@ -121,8 +121,15 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
       // Prime 8 and fields with inline modifiers use the rating system instead
       if (assessment.id === 'prime8' || f.modifiers) return null
       return (
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {f.options.map(o => <button key={o} onClick={() => set(f.id, o)} style={{ padding: '8px 16px', borderRadius: 7, border: `1.5px solid ${val === o ? C.accent : C.border}`, background: val === o ? C.accent + '20' : 'white', color: val === o ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>{o}</button>)}
+        <div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {f.options.map(o => <button key={o} onClick={() => set(f.id, o)} style={{ padding: '8px 16px', borderRadius: 7, border: `1.5px solid ${val === o ? C.accent : C.border}`, background: val === o ? C.accent + '20' : 'white', color: val === o ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>{o}</button>)}
+          </div>
+          {f.optionNotes && val && f.optionNotes[val] && (
+            <div style={{ marginTop: 10, padding: '10px 14px', background: C.accent + '10', border: `1px solid ${C.accent}33`, borderRadius: 8, fontSize: 12, fontWeight: 700, color: C.accent, fontFamily: 'Montserrat,sans-serif' }}>
+              → {f.optionNotes[val]}
+            </div>
+          )}
         </div>
       )
     }
