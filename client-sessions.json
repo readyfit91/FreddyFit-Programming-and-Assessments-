@@ -1,0 +1,65 @@
+{
+  "lastUpdated": "2026-03-14",
+  "clients": [
+    {
+      "name": "Ben McNamara",
+      "packageSessions": 96,
+      "sessionsUsed": 64,
+      "sessionsRemaining": 32
+    },
+    {
+      "name": "Stephanie Boyer",
+      "packageSessions": 96,
+      "sessionsUsed": 51,
+      "sessionsRemaining": 45
+    },
+    {
+      "name": "John Purcelli",
+      "packageSessions": 96,
+      "sessionsUsed": 2,
+      "sessionsRemaining": 94
+    },
+    {
+      "name": "Denise Rallo",
+      "packageSessions": 96,
+      "sessionsUsed": 78,
+      "sessionsRemaining": 18
+    },
+    {
+      "name": "Nick Rallo",
+      "packageSessions": 96,
+      "sessionsUsed": 84,
+      "sessionsRemaining": 12
+    },
+    {
+      "name": "Phruttitum",
+      "packageSessions": 48,
+      "sessionsUsed": 14,
+      "sessionsRemaining": 34
+    },
+    {
+      "name": "Timothy Ryner",
+      "packageSessions": 96,
+      "sessionsUsed": 70,
+      "sessionsRemaining": 26
+    },
+    {
+      "name": "Laura Reitz",
+      "packageSessions": 96,
+      "sessionsUsed": 21,
+      "sessionsRemaining": 75
+    },
+    {
+      "name": "Erin Larkin",
+      "packageSessions": 24,
+      "sessionsUsed": 6,
+      "sessionsRemaining": 18
+    },
+    {
+      "name": "Chris Mataya",
+      "packageSessions": 25,
+      "sessionsUsed": 23,
+      "sessionsRemaining": 2
+    }
+  ]
+}

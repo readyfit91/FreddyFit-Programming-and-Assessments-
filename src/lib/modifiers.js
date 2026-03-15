@@ -106,272 +106,121 @@ export const FIELD_MODIFIERS = {
     'Soleus stretch (bent-knee wall lean)',
     'No modifier worked',
   ],
-  p8_hip_swing: [
+  p8_hip_swing_right: [
     'Hip flexor release (half-kneeling stretch)',
     'Glute activation (bridge with band)',
     'Adductor rock-back mobilisation',
     'Core bracing drill (dead bug)',
     'No modifier worked',
   ],
-  p8_hip_swing_side: [
-    'Targeted mobilisation on restricted side',
-    'Unilateral glute activation on weaker side',
-    'Cross-body adductor stretch',
+  p8_hip_swing_left: [
+    'Hip flexor release (half-kneeling stretch)',
+    'Glute activation (bridge with band)',
+    'Adductor rock-back mobilisation',
+    'Core bracing drill (dead bug)',
     'No modifier worked',
   ],
-  p8_kneecap: [
+  p8_kneecap_right: [
     'VMO activation (terminal knee extension)',
     'Patella mobilisation (lateral glide)',
     'Quad foam roll above kneecap',
     'Step-down eccentric loading',
     'No modifier worked',
   ],
-  p8_kneecap_side: [
-    'Unilateral VMO drill on affected side',
-    'Patella taping (McConnell tape)',
-    'ITB foam roll on affected side',
+  p8_kneecap_left: [
+    'VMO activation (terminal knee extension)',
+    'Patella mobilisation (lateral glide)',
+    'Quad foam roll above kneecap',
+    'Step-down eccentric loading',
     'No modifier worked',
   ],
-  p8_empty_can: [
+  p8_empty_can_right: [
     'Rotator cuff warm-up (band external rotation)',
     'Scapular setting drill (wall slides)',
     'Reduce load and retest',
     'King Atlas neck position reset then retest',
     'No modifier worked',
   ],
-  p8_empty_can_side: [
-    'Targeted rotator cuff activation on affected side',
-    'Scapula retraction + depression cue',
-    'Thoracic extension mobilisation',
+  p8_empty_can_left: [
+    'Rotator cuff warm-up (band external rotation)',
+    'Scapular setting drill (wall slides)',
+    'Reduce load and retest',
+    'King Atlas neck position reset then retest',
     'No modifier worked',
   ],
-  p8_neck_rotation: [
+  p8_neck_rotation_right: [
     'Cervical SNAG mobilisation (if trained)',
     'Upper trap release (pressure point)',
     'Levator scapulae stretch',
     'Chin tuck + rotate retest',
     'No modifier worked',
   ],
-  p8_neck_side: [
-    'Targeted upper trap release on restricted side',
-    'SCM stretch on restricted side',
-    'Scalene release on restricted side',
+  p8_neck_rotation_left: [
+    'Cervical SNAG mobilisation (if trained)',
+    'Upper trap release (pressure point)',
+    'Levator scapulae stretch',
+    'Chin tuck + rotate retest',
     'No modifier worked',
   ],
 
   // ═══════════════════════════════════════════════════════════════════════════
   // NECK & SHOULDER GAUNTLET
   // ═══════════════════════════════════════════════════════════════════════════
-  ns_hip_swing: [
+  ns_hip_swing_right: [
     'Chin tuck position then retest hip swing',
     'Cervical retraction hold during swing',
     'Upper trap release then retest',
     'No modifier worked',
   ],
-  ns_trex: [
+  ns_hip_swing_left: [
+    'Chin tuck position then retest hip swing',
+    'Cervical retraction hold during swing',
+    'Upper trap release then retest',
+    'No modifier worked',
+  ],
+  ns_trex_right: [
     'Cervical retraction (chin tuck) then retest',
     'Neural flossing — radial nerve glide',
     'Forearm extensor stretch + retest',
     'Scalene release then retest',
     'No modifier worked',
   ],
-  ns_trex_side: [
-    'Targeted nerve glide on affected side',
-    'Cervical lateral glide toward affected side',
-    'Upper trap release on affected side',
+  ns_trex_left: [
+    'Cervical retraction (chin tuck) then retest',
+    'Neural flossing — radial nerve glide',
+    'Forearm extensor stretch + retest',
+    'Scalene release then retest',
     'No modifier worked',
   ],
-  ns_full_can: [
+  ns_full_can_right: [
     'Scapular setting (retract + depress) then retest',
     'Thoracic extension mobilisation then retest',
     'Rotator cuff warm-up (band ER) then retest',
     'No modifier worked',
   ],
-  ns_full_can_side: [
-    'Scapula wall slide on affected side',
-    'Targeted ER activation on affected side',
-    'Thoracic rotation toward affected side',
+  ns_full_can_left: [
+    'Scapular setting (retract + depress) then retest',
+    'Thoracic extension mobilisation then retest',
+    'Rotator cuff warm-up (band ER) then retest',
     'No modifier worked',
   ],
-  ns_empty_can: [
+  ns_empty_can_right: [
     'King Atlas neck reset then retest',
     'Scapular retraction cue then retest',
     'Reduce resistance and retest',
     'No modifier worked',
   ],
-  ns_empty_can_side: [
-    'Targeted supraspinatus activation on affected side',
-    'Scapula stabilisation on affected side',
-    'Cervical lateral glide then retest',
-    'No modifier worked',
-  ],
-  ns_mental_stress: [
-    'Diaphragmatic breathing (5 cycles) then retest',
-    'Progressive muscle relaxation (90s)',
-    'Guided body scan + retest aggravating movement',
+  ns_empty_can_left: [
+    'King Atlas neck reset then retest',
+    'Scapular retraction cue then retest',
+    'Reduce resistance and retest',
     'No modifier worked',
   ],
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // HIP POSTURE ASSESSMENT
-  // ═══════════════════════════════════════════════════════════════════════════
-  h_lateral_tilt: [
-    'Glute med activation on dropped side',
-    'QL stretch on elevated side',
-    'Single-leg stance drill on weaker side',
-    'No modifier worked',
-  ],
-  h_forward_tilt: [
-    'Hip flexor stretch (Thomas stretch position)',
-    'Posterior pelvic tilt drill (wall press)',
-    'Glute bridge with pelvic tilt cue',
-    'Dead bug with neutral spine cue',
-    'No modifier worked',
-  ],
-  h_rotation: [
-    'Hip 90/90 mobilisation',
-    'Piriformis release (ball)',
-    'Adductor rock-back stretch',
-    'No modifier worked',
-  ],
-  h_internal_right: [
-    '90/90 internal rotation stretch — Right',
-    'Prone IR mobilisation with overpressure — Right',
-    'Hip capsule mobilisation (band distraction) — Right',
-    'No modifier worked',
-  ],
-  h_internal_left: [
-    '90/90 internal rotation stretch — Left',
-    'Prone IR mobilisation with overpressure — Left',
-    'Hip capsule mobilisation (band distraction) — Left',
-    'No modifier worked',
-  ],
-  h_external_right: [
-    'Figure 4 stretch — Right',
-    'Prone ER mobilisation — Right',
-    'Hip capsule posterior glide — Right',
-    'No modifier worked',
-  ],
-  h_external_left: [
-    'Figure 4 stretch — Left',
-    'Prone ER mobilisation — Left',
-    'Hip capsule posterior glide — Left',
-    'No modifier worked',
-  ],
-  h_faber_right: [
-    'SI joint mobilisation — Right',
-    'Glute stretch + adductor release — Right',
-    'Hip capsule distraction (band) — Right',
-    'No modifier worked',
-  ],
-  h_faber_left: [
-    'SI joint mobilisation — Left',
-    'Glute stretch + adductor release — Left',
-    'Hip capsule distraction (band) — Left',
-    'No modifier worked',
-  ],
-  h_swing: [
-    'Hip flexor release then retest swing',
-    'Glute activation (bridge) then retest',
-    'Core bracing cue then retest swing',
-    'No modifier worked',
-  ],
-  h_quad_right: [
-    'Quad foam roll — Right',
-    'Standing quad stretch (30s hold) — Right',
-    'Hip flexor half-kneeling stretch — Right',
-    'No modifier worked',
-  ],
-  h_quad_left: [
-    'Quad foam roll — Left',
-    'Standing quad stretch (30s hold) — Left',
-    'Hip flexor half-kneeling stretch — Left',
-    'No modifier worked',
-  ],
-  h_hamstring_right: [
-    'Hamstring foam roll — Right',
-    'Supine hamstring stretch (strap/towel) — Right',
-    'Neural flossing (sciatic glide) — Right',
-    'No modifier worked',
-  ],
-  h_hamstring_left: [
-    'Hamstring foam roll — Left',
-    'Supine hamstring stretch (strap/towel) — Left',
-    'Neural flossing (sciatic glide) — Left',
-    'No modifier worked',
-  ],
-
   // ═══════════════════════════════════════════════════════════════════════════
   // KNEE POSTURE ASSESSMENT
   // ═══════════════════════════════════════════════════════════════════════════
-  k_thigh_right: [
-    'VMO activation drill — Right',
-    'Quad setting exercise — Right',
-    'Single-leg press assessment — Right',
-    'No modifier worked',
-  ],
-  k_thigh_left: [
-    'VMO activation drill — Left',
-    'Quad setting exercise — Left',
-    'Single-leg press assessment — Left',
-    'No modifier worked',
-  ],
-  k_height: [
-    'Patella mobilisation (superior/inferior glide)',
-    'Quad strengthening (terminal knee extension)',
-    'Patellar taping for tracking',
-    'No modifier worked',
-  ],
-  k_alignment: [
-    'Glute med strengthening (band walks)',
-    'Ankle dorsiflexion mobilisation',
-    'Foot arch drill (short foot)',
-    'Stance width adjustment during squat',
-    'No modifier worked',
-  ],
-  k_bakers: [
-    'Gentle knee flexion/extension pumping',
-    'Calf compression + elevation',
-    'Reduce knee-loading exercises',
-    'No modifier worked',
-  ],
-  k_hyperext: [
-    'Cue: soft lock — stop 5° before full extension',
-    'Hamstring activation (bridge variation)',
-    'Proprioceptive drill (single-leg balance)',
-    'No modifier worked',
-  ],
-  k_flexion: [
-    'Quad foam roll + mobilisation',
-    'Patella mobilisation (inferior glide)',
-    'Wall squat holds at restricted range',
-    'No modifier worked',
-  ],
-  k_patella_press: [
-    'Patella mobilisation (medial/lateral glide)',
-    'VMO activation (short arc quad)',
-    'Quad foam roll above patella',
-    'Patella taping (McConnell)',
-    'No modifier worked',
-  ],
-  k_patella_side: [
-    'Targeted patella mob on affected side',
-    'ITB foam roll on affected side',
-    'VMO isolation on affected side',
-    'No modifier worked',
-  ],
-  k_joint_line_medial: [
-    'Valgus unloading (lateral wedge)',
-    'Adductor stretch + release',
-    'Reduce deep squat depth',
-    'No modifier worked',
-  ],
-  k_joint_line_lateral: [
-    'Varus unloading (medial wedge)',
-    'ITB foam roll + stretch',
-    'Reduce lateral loading movements',
-    'No modifier worked',
-  ],
   k_meniscus_survey: [
     'Avoid deep flexion under load',
     'Modify squat depth (parallel only)',
@@ -386,115 +235,6 @@ export const FIELD_MODIFIERS = {
   ],
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // FOOT & ANKLE ASSESSMENT
-  // ═══════════════════════════════════════════════════════════════════════════
-  f_toenails: [
-    'Recommend podiatry referral',
-    'Ensure clean, dry footwear',
-    'Avoid barefoot training on shared surfaces',
-    'No modifier worked',
-  ],
-  f_bunion_right: [
-    'Toe spacer during training — Right',
-    'Wide toe-box shoe recommendation',
-    'Big toe mobilisation (flexion/extension) — Right',
-    'No modifier worked',
-  ],
-  f_bunion_left: [
-    'Toe spacer during training — Left',
-    'Wide toe-box shoe recommendation',
-    'Big toe mobilisation (flexion/extension) — Left',
-    'No modifier worked',
-  ],
-  f_mortons_right: [
-    'Metatarsal pad placement — Right',
-    'Forefoot cushioning insole — Right',
-    'Modify single-leg balance surface',
-    'No modifier worked',
-  ],
-  f_mortons_left: [
-    'Metatarsal pad placement — Left',
-    'Forefoot cushioning insole — Left',
-    'Modify single-leg balance surface',
-    'No modifier worked',
-  ],
-  f_hammer_right: [
-    'Toe extension stretches — Right',
-    'Marble pick-up drill — Right',
-    'Toe spacer during training — Right',
-    'No modifier worked',
-  ],
-  f_hammer_left: [
-    'Toe extension stretches — Left',
-    'Marble pick-up drill — Left',
-    'Toe spacer during training — Left',
-    'No modifier worked',
-  ],
-  f_transverse_right: [
-    'Short foot drill (arch doming) — Right',
-    'Toe splay exercise — Right',
-    'Metatarsal pad for arch support',
-    'No modifier worked',
-  ],
-  f_transverse_left: [
-    'Short foot drill (arch doming) — Left',
-    'Toe splay exercise — Left',
-    'Metatarsal pad for arch support',
-    'No modifier worked',
-  ],
-  f_longitudinal_right: [
-    'Short foot drill — Right',
-    'Arch-strengthening band exercises — Right',
-    'Orthotic/insole trial — Right',
-    'Towel scrunches — Right',
-    'No modifier worked',
-  ],
-  f_longitudinal_left: [
-    'Short foot drill — Left',
-    'Arch-strengthening band exercises — Left',
-    'Orthotic/insole trial — Left',
-    'Towel scrunches — Left',
-    'No modifier worked',
-  ],
-  f_ankle_right: [
-    'Ankle mobilisation (band distraction) — Right',
-    'Calf release (foam roll) — Right',
-    'Single-leg balance with ankle focus — Right',
-    'No modifier worked',
-  ],
-  f_ankle_left: [
-    'Ankle mobilisation (band distraction) — Left',
-    'Calf release (foam roll) — Left',
-    'Single-leg balance with ankle focus — Left',
-    'No modifier worked',
-  ],
-  f_dorsiflexion_right: [
-    'Band-assisted ankle dorsiflexion mob — Right',
-    'Calf foam roll (gastrocnemius + soleus) — Right',
-    'Heel elevate during squat to compensate — Right',
-    'Wall-lean dorsiflexion stretch (30s) — Right',
-    'No modifier worked',
-  ],
-  f_dorsiflexion_left: [
-    'Band-assisted ankle dorsiflexion mob — Left',
-    'Calf foam roll (gastrocnemius + soleus) — Left',
-    'Heel elevate during squat to compensate — Left',
-    'Wall-lean dorsiflexion stretch (30s) — Left',
-    'No modifier worked',
-  ],
-  f_heel_raise: [
-    'Calf eccentric loading (slow lower)',
-    'Ankle stability drill (wobble board)',
-    'Toe raise + heel raise superset',
-    'No modifier worked',
-  ],
-  f_balance: [
-    'Proprioceptive progression (firm → foam surface)',
-    'Ankle stability band work',
-    'Single-leg stance drill (eyes open first)',
-    'No modifier worked',
-  ],
-
   // ═══════════════════════════════════════════════════════════════════════════
   // STRUCTURAL ANOMALIES
   // ═══════════════════════════════════════════════════════════════════════════
@@ -502,55 +242,6 @@ export const FIELD_MODIFIERS = {
     'Modify foot position during squats (toe-out allowed)',
     'Avoid forced parallel stance',
     'Tibial rotation awareness drill',
-    'No modifier worked',
-  ],
-  st_hip_height: [
-    'Heel lift trial on short side',
-    'Seated pelvic level check with wedge',
-    'Unilateral loading assessment',
-    'No modifier worked',
-  ],
-  st_leg_asymmetry: [
-    'Heel lift trial on shorter side',
-    'Unilateral exercise prescription',
-    'Modify bilateral stance width',
-    'No modifier worked',
-  ],
-  st_leg_length_right: [
-    'Heel lift trial — Right',
-    'Unilateral loading assessment — Right',
-    'Gait analysis with/without lift',
-    'No modifier worked',
-  ],
-  st_leg_length_left: [
-    'Heel lift trial — Left',
-    'Unilateral loading assessment — Left',
-    'Gait analysis with/without lift',
-    'No modifier worked',
-  ],
-  st_scoliosis: [
-    'Thoracic extension mobilisation',
-    'Unilateral strengthening on concave side',
-    'Core stabilisation (anti-rotation focus)',
-    'Refer for imaging if moderate/severe',
-    'No modifier worked',
-  ],
-  st_wsit: [
-    'Hip ER strengthening (clamshells)',
-    'Avoid deep internal rotation under load',
-    'Modify squat stance to accommodate anteversion',
-    'No modifier worked',
-  ],
-  st_yogasit: [
-    'Hip IR mobilisation (90/90 drill)',
-    'Adductor stretch + release',
-    'Modify seated positions during training',
-    'No modifier worked',
-  ],
-  st_referral: [
-    'Schedule GP / orthopaedic referral',
-    'Provide assessment summary for referring practitioner',
-    'Modify training to pain-free movements only',
     'No modifier worked',
   ],
 
