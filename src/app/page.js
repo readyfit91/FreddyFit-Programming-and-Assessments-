@@ -321,7 +321,17 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
               <div style={{ padding: '8px 12px', background: C.red + '10', borderRadius: 8, border: `1px solid ${C.red}33`, fontSize: 11, color: C.red, fontWeight: 700, marginBottom: 10 }}>
                 ✗ Recorded: {modifier} — flag for deeper investigation / breakout assessments
               </div>
-              {(f.id === 'ns_full_can_right' || f.id === 'ns_full_can_left' || f.id === 'ns_empty_can_right' || f.id === 'ns_empty_can_left') && (
+              {(f.id === 'ns_full_can_right' || f.id === 'ns_full_can_left') && (
+                <div style={{ background: C.orange + '10', border: `1px solid ${C.orange}33`, borderRadius: 10, padding: '14px 16px' }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.orange, textTransform: 'uppercase', marginBottom: 10 }}>What To Do Next</div>
+                  <div style={{ fontSize: 12, color: C.text, lineHeight: 2, paddingLeft: 12 }}>
+                    • Posterior scalene neck tension may compress the long thoracic nerve. Try Wing Nut or Neck Mate<br/>
+                    • GH instability may be a factor. Try Rotator Cup Protocol and re-test for strengthening<br/>
+                    • Consider possible long thoracic nerve damage — REFER OUT
+                  </div>
+                </div>
+              )}
+              {(f.id === 'ns_empty_can_right' || f.id === 'ns_empty_can_left') && (
                 <div style={{ background: C.orange + '10', border: `1px solid ${C.orange}33`, borderRadius: 10, padding: '14px 16px' }}>
                   <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.orange, textTransform: 'uppercase', marginBottom: 10 }}>What To Do Next</div>
                   <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginBottom: 8 }}>If pointing to NECK:</div>
@@ -410,7 +420,17 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
             <div style={{ padding: '8px 12px', background: C.red + '10', borderRadius: 8, border: `1px solid ${C.red}33`, fontSize: 11, color: C.red, fontWeight: 700, marginBottom: 10 }}>
               ✗ Recorded: {modifier} — flag for deeper investigation / breakout assessments
             </div>
-            {(f.id === 'ns_full_can_right' || f.id === 'ns_full_can_left' || f.id === 'ns_empty_can_right' || f.id === 'ns_empty_can_left') && (
+            {(f.id === 'ns_full_can_right' || f.id === 'ns_full_can_left') && (
+              <div style={{ background: C.orange + '10', border: `1px solid ${C.orange}33`, borderRadius: 10, padding: '14px 16px' }}>
+                <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.orange, textTransform: 'uppercase', marginBottom: 10 }}>What To Do Next</div>
+                <div style={{ fontSize: 12, color: C.text, lineHeight: 2, paddingLeft: 12 }}>
+                  • Posterior scalene neck tension may compress the long thoracic nerve. Try Wing Nut or Neck Mate<br/>
+                  • GH instability may be a factor. Try Rotator Cup Protocol and re-test for strengthening<br/>
+                  • Consider possible long thoracic nerve damage — REFER OUT
+                </div>
+              </div>
+            )}
+            {(f.id === 'ns_empty_can_right' || f.id === 'ns_empty_can_left') && (
               <div style={{ background: C.orange + '10', border: `1px solid ${C.orange}33`, borderRadius: 10, padding: '14px 16px' }}>
                 <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.orange, textTransform: 'uppercase', marginBottom: 10 }}>What To Do Next</div>
                 <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginBottom: 8 }}>If pointing to NECK:</div>
