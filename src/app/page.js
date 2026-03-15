@@ -321,16 +321,66 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
               <div style={{ padding: '8px 12px', background: C.red + '10', borderRadius: 8, border: `1px solid ${C.red}33`, fontSize: 11, color: C.red, fontWeight: 700, marginBottom: 10 }}>
                 ✗ Recorded: {modifier} — flag for deeper investigation / breakout assessments
               </div>
-              {(f.id === 'ns_full_can_right' || f.id === 'ns_full_can_left') && (
-                <div style={{ background: C.orange + '10', border: `1px solid ${C.orange}33`, borderRadius: 10, padding: '14px 16px' }}>
-                  <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.orange, textTransform: 'uppercase', marginBottom: 10 }}>What To Do Next</div>
-                  <div style={{ fontSize: 12, color: C.text, lineHeight: 2, paddingLeft: 12 }}>
-                    • Posterior scalene neck tension may compress the long thoracic nerve. Try Wing Nut or Neck Mate<br/>
-                    • GH instability may be a factor. Try Rotator Cup Protocol and re-test for strengthening<br/>
-                    • Consider possible long thoracic nerve damage — REFER OUT
+              {(f.id === 'ns_full_can_right' || f.id === 'ns_full_can_left') && (() => {
+                const nextKey = `${f.id}_next_step`
+                const nextRatingKey = `${f.id}_next_rating`
+                const selectedStep = answers[nextKey] || ''
+                const stepRating = parseInt(answers[nextRatingKey]) || 0
+                const steps = [
+                  { id: 'scalene', label: 'Posterior scalene neck tension may compress the long thoracic nerve. Try Wing Nut or Neck Mate' },
+                  { id: 'gh', label: 'GH instability may be a factor. Try Rotator Cup Protocol and re-test for strengthening' },
+                  { id: 'nerve', label: 'Consider possible long thoracic nerve damage — REFER OUT' },
+                ]
+                return (
+                  <div style={{ background: C.orange + '10', border: `1px solid ${C.orange}33`, borderRadius: 10, padding: '14px 16px' }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.orange, textTransform: 'uppercase', marginBottom: 10 }}>What To Do Next</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {steps.map(s => {
+                        const isSelected = selectedStep === s.id
+                        return (
+                          <button key={s.id} onClick={() => { set(nextKey, s.id); set(nextRatingKey, '') }} style={{
+                            textAlign: 'left', padding: '10px 14px', borderRadius: 8, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif',
+                            border: `2px solid ${isSelected ? C.accent : C.border}22`,
+                            background: isSelected ? C.accent + '15' : 'white',
+                            color: C.text, fontSize: 12, fontWeight: isSelected ? 700 : 500, lineHeight: 1.5
+                          }}>• {s.label}</button>
+                        )
+                      })}
+                    </div>
+                    {selectedStep && selectedStep !== 'nerve' && (
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Rate After Re-Test (1–10)</div>
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {[1,2,3,4,5,6,7,8,9,10].map(n => {
+                            const isSelected = stepRating === n
+                            const btnFail = n <= 7
+                            return (
+                              <button key={n} onClick={() => set(nextRatingKey, n.toString())} style={{
+                                width: 32, height: 32, borderRadius: 7,
+                                border: `1.5px solid ${isSelected ? (btnFail ? C.red : C.green) : C.border}`,
+                                background: isSelected ? (btnFail ? C.red : C.green) : 'white',
+                                color: isSelected ? 'white' : btnFail ? C.red : C.green,
+                                fontWeight: 800, fontSize: 13, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif'
+                              }}>{n}</button>
+                            )
+                          })}
+                        </div>
+                        {stepRating >= 8 && (
+                          <div style={{ marginTop: 8, fontSize: 11, fontWeight: 800, color: C.green }}>✓ PASS — {stepRating}/10</div>
+                        )}
+                        {stepRating > 0 && stepRating <= 7 && (
+                          <div style={{ marginTop: 8, fontSize: 11, fontWeight: 800, color: C.red }}>✗ FAIL — {stepRating}/10 — try another option above</div>
+                        )}
+                      </div>
+                    )}
+                    {selectedStep === 'nerve' && (
+                      <div style={{ marginTop: 10, padding: '10px 14px', background: C.red + '15', borderRadius: 8, border: `1px solid ${C.red}44`, fontSize: 12, color: C.red, fontWeight: 700 }}>
+                        ⚠️ Possible long thoracic nerve damage — REFER OUT to specialist
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
+                )
+              })()}
               {(f.id === 'ns_empty_can_right' || f.id === 'ns_empty_can_left') && (
                 <div style={{ background: C.orange + '10', border: `1px solid ${C.orange}33`, borderRadius: 10, padding: '14px 16px' }}>
                   <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.orange, textTransform: 'uppercase', marginBottom: 10 }}>What To Do Next</div>
@@ -420,16 +470,66 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
             <div style={{ padding: '8px 12px', background: C.red + '10', borderRadius: 8, border: `1px solid ${C.red}33`, fontSize: 11, color: C.red, fontWeight: 700, marginBottom: 10 }}>
               ✗ Recorded: {modifier} — flag for deeper investigation / breakout assessments
             </div>
-            {(f.id === 'ns_full_can_right' || f.id === 'ns_full_can_left') && (
-              <div style={{ background: C.orange + '10', border: `1px solid ${C.orange}33`, borderRadius: 10, padding: '14px 16px' }}>
-                <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.orange, textTransform: 'uppercase', marginBottom: 10 }}>What To Do Next</div>
-                <div style={{ fontSize: 12, color: C.text, lineHeight: 2, paddingLeft: 12 }}>
-                  • Posterior scalene neck tension may compress the long thoracic nerve. Try Wing Nut or Neck Mate<br/>
-                  • GH instability may be a factor. Try Rotator Cup Protocol and re-test for strengthening<br/>
-                  • Consider possible long thoracic nerve damage — REFER OUT
+            {(f.id === 'ns_full_can_right' || f.id === 'ns_full_can_left') && (() => {
+              const nextKey = `${f.id}_next_step`
+              const nextRatingKey = `${f.id}_next_rating`
+              const selectedStep = answers[nextKey] || ''
+              const stepRating = parseInt(answers[nextRatingKey]) || 0
+              const steps = [
+                { id: 'scalene', label: 'Posterior scalene neck tension may compress the long thoracic nerve. Try Wing Nut or Neck Mate' },
+                { id: 'gh', label: 'GH instability may be a factor. Try Rotator Cup Protocol and re-test for strengthening' },
+                { id: 'nerve', label: 'Consider possible long thoracic nerve damage — REFER OUT' },
+              ]
+              return (
+                <div style={{ background: C.orange + '10', border: `1px solid ${C.orange}33`, borderRadius: 10, padding: '14px 16px' }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.orange, textTransform: 'uppercase', marginBottom: 10 }}>What To Do Next</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {steps.map(s => {
+                      const isSelected = selectedStep === s.id
+                      return (
+                        <button key={s.id} onClick={() => { set(nextKey, s.id); set(nextRatingKey, '') }} style={{
+                          textAlign: 'left', padding: '10px 14px', borderRadius: 8, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif',
+                          border: `2px solid ${isSelected ? C.accent : C.border}22`,
+                          background: isSelected ? C.accent + '15' : 'white',
+                          color: C.text, fontSize: 12, fontWeight: isSelected ? 700 : 500, lineHeight: 1.5
+                        }}>• {s.label}</button>
+                      )
+                    })}
+                  </div>
+                  {selectedStep && selectedStep !== 'nerve' && (
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Rate After Re-Test (1–10)</div>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {[1,2,3,4,5,6,7,8,9,10].map(n => {
+                          const isSelected = stepRating === n
+                          const btnFail = n <= 7
+                          return (
+                            <button key={n} onClick={() => set(nextRatingKey, n.toString())} style={{
+                              width: 32, height: 32, borderRadius: 7,
+                              border: `1.5px solid ${isSelected ? (btnFail ? C.red : C.green) : C.border}`,
+                              background: isSelected ? (btnFail ? C.red : C.green) : 'white',
+                              color: isSelected ? 'white' : btnFail ? C.red : C.green,
+                              fontWeight: 800, fontSize: 13, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif'
+                            }}>{n}</button>
+                          )
+                        })}
+                      </div>
+                      {stepRating >= 8 && (
+                        <div style={{ marginTop: 8, fontSize: 11, fontWeight: 800, color: C.green }}>✓ PASS — {stepRating}/10</div>
+                      )}
+                      {stepRating > 0 && stepRating <= 7 && (
+                        <div style={{ marginTop: 8, fontSize: 11, fontWeight: 800, color: C.red }}>✗ FAIL — {stepRating}/10 — try another option above</div>
+                      )}
+                    </div>
+                  )}
+                  {selectedStep === 'nerve' && (
+                    <div style={{ marginTop: 10, padding: '10px 14px', background: C.red + '15', borderRadius: 8, border: `1px solid ${C.red}44`, fontSize: 12, color: C.red, fontWeight: 700 }}>
+                      ⚠️ Possible long thoracic nerve damage — REFER OUT to specialist
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              )
+            })()}
             {(f.id === 'ns_empty_can_right' || f.id === 'ns_empty_can_left') && (
               <div style={{ background: C.orange + '10', border: `1px solid ${C.orange}33`, borderRadius: 10, padding: '14px 16px' }}>
                 <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.orange, textTransform: 'uppercase', marginBottom: 10 }}>What To Do Next</div>
