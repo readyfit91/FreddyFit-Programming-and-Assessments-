@@ -3300,6 +3300,21 @@ export default function App() {
     setCheckingAuth(false)
   }, [])
 
+  // Prevent inputs from scrolling to the very top — keep them centered on screen
+  useEffect(() => {
+    const handleFocus = (e) => {
+      const el = e.target
+      if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') {
+        // Small delay to let the keyboard open and layout settle
+        setTimeout(() => {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }, 300)
+      }
+    }
+    document.addEventListener('focus', handleFocus, true)
+    return () => document.removeEventListener('focus', handleFocus, true)
+  }, [])
+
   if (checkingAuth) return null
   if (!authed) return <LoginScreen onLogin={() => setAuthed(true)} />
 
