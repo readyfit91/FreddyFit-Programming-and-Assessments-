@@ -3013,7 +3013,7 @@ const PHASES = [
 ]
 const YEARS = [1, 2, 3, 4, 5]
 // Default week order — deloads can be inserted between any weeks
-const DEFAULT_WEEK_ORDER = ['Week 1','Week 2','Week 3','Week 4','Deload 1','Week 5','Week 6','Week 7','Week 8','Deload 2','Week 9','Week 10','Week 11','Week 12','Deload 3']
+const DEFAULT_WEEK_ORDER = ['Week 1','Week 2','Week 3','Week 4','Week 5','Week 6','Week 7','Week 8','Week 9','Week 10','Week 11','Week 12','Deload']
 
 const emptyExercise = () => ({ id: makeId(), exercise: '', sets: '', reps: '', tempo: '', rpe: '', notes: '', circuit: '' })
 const emptyDay = (num) => ({ id: makeId(), dayNum: num, exercises: [emptyExercise()], dayNotes: '', date: '' })
@@ -3143,6 +3143,32 @@ function ProgramUploads({ client, onUpdate }) {
 
   const currentPhase = PHASES.find(p => p.id === selPhase)
   const [copied, setCopied] = useState('')
+  const [showCopyModal, setShowCopyModal] = useState(false)
+  const [copySelYears, setCopySelYears] = useState([])
+  const [copySelPhases, setCopySelPhases] = useState([])
+  const [copySelWeeks, setCopySelWeeks] = useState([])
+  const [editingWeekIdx, setEditingWeekIdx] = useState(-1)
+  const [editingWeekName, setEditingWeekName] = useState('')
+
+  // Rename a week in the order
+  const renameWeek = (idx, newName) => {
+    if (!newName.trim()) return
+    const oldName = weekOrder[idx]
+    const newOrder = weekOrder.map((w, i) => i === idx ? newName.trim() : w)
+    // Update journal: rename old key to new key
+    const updated = { ...journal }
+    const oldKey = `y${selYear}_${selPhase}_${oldName}`
+    const newKey = `y${selYear}_${selPhase}_${newName.trim()}`
+    if (updated[oldKey] && oldName !== newName.trim()) {
+      updated[newKey] = updated[oldKey]
+      delete updated[oldKey]
+    }
+    updated[weekOrderKey] = newOrder
+    setJournal(updated)
+    if (selWeek === oldName) setSelWeek(newName.trim())
+    persist({ program_journal: updated })
+    setEditingWeekIdx(-1)
+  }
 
   // Format a single week's data as text
   const formatWeekText = (yr, ph, wk) => {
@@ -3153,7 +3179,6 @@ function ProgramUploads({ client, onUpdate }) {
     let lines = [`=== Year ${yr} | ${phaseName} | ${wk} ===\n`]
     d.days.forEach((day, i) => {
       lines.push(`--- Day ${i + 1}${day.date ? ` (${new Date(day.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })})` : ''} ---`)
-      // Group exercises by circuit
       day.exercises.forEach(ex => {
         if (!ex.exercise.trim()) return
         const parts = [ex.circuit ? `[Circuit ${ex.circuit}]` : '', ex.exercise]
@@ -3177,31 +3202,31 @@ function ProgramUploads({ client, onUpdate }) {
     })
   }
 
-  const copyWeek = () => {
-    const text = formatWeekText(selYear, selPhase, selWeek)
-    if (!text.trim()) { alert('No data in this week to copy.'); return }
-    copyToClipboard(text, 'week')
+  // Copy selected combination
+  const copySelected = () => {
+    const years = copySelYears.length ? copySelYears : [selYear]
+    const phases = copySelPhases.length ? copySelPhases : [selPhase]
+    const texts = years.flatMap(yr =>
+      phases.flatMap(ph => {
+        const order = journal[`y${yr}_${ph}_weekorder`] || DEFAULT_WEEK_ORDER
+        const weeks = copySelWeeks.length ? order.filter(w => copySelWeeks.includes(w)) : order
+        return weeks.map(wk => formatWeekText(yr, ph, wk))
+      })
+    ).filter(t => t.trim())
+    if (texts.length === 0) { alert('No data found for the selected combination.'); return }
+    copyToClipboard(texts.join('\n'), 'custom')
+    setShowCopyModal(false)
   }
 
-  const copyPhase = () => {
-    const order = journal[`y${selYear}_${selPhase}_weekorder`] || DEFAULT_WEEK_ORDER
-    const texts = order.map(wk => formatWeekText(selYear, selPhase, wk)).filter(t => t.trim())
-    if (texts.length === 0) { alert('No data in this phase to copy.'); return }
-    copyToClipboard(texts.join('\n'), 'phase')
-  }
-
-  const copyYear = () => {
-    const texts = PHASES.flatMap(ph => {
-      const order = journal[`y${selYear}_${ph.id}_weekorder`] || DEFAULT_WEEK_ORDER
-      return order.map(wk => formatWeekText(selYear, ph.id, wk))
-    }).filter(t => t.trim())
-    if (texts.length === 0) { alert('No data in this year to copy.'); return }
-    copyToClipboard(texts.join('\n'), 'year')
-  }
+  // Toggle helpers for multi-select
+  const toggleCopyYear = (y) => setCopySelYears(prev => prev.includes(y) ? prev.filter(v => v !== y) : [...prev, y])
+  const toggleCopyPhase = (p) => setCopySelPhases(prev => prev.includes(p) ? prev.filter(v => v !== p) : [...prev, p])
+  const toggleCopyWeek = (w) => setCopySelWeeks(prev => prev.includes(w) ? prev.filter(v => v !== w) : [...prev, w])
 
   const selectStyle = { padding: '7px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 12, fontWeight: 700, fontFamily: 'Montserrat,sans-serif', color: C.text, background: '#fff', cursor: 'pointer', outline: 'none' }
   const inputCell = { padding: '6px 8px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', color: C.text, outline: 'none', background: '#fff', boxSizing: 'border-box' }
-  const copyBtnStyle = (label) => ({ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${copied === label ? C.green : C.border}`, background: copied === label ? C.green + '12' : 'transparent', color: copied === label ? C.green : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', letterSpacing: 0.5 })
+  const copyBtnStyle = (active) => ({ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${active ? C.accent : C.border}`, background: active ? C.accent + '15' : 'transparent', color: active ? C.accent : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', letterSpacing: 0.5 })
+  const chipStyle = (active) => ({ padding: '4px 10px', borderRadius: 6, border: `1.5px solid ${active ? C.accent : C.border}`, background: active ? C.accent + '15' : '#fff', color: active ? C.accent : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' })
 
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 20 }}>
@@ -3262,13 +3287,56 @@ function ProgramUploads({ client, onUpdate }) {
         </select>
       </div>
 
-      {/* Copy buttons */}
+      {/* Copy & week tools */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
-        <span style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1 }}>COPY:</span>
-        <button onClick={copyWeek} style={copyBtnStyle('week')}>{copied === 'week' ? '✓ Copied!' : `This Week (${selWeek})`}</button>
-        <button onClick={copyPhase} style={copyBtnStyle('phase')}>{copied === 'phase' ? '✓ Copied!' : `All of ${currentPhase.name.split('—')[0].trim()}`}</button>
-        <button onClick={copyYear} style={copyBtnStyle('year')}>{copied === 'year' ? '✓ Copied!' : `All of Year ${selYear}`}</button>
+        <button onClick={() => { setCopySelYears([]); setCopySelPhases([]); setCopySelWeeks([]); setShowCopyModal(!showCopyModal) }} style={copyBtnStyle(showCopyModal)}>
+          {copied === 'custom' ? '✓ Copied!' : 'Copy & Export'}
+        </button>
+        <button onClick={() => { if (editingWeekIdx >= 0) { setEditingWeekIdx(-1) } else { setEditingWeekIdx(weekOrder.indexOf(selWeek)); setEditingWeekName(selWeek) } }} style={copyBtnStyle(editingWeekIdx >= 0)}>
+          {editingWeekIdx >= 0 ? 'Cancel Rename' : 'Rename Week'}
+        </button>
       </div>
+
+      {/* Rename week inline */}
+      {editingWeekIdx >= 0 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center' }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: C.sub }}>Rename:</span>
+          <input value={editingWeekName} onChange={e => setEditingWeekName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') renameWeek(editingWeekIdx, editingWeekName) }} style={{ ...inputCell, flex: 1, maxWidth: 200 }} autoFocus />
+          <button onClick={() => renameWeek(editingWeekIdx, editingWeekName)} style={{ padding: '5px 14px', borderRadius: 7, border: 'none', background: C.accent, color: '#000', fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Save</button>
+        </div>
+      )}
+
+      {/* Copy modal */}
+      {showCopyModal && (
+        <div style={{ background: '#fff', border: `1.5px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: C.text, marginBottom: 10, letterSpacing: 1 }}>SELECT WHAT TO COPY</div>
+          {/* Years */}
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, marginBottom: 6, letterSpacing: 1 }}>YEARS <span style={{ fontWeight: 500, letterSpacing: 0 }}>(none = current year)</span></div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {YEARS.map(y => <button key={y} onClick={() => toggleCopyYear(y)} style={chipStyle(copySelYears.includes(y))}>Year {y}</button>)}
+            </div>
+          </div>
+          {/* Phases */}
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, marginBottom: 6, letterSpacing: 1 }}>PHASES <span style={{ fontWeight: 500, letterSpacing: 0 }}>(none = current phase)</span></div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {PHASES.map(p => <button key={p.id} onClick={() => toggleCopyPhase(p.id)} style={chipStyle(copySelPhases.includes(p.id))}>{p.name.split('—')[0].trim()}</button>)}
+            </div>
+          </div>
+          {/* Weeks */}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, marginBottom: 6, letterSpacing: 1 }}>WEEKS <span style={{ fontWeight: 500, letterSpacing: 0 }}>(none = all weeks)</span></div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {weekOrder.map(w => <button key={w} onClick={() => toggleCopyWeek(w)} style={chipStyle(copySelWeeks.includes(w))}>{w}</button>)}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={copySelected} style={{ padding: '7px 20px', borderRadius: 8, border: 'none', background: C.accent, color: '#000', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Copy to Clipboard</button>
+            <button onClick={() => setShowCopyModal(false)} style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${C.border}`, background: 'transparent', color: C.sub, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Close</button>
+          </div>
+        </div>
+      )}
 
       {/* Phase subtitle */}
       <div style={{ fontSize: 11, color: currentPhase.color, fontWeight: 700, marginBottom: 14, padding: '6px 12px', background: currentPhase.color + '10', borderRadius: 8, borderLeft: `3px solid ${currentPhase.color}` }}>
