@@ -2544,8 +2544,14 @@ const PACKAGE_OPTIONS = [
 ]
 
 function SignInSheet({ client, onBack, onUpdate }) {
-  // Load existing sign-in data from trainerNotes
+  const localKey = `ff_signin_${client.id}`
+
+  // Load from localStorage first (offline safety), then fall back to trainerNotes
   const initialData = (() => {
+    try {
+      const local = localStorage.getItem(localKey)
+      if (local) return JSON.parse(local)
+    } catch {}
     if (!client.trainerNotes) return {}
     try { return JSON.parse(client.trainerNotes) } catch { return {} }
   })()
@@ -2560,26 +2566,69 @@ function SignInSheet({ client, onBack, onUpdate }) {
   const [tempOffset, setTempOffset] = useState(String(initialData.sign_in_offset || 0))
   const [selected, setSelected] = useState(new Set()) // indices of selected entries
   const [deleteConfirm, setDeleteConfirm] = useState(0) // 0=none, 1=first, 2=second, 3=third (executes)
+  const [pendingSync, setPendingSync] = useState(!!localStorage.getItem(localKey + '_pending'))
+  const [online, setOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
 
   const totalSessions = PACKAGE_OPTIONS.find(p => p.label === packageType)?.sessions || 0
   const sessionsUsed = entries.length + sessionOffset
   const sessionsRemaining = Math.max(0, totalSessions - sessionsUsed)
 
-  const saveData = async (pkg, ents, offset) => {
-    setSaving(true)
+  // Save locally first, then try Supabase
+  const saveLocal = (pkg, ents, offset) => {
+    const data = { sign_in_package: pkg, sign_in_entries: ents, sign_in_offset: offset }
+    try { localStorage.setItem(localKey, JSON.stringify(data)) } catch {}
+  }
+
+  const syncToSupabase = async (pkg, ents, offset) => {
     try {
-      // Re-read current trainerNotes to avoid overwriting other fields
       let base = {}
       try { base = JSON.parse(client.trainerNotes || '{}') } catch {}
       const updatedNotes = { ...base, sign_in_package: pkg, sign_in_entries: ents, sign_in_offset: offset }
       const updatedClient = { ...client, trainerNotes: JSON.stringify(updatedNotes) }
       await saveClient(updatedClient)
       onUpdate(updatedClient)
-    } catch (e) {
-      alert('Error saving: ' + e.message)
+      // Clear pending flag and local cache on successful sync
+      localStorage.removeItem(localKey + '_pending')
+      localStorage.removeItem(localKey)
+      setPendingSync(false)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  const saveData = async (pkg, ents, offset) => {
+    setSaving(true)
+    // Always save locally first — data is never lost
+    saveLocal(pkg, ents, offset)
+    // Try to sync to Supabase
+    const ok = await syncToSupabase(pkg, ents, offset)
+    if (!ok) {
+      // Mark as pending so we know to retry later
+      localStorage.setItem(localKey + '_pending', '1')
+      setPendingSync(true)
     }
     setSaving(false)
   }
+
+  // Auto-sync when coming back online
+  useEffect(() => {
+    const goOnline = () => {
+      setOnline(true)
+      // If there's pending data, try to sync it
+      const pending = localStorage.getItem(localKey + '_pending')
+      if (pending) {
+        const data = (() => { try { return JSON.parse(localStorage.getItem(localKey)) } catch { return null } })()
+        if (data) syncToSupabase(data.sign_in_package, data.sign_in_entries, data.sign_in_offset)
+      }
+    }
+    const goOffline = () => setOnline(false)
+    window.addEventListener('online', goOnline)
+    window.addEventListener('offline', goOffline)
+    // Try syncing on mount if pending
+    goOnline()
+    return () => { window.removeEventListener('online', goOnline); window.removeEventListener('offline', goOffline) }
+  }, [])
 
   const handlePackageChange = (val) => {
     setPackageType(val)
@@ -2653,7 +2702,18 @@ function SignInSheet({ client, onBack, onUpdate }) {
       <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 24 }}>← Back to Profile</button>
 
       <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 3, color: C.text, marginBottom: 4 }}>Sign-In Sheet</div>
-      <div style={{ fontSize: 14, color: C.sub, marginBottom: 24 }}>{client.name}</div>
+      <div style={{ fontSize: 14, color: C.sub, marginBottom: pendingSync || !online ? 12 : 24 }}>{client.name}</div>
+
+      {/* Offline / Pending Sync Indicator */}
+      {(!online || pendingSync) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', marginBottom: 16, borderRadius: 10, fontSize: 12, fontWeight: 700, fontFamily: 'Montserrat,sans-serif', background: !online ? C.orange + '12' : C.sky + '12', border: `1.5px solid ${!online ? C.orange + '44' : C.sky + '44'}`, color: !online ? C.orange : C.sky }}>
+          <span style={{ fontSize: 16 }}>{!online ? '⚡' : '↻'}</span>
+          {!online
+            ? 'You\'re offline — signatures are saved locally and will sync when you reconnect'
+            : 'Syncing saved data to cloud...'
+          }
+        </div>
+      )}
 
       {/* Package Selection */}
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 20 }}>
