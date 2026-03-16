@@ -3049,10 +3049,33 @@ function ProgramUploads({ client, onUpdate }) {
     setSaving(false)
   }
 
+  const [unsavedDays, setUnsavedDays] = useState(new Set())
+  const [savedDays, setSavedDays] = useState(new Set())
+
+  // Update locally only — no persist
+  const updateWeekDataLocal = (newDays, changedDayIdx) => {
+    const updated = { ...journal, [journalKey]: { days: newDays } }
+    setJournal(updated)
+    if (changedDayIdx !== undefined) {
+      setUnsavedDays(prev => new Set(prev).add(changedDayIdx))
+      setSavedDays(prev => { const n = new Set(prev); n.delete(changedDayIdx); return n })
+    }
+  }
+
+  // Persist entire week to database
   const updateWeekData = (newDays) => {
     const updated = { ...journal, [journalKey]: { days: newDays } }
     setJournal(updated)
     persist({ program_journal: updated })
+  }
+
+  // Save a specific day (persists the whole week since that's the storage unit)
+  const saveDay = (dayIdx) => {
+    const updated = { ...journal, [journalKey]: { days: weekData.days } }
+    persist({ program_journal: updated })
+    setUnsavedDays(prev => { const n = new Set(prev); n.delete(dayIdx); return n })
+    setSavedDays(prev => new Set(prev).add(dayIdx))
+    setTimeout(() => setSavedDays(prev => { const n = new Set(prev); n.delete(dayIdx); return n }), 2000)
   }
 
   const updateExercise = (dayIdx, exIdx, field, value) => {
@@ -3061,12 +3084,12 @@ function ProgramUploads({ client, onUpdate }) {
       const exercises = d.exercises.map((ex, ei) => ei === exIdx ? { ...ex, [field]: value } : ex)
       return { ...d, exercises }
     })
-    updateWeekData(days)
+    updateWeekDataLocal(days, dayIdx)
   }
 
   const addExercise = (dayIdx) => {
     const days = weekData.days.map((d, di) => di === dayIdx ? { ...d, exercises: [...d.exercises, emptyExercise()] } : d)
-    updateWeekData(days)
+    updateWeekDataLocal(days, dayIdx)
   }
 
   const removeExercise = (dayIdx, exIdx) => {
@@ -3075,12 +3098,12 @@ function ProgramUploads({ client, onUpdate }) {
       if (d.exercises.length <= 1) return d
       return { ...d, exercises: d.exercises.filter((_, ei) => ei !== exIdx) }
     })
-    updateWeekData(days)
+    updateWeekDataLocal(days, dayIdx)
   }
 
   const updateDayNotes = (dayIdx, value) => {
     const days = weekData.days.map((d, di) => di === dayIdx ? { ...d, dayNotes: value } : d)
-    updateWeekData(days)
+    updateWeekDataLocal(days, dayIdx)
   }
 
   const addDay = () => {
@@ -3093,6 +3116,7 @@ function ProgramUploads({ client, onUpdate }) {
     if (!confirm(`Remove Day ${dayIdx + 1}?`)) return
     const days = weekData.days.filter((_, i) => i !== dayIdx).map((d, i) => ({ ...d, dayNum: i + 1 }))
     updateWeekData(days)
+    setUnsavedDays(new Set())
   }
 
   const handleUpload = (e) => {
@@ -3128,7 +3152,7 @@ function ProgramUploads({ client, onUpdate }) {
   // Update date on a day
   const updateDayDate = (dayIdx, value) => {
     const days = weekData.days.map((d, di) => di === dayIdx ? { ...d, date: value } : d)
-    updateWeekData(days)
+    updateWeekDataLocal(days, dayIdx)
   }
 
   // Toggle circuit label on an exercise
@@ -3426,6 +3450,23 @@ function ProgramUploads({ client, onUpdate }) {
               placeholder="How did this session go? Swaps, modifications, client feedback..."
               style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', color: C.text, background: '#fff', resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.5 }}
             />
+          </div>
+
+          {/* Save Day button */}
+          <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+            <button
+              onClick={() => saveDay(dayIdx)}
+              disabled={saving || (!unsavedDays.has(dayIdx) && !savedDays.has(dayIdx))}
+              style={{
+                padding: '6px 20px', borderRadius: 7, border: 'none',
+                background: savedDays.has(dayIdx) ? C.green : unsavedDays.has(dayIdx) ? C.accent : C.border,
+                color: savedDays.has(dayIdx) ? '#fff' : unsavedDays.has(dayIdx) ? '#000' : C.sub,
+                fontSize: 11, fontWeight: 700, cursor: unsavedDays.has(dayIdx) ? 'pointer' : 'default',
+                fontFamily: 'Montserrat,sans-serif', letterSpacing: 0.5, transition: 'all .2s'
+              }}
+            >
+              {saving ? 'Saving...' : savedDays.has(dayIdx) ? '✓ Saved!' : unsavedDays.has(dayIdx) ? 'Save Day' : 'Saved'}
+            </button>
           </div>
         </div>
       ))}
