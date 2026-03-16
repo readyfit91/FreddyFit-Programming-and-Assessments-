@@ -3092,7 +3092,7 @@ const YEARS = [1, 2, 3, 4, 5]
 // Default week order — deloads can be inserted between any weeks
 const DEFAULT_WEEK_ORDER = ['Week 1','Week 2','Week 3','Week 4','Week 5','Week 6','Week 7','Week 8','Week 9','Week 10','Week 11','Week 12','Deload']
 
-const emptyExercise = () => ({ id: makeId(), exercise: '', sets: '', reps: '', tempo: '', rpe: '', notes: '', circuit: '' })
+const emptyExercise = () => ({ id: makeId(), exercise: '', sets: '', reps: '', weight: '', tempo: '', rpe: '', notes: '', circuit: '' })
 const emptyDay = (num) => ({ id: makeId(), dayNum: num, exercises: [emptyExercise()], dayNotes: '', date: '' })
 
 function ProgramUploads({ client, onUpdate }) {
@@ -3471,11 +3471,12 @@ function ProgramUploads({ client, onUpdate }) {
           </div>
 
           {/* Exercise header row */}
-          <div style={{ display: 'grid', gridTemplateColumns: '32px 1fr 50px 50px 70px 50px 1fr 28px', gap: 4, marginBottom: 4 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '32px 1fr 50px 50px 56px 70px 50px 1fr 28px', gap: 4, marginBottom: 4 }}>
             <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>CIR</div>
             <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', paddingLeft: 4 }}>Exercise</div>
             <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>Sets</div>
             <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>Reps</div>
+            <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>Weight</div>
             <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>Tempo</div>
             <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>RPE</div>
             <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', paddingLeft: 4 }}>Notes</div>
@@ -3489,13 +3490,14 @@ function ProgramUploads({ client, onUpdate }) {
             const sameCircuitBelow = exIdx < day.exercises.length - 1 && day.exercises[exIdx + 1]?.circuit && day.exercises[exIdx + 1].circuit === ex.circuit
             const showCircuitBar = !!ex.circuit && (sameCircuitAbove || sameCircuitBelow)
             return (
-              <div key={ex.id || exIdx} style={{ display: 'grid', gridTemplateColumns: '32px 1fr 50px 50px 70px 50px 1fr 28px', gap: 4, marginBottom: 4, ...(showCircuitBar ? { borderLeft: `3px solid ${circuitColor}`, paddingLeft: 2, marginLeft: -3 } : {}) }}>
+              <div key={ex.id || exIdx} style={{ display: 'grid', gridTemplateColumns: '32px 1fr 50px 50px 56px 70px 50px 1fr 28px', gap: 4, marginBottom: 4, ...(showCircuitBar ? { borderLeft: `3px solid ${circuitColor}`, paddingLeft: 2, marginLeft: -3 } : {}) }}>
                 <button onClick={() => toggleCircuit(dayIdx, exIdx)} style={{ background: ex.circuit ? (circuitColor + '20') : 'transparent', border: `1.5px solid ${ex.circuit ? circuitColor : C.border}`, borderRadius: 6, fontSize: 10, fontWeight: 800, color: ex.circuit ? circuitColor : C.sub, cursor: 'pointer', padding: '4px 0', fontFamily: 'Montserrat,sans-serif', lineHeight: 1 }} title="Toggle circuit group (A/B/C/D)">
                   {ex.circuit || '—'}
                 </button>
                 <input value={ex.exercise} onChange={e => updateExercise(dayIdx, exIdx, 'exercise', e.target.value)} placeholder="e.g. Back Squat" style={inputCell} />
                 <input value={ex.sets} onChange={e => updateExercise(dayIdx, exIdx, 'sets', e.target.value)} placeholder="3" style={{ ...inputCell, textAlign: 'center' }} />
                 <input value={ex.reps} onChange={e => updateExercise(dayIdx, exIdx, 'reps', e.target.value)} placeholder="10" style={{ ...inputCell, textAlign: 'center' }} />
+                <input value={ex.weight || ''} onChange={e => updateExercise(dayIdx, exIdx, 'weight', e.target.value)} placeholder="lbs" style={{ ...inputCell, textAlign: 'center' }} />
                 <input value={ex.tempo || ''} onChange={e => updateExercise(dayIdx, exIdx, 'tempo', e.target.value)} placeholder="3-1-2-0" style={{ ...inputCell, textAlign: 'center' }} />
                 <select value={ex.rpe} onChange={e => updateExercise(dayIdx, exIdx, 'rpe', e.target.value)} style={{ ...inputCell, textAlign: 'center', padding: '6px 2px' }}>
                   <option value="">—</option>

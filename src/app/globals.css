@@ -6,6 +6,11 @@ body { font-family: 'Montserrat', sans-serif; background: #ffffff; color: #1A202
 ::-webkit-scrollbar-track { background: #F8F9FA; }
 ::-webkit-scrollbar-thumb { background: #CBD5E0; border-radius: 3px; }
 
+/* Prevent iOS Safari from zooming/jumping on input focus */
+@supports (-webkit-touch-callout: none) {
+  input, select, textarea { font-size: 16px !important; }
+}
+
 @media print {
   .no-print { display: none !important; }
   body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
