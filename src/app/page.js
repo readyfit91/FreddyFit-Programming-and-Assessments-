@@ -3135,106 +3135,114 @@ function ProgramUploads({ client, onUpdate }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>Program Journal</div>
         <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={() => setShowProgram(!showProgram)} style={{ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${showProgram ? C.accent : C.border}`, background: showProgram ? C.accent + '12' : 'transparent', color: showProgram ? C.accent : C.sub, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+            {showProgram ? 'Hide Program' : 'View Program'}
+          </button>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.sub, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
-            Replace Program
+            Replace
             <input type="file" accept="image/*,.pdf" onChange={handleUpload} style={{ display: 'none' }} />
           </label>
         </div>
       </div>
 
-      {/* View Program toggle */}
-      <div onClick={() => setShowProgram(!showProgram)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 10, border: `1px solid ${C.border}`, cursor: 'pointer', marginBottom: 14, background: showProgram ? C.accent + '06' : 'transparent' }}>
-        <span style={{ fontSize: 16 }}>{programFile.data?.startsWith('data:image') ? '🖼' : '📄'}</span>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{programFile.name || 'Program'}</div>
-          <div style={{ fontSize: 10, color: C.sub }}>{showProgram ? 'Tap to hide' : 'Tap to view program'}</div>
-        </div>
-        <span style={{ fontSize: 11, color: C.sub }}>{showProgram ? '▲' : '▼'}</span>
-      </div>
-      {showProgram && (
-        <div style={{ marginBottom: 14 }}>
-          {programFile.data?.startsWith('data:image') && (
-            <img src={programFile.data} alt={programFile.name} style={{ width: '100%', maxHeight: 500, objectFit: 'contain', borderRadius: 8, border: `1px solid ${C.border}`, background: '#fff' }} />
-          )}
-          {programFile.data?.startsWith('data:application/pdf') && (
-            <div style={{ padding: '12px 16px', background: C.faint, borderRadius: 8, border: `1px solid ${C.border}`, textAlign: 'center' }}>
-              <a href={programFile.data} download={programFile.name} style={{ fontSize: 12, color: C.accent, fontWeight: 700, textDecoration: 'none' }}>Download PDF: {programFile.name}</a>
+      {/* Side-by-side: Program on left, Notes on right */}
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+
+        {/* Left: Program viewer (sticky so it stays visible while scrolling notes) */}
+        {showProgram && (
+          <div style={{ flex: '1 1 320px', minWidth: 280, maxWidth: 500, position: 'sticky', top: 60, alignSelf: 'flex-start' }}>
+            <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
+              {programFile.data?.startsWith('data:image') && (
+                <img src={programFile.data} alt={programFile.name} style={{ width: '100%', maxHeight: 600, objectFit: 'contain', display: 'block' }} />
+              )}
+              {programFile.data?.startsWith('data:application/pdf') && (
+                <div style={{ padding: '20px 16px', textAlign: 'center' }}>
+                  <a href={programFile.data} download={programFile.name} style={{ fontSize: 12, color: C.accent, fontWeight: 700, textDecoration: 'none' }}>Download PDF: {programFile.name}</a>
+                </div>
+              )}
             </div>
-          )}
-          <button onClick={removeProgram} style={{ marginTop: 8, padding: '4px 12px', borderRadius: 6, border: `1px solid ${C.red}44`, background: 'transparent', color: C.red, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Remove Program</button>
-        </div>
-      )}
-
-      {/* Starting Week / Day selector */}
-      {entries.length === 0 && (
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '12px 14px', borderRadius: 10, background: C.faint, border: `1px solid ${C.border}`, marginBottom: 14, flexWrap: 'wrap' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: C.text }}>Start at:</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 11, color: C.sub }}>Week</span>
-            <input type="number" min="1" value={startWeek} onChange={e => updateStartWeek(e.target.value)} style={{ width: 50, padding: '4px 8px', borderRadius: 6, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, textAlign: 'center', fontFamily: 'Montserrat,sans-serif', color: C.text }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+              <div style={{ fontSize: 10, color: C.sub }}>{programFile.name}</div>
+              <button onClick={removeProgram} style={{ padding: '3px 10px', borderRadius: 6, border: `1px solid ${C.red}44`, background: 'transparent', color: C.red, fontSize: 9, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Remove</button>
+            </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 11, color: C.sub }}>Day</span>
-            <input type="number" min="1" max={DAYS_PER_WEEK} value={startDay} onChange={e => updateStartDay(e.target.value)} style={{ width: 50, padding: '4px 8px', borderRadius: 6, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, textAlign: 'center', fontFamily: 'Montserrat,sans-serif', color: C.text }} />
-          </div>
-          <div style={{ fontSize: 10, color: C.sub }}>({DAYS_PER_WEEK} days per week)</div>
-        </div>
-      )}
+        )}
 
-      {/* Week chips for scrolling */}
-      {weekNums.length > 0 && (
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
-          <span style={{ fontSize: 10, color: C.sub, fontWeight: 700 }}>Jump to:</span>
-          {weekNums.map(w => (
-            <button key={w} onClick={() => { setScrollToWeek(w); setTimeout(() => setScrollToWeek(null), 100) }} style={chipStyle(scrollToWeek === w)}>
-              Wk {w}
-            </button>
-          ))}
-          {entries.length > 0 && (
-            <button onClick={copyAllNotes} style={{ ...chipStyle(copiedAll), marginLeft: 'auto', borderColor: copiedAll ? C.green : C.accent, color: copiedAll ? C.green : C.accent, background: copiedAll ? C.green + '12' : C.accent + '08' }}>
-              {copiedAll ? '✓ Copied!' : 'Copy All Notes'}
-            </button>
-          )}
-        </div>
-      )}
+        {/* Right: Notes journal */}
+        <div style={{ flex: '1 1 320px', minWidth: 280 }}>
 
-      {/* Previous entries grouped by week */}
-      {weekNums.map(w => (
-        <div key={w} id={`program-week-${w}`} ref={el => { if (scrollToWeek === w && el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }) }} style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.teal, textTransform: 'uppercase', marginBottom: 6, paddingLeft: 2 }}>Week {w}</div>
-          {weeks[w].map(e => (
-            <div key={e.idx} style={{ display: 'flex', gap: 10, padding: '10px 14px', borderRadius: 10, border: `1px solid ${C.border}`, marginBottom: 6, background: C.faint, alignItems: 'flex-start' }}>
-              <div style={{ minWidth: 48, textAlign: 'center' }}>
-                <div style={{ fontSize: 10, fontWeight: 800, color: C.accent, letterSpacing: 1 }}>DAY {e.day}</div>
-                <div style={{ fontSize: 9, color: C.sub, marginTop: 2 }}>{new Date(e.savedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+          {/* Starting Week / Day selector */}
+          {entries.length === 0 && (
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '12px 14px', borderRadius: 10, background: C.faint, border: `1px solid ${C.border}`, marginBottom: 14, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.text }}>Start at:</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 11, color: C.sub }}>Week</span>
+                <input type="number" min="1" value={startWeek} onChange={e => updateStartWeek(e.target.value)} style={{ width: 50, padding: '4px 8px', borderRadius: 6, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, textAlign: 'center', fontFamily: 'Montserrat,sans-serif', color: C.text }} />
               </div>
-              <div style={{ flex: 1, fontSize: 12, color: C.text, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{e.notes}</div>
-              <button onClick={() => deleteEntry(e.idx)} style={{ background: 'none', border: 'none', color: C.red + '88', fontSize: 14, cursor: 'pointer', padding: '0 4px', flexShrink: 0 }} title="Delete">×</button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 11, color: C.sub }}>Day</span>
+                <input type="number" min="1" max={DAYS_PER_WEEK} value={startDay} onChange={e => updateStartDay(e.target.value)} style={{ width: 50, padding: '4px 8px', borderRadius: 6, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, textAlign: 'center', fontFamily: 'Montserrat,sans-serif', color: C.text }} />
+              </div>
+              <div style={{ fontSize: 10, color: C.sub }}>({DAYS_PER_WEEK} days per week)</div>
+            </div>
+          )}
+
+          {/* Week chips for scrolling */}
+          {weekNums.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
+              <span style={{ fontSize: 10, color: C.sub, fontWeight: 700 }}>Jump to:</span>
+              {weekNums.map(w => (
+                <button key={w} onClick={() => { setScrollToWeek(w); setTimeout(() => setScrollToWeek(null), 100) }} style={chipStyle(scrollToWeek === w)}>
+                  Wk {w}
+                </button>
+              ))}
+              {entries.length > 0 && (
+                <button onClick={copyAllNotes} style={{ ...chipStyle(copiedAll), marginLeft: 'auto', borderColor: copiedAll ? C.green : C.accent, color: copiedAll ? C.green : C.accent, background: copiedAll ? C.green + '12' : C.accent + '08' }}>
+                  {copiedAll ? '✓ Copied!' : 'Copy All Notes'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Previous entries grouped by week */}
+          {weekNums.map(w => (
+            <div key={w} id={`program-week-${w}`} ref={el => { if (scrollToWeek === w && el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }) }} style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.teal, textTransform: 'uppercase', marginBottom: 6, paddingLeft: 2 }}>Week {w}</div>
+              {weeks[w].map(e => (
+                <div key={e.idx} style={{ display: 'flex', gap: 10, padding: '10px 14px', borderRadius: 10, border: `1px solid ${C.border}`, marginBottom: 6, background: C.faint, alignItems: 'flex-start' }}>
+                  <div style={{ minWidth: 48, textAlign: 'center' }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: C.accent, letterSpacing: 1 }}>DAY {e.day}</div>
+                    <div style={{ fontSize: 9, color: C.sub, marginTop: 2 }}>{new Date(e.savedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+                  </div>
+                  <div style={{ flex: 1, fontSize: 12, color: C.text, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{e.notes}</div>
+                  <button onClick={() => deleteEntry(e.idx)} style={{ background: 'none', border: 'none', color: C.red + '88', fontSize: 14, cursor: 'pointer', padding: '0 4px', flexShrink: 0 }} title="Delete">x</button>
+                </div>
+              ))}
             </div>
           ))}
-        </div>
-      ))}
 
-      {/* Active notes entry */}
-      <div style={{ border: `2px solid ${C.accent}44`, borderRadius: 12, padding: '14px 16px', background: C.accent + '04' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <div>
-            <span style={{ fontSize: 12, fontWeight: 800, color: C.accent }}>Week {next.week} — Day {next.day}</span>
-            <span style={{ fontSize: 10, color: C.sub, marginLeft: 8 }}>What did you end up doing?</span>
+          {/* Active notes entry */}
+          <div style={{ border: `2px solid ${C.accent}44`, borderRadius: 12, padding: '14px 16px', background: C.accent + '04' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div>
+                <span style={{ fontSize: 12, fontWeight: 800, color: C.accent }}>Week {next.week} — Day {next.day}</span>
+                <span style={{ fontSize: 10, color: C.sub, marginLeft: 8 }}>What did you end up doing?</span>
+              </div>
+              {saving && <span style={{ fontSize: 10, color: C.sub }}>Saving...</span>}
+            </div>
+            <textarea
+              value={draftNotes}
+              onChange={e => setDraftNotes(e.target.value)}
+              rows={4}
+              placeholder="e.g. Swapped barbell squats for goblet squats. Added face pulls. Client felt good at 3x10 tempo..."
+              style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontFamily: 'Montserrat,sans-serif', color: C.text, background: '#fff', resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.6 }}
+            />
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <button onClick={saveEntry} disabled={!draftNotes.trim() || saving} style={{ padding: '7px 18px', borderRadius: 8, background: draftNotes.trim() ? C.accent : C.border, color: '#fff', fontSize: 12, fontWeight: 700, cursor: draftNotes.trim() ? 'pointer' : 'default', border: 'none', fontFamily: 'Montserrat,sans-serif', opacity: draftNotes.trim() ? 1 : 0.5 }}>
+                Save & Next Day
+              </button>
+            </div>
           </div>
-          {saving && <span style={{ fontSize: 10, color: C.sub }}>Saving...</span>}
-        </div>
-        <textarea
-          value={draftNotes}
-          onChange={e => setDraftNotes(e.target.value)}
-          rows={4}
-          placeholder="e.g. Swapped barbell squats for goblet squats. Added face pulls. Client felt good at 3x10 tempo..."
-          style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontFamily: 'Montserrat,sans-serif', color: C.text, background: '#fff', resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.6 }}
-        />
-        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-          <button onClick={saveEntry} disabled={!draftNotes.trim() || saving} style={{ padding: '7px 18px', borderRadius: 8, background: draftNotes.trim() ? C.accent : C.border, color: '#fff', fontSize: 12, fontWeight: 700, cursor: draftNotes.trim() ? 'pointer' : 'default', border: 'none', fontFamily: 'Montserrat,sans-serif', opacity: draftNotes.trim() ? 1 : 0.5 }}>
-            Save & Next Day
-          </button>
         </div>
       </div>
     </div>
