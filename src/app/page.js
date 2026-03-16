@@ -3012,10 +3012,11 @@ const PHASES = [
   { id: 'p4', name: 'Phase 4 — The Peak', sub: 'Max strength and PRs', color: C.orange },
 ]
 const YEARS = [1, 2, 3, 4, 5]
-const WEEKS = [...Array.from({ length: 12 }, (_, i) => `Week ${i + 1}`), 'Deload']
+// Default week order — deloads can be inserted between any weeks
+const DEFAULT_WEEK_ORDER = ['Week 1','Week 2','Week 3','Week 4','Deload 1','Week 5','Week 6','Week 7','Week 8','Deload 2','Week 9','Week 10','Week 11','Week 12','Deload 3']
 
-const emptyExercise = () => ({ id: makeId(), exercise: '', sets: '', reps: '', rpe: '', notes: '' })
-const emptyDay = (num) => ({ id: makeId(), dayNum: num, exercises: [emptyExercise()], dayNotes: '' })
+const emptyExercise = () => ({ id: makeId(), exercise: '', sets: '', reps: '', tempo: '', rpe: '', notes: '', circuit: '' })
+const emptyDay = (num) => ({ id: makeId(), dayNum: num, exercises: [emptyExercise()], dayNotes: '', date: '' })
 
 function ProgramUploads({ client, onUpdate }) {
   const parseNotes = () => { try { return JSON.parse(client.trainerNotes || '{}') } catch { return {} } }
@@ -3026,6 +3027,9 @@ function ProgramUploads({ client, onUpdate }) {
   const [selYear, setSelYear] = useState(1)
   const [selPhase, setSelPhase] = useState('p1')
   const [selWeek, setSelWeek] = useState('Week 1')
+  // Week order per phase — allows custom deload placement
+  const weekOrderKey = `y${selYear}_${selPhase}_weekorder`
+  const weekOrder = journal[weekOrderKey] || DEFAULT_WEEK_ORDER
   const [saving, setSaving] = useState(false)
   const [programFile, setProgramFile] = useState(stored.program_file || null)
   const [showProgram, setShowProgram] = useState(false)
@@ -3121,6 +3125,22 @@ function ProgramUploads({ client, onUpdate }) {
     return d.days.some(day => day.exercises.some(ex => ex.exercise.trim()) || day.dayNotes.trim())
   }
 
+  // Update date on a day
+  const updateDayDate = (dayIdx, value) => {
+    const days = weekData.days.map((d, di) => di === dayIdx ? { ...d, date: value } : d)
+    updateWeekData(days)
+  }
+
+  // Toggle circuit label on an exercise
+  const toggleCircuit = (dayIdx, exIdx) => {
+    const day = weekData.days[dayIdx]
+    const ex = day.exercises[exIdx]
+    // Cycle: '' -> 'A' -> 'B' -> 'C' -> ''
+    const labels = ['', 'A', 'B', 'C', 'D']
+    const nextIdx = (labels.indexOf(ex.circuit || '') + 1) % labels.length
+    updateExercise(dayIdx, exIdx, 'circuit', labels[nextIdx])
+  }
+
   const currentPhase = PHASES.find(p => p.id === selPhase)
 
   const selectStyle = { padding: '7px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 12, fontWeight: 700, fontFamily: 'Montserrat,sans-serif', color: C.text, background: '#fff', cursor: 'pointer', outline: 'none' }
@@ -3178,8 +3198,8 @@ function ProgramUploads({ client, onUpdate }) {
         <select value={selPhase} onChange={e => setSelPhase(e.target.value)} style={{ ...selectStyle, borderColor: currentPhase.color, color: currentPhase.color }}>
           {PHASES.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
-        <select value={selWeek} onChange={e => setSelWeek(e.target.value)} style={selectStyle}>
-          {WEEKS.map(w => (
+        <select value={selWeek} onChange={e => setSelWeek(e.target.value)} style={{ ...selectStyle, ...(selWeek.startsWith('Deload') ? { borderColor: C.orange, color: C.orange } : {}) }}>
+          {weekOrder.map(w => (
             <option key={w} value={w}>{w}{weekHasData(selYear, selPhase, w) ? ' ✓' : ''}</option>
           ))}
         </select>
@@ -3190,43 +3210,76 @@ function ProgramUploads({ client, onUpdate }) {
         {currentPhase.sub}
       </div>
 
+      {/* Deload banner */}
+      {selWeek.startsWith('Deload') && (
+        <div style={{ fontSize: 12, fontWeight: 800, color: C.orange, textAlign: 'center', padding: '8px 12px', background: C.orange + '10', borderRadius: 8, border: `1.5px solid ${C.orange}33`, marginBottom: 14, letterSpacing: 1 }}>
+          DELOAD WEEK — Reduced volume &amp; intensity
+        </div>
+      )}
+
       {/* Days */}
       {weekData.days.map((day, dayIdx) => (
         <div key={day.id || dayIdx} style={{ border: `1.5px solid ${C.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 14, background: C.faint }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <div style={{ fontSize: 12, fontWeight: 800, color: currentPhase.color, letterSpacing: 1 }}>DAY {dayIdx + 1}</div>
+          {/* Day header with date */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: currentPhase.color, letterSpacing: 1 }}>DAY {dayIdx + 1}</div>
+              <input
+                type="date"
+                value={day.date || ''}
+                onChange={e => updateDayDate(dayIdx, e.target.value)}
+                style={{ padding: '3px 8px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 11, fontFamily: 'Montserrat,sans-serif', color: day.date ? C.text : C.sub, background: '#fff', outline: 'none' }}
+              />
+              {day.date && (
+                <span style={{ fontSize: 10, color: C.sub, fontWeight: 600 }}>
+                  {new Date(day.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                </span>
+              )}
+            </div>
             {weekData.days.length > 1 && (
               <button onClick={() => removeDay(dayIdx)} style={{ background: 'none', border: 'none', color: C.red + '88', fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', fontWeight: 700 }}>Remove Day</button>
             )}
           </div>
 
           {/* Exercise header row */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 60px 60px 60px 1fr 28px', gap: 6, marginBottom: 4 }}>
-            <div style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', paddingLeft: 4 }}>Exercise</div>
-            <div style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', textAlign: 'center' }}>Sets</div>
-            <div style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', textAlign: 'center' }}>Reps</div>
-            <div style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', textAlign: 'center' }}>RPE</div>
-            <div style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', paddingLeft: 4 }}>Notes</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '32px 1fr 50px 50px 70px 50px 1fr 28px', gap: 4, marginBottom: 4 }}>
+            <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>CIR</div>
+            <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', paddingLeft: 4 }}>Exercise</div>
+            <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>Sets</div>
+            <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>Reps</div>
+            <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>Tempo</div>
+            <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>RPE</div>
+            <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', paddingLeft: 4 }}>Notes</div>
             <div />
           </div>
 
           {/* Exercise rows */}
-          {day.exercises.map((ex, exIdx) => (
-            <div key={ex.id || exIdx} style={{ display: 'grid', gridTemplateColumns: '1fr 60px 60px 60px 1fr 28px', gap: 6, marginBottom: 6 }}>
-              <input value={ex.exercise} onChange={e => updateExercise(dayIdx, exIdx, 'exercise', e.target.value)} placeholder="e.g. Back Squat" style={inputCell} />
-              <input value={ex.sets} onChange={e => updateExercise(dayIdx, exIdx, 'sets', e.target.value)} placeholder="3" style={{ ...inputCell, textAlign: 'center' }} />
-              <input value={ex.reps} onChange={e => updateExercise(dayIdx, exIdx, 'reps', e.target.value)} placeholder="10" style={{ ...inputCell, textAlign: 'center' }} />
-              <select value={ex.rpe} onChange={e => updateExercise(dayIdx, exIdx, 'rpe', e.target.value)} style={{ ...inputCell, textAlign: 'center', padding: '6px 2px' }}>
-                <option value="">—</option>
-                {[1,2,3,4,5,6,7,8,9,10].map(n => <option key={n} value={n}>{n}</option>)}
-              </select>
-              <input value={ex.notes} onChange={e => updateExercise(dayIdx, exIdx, 'notes', e.target.value)} placeholder="Tempo, cues..." style={inputCell} />
-              <button onClick={() => removeExercise(dayIdx, exIdx)} disabled={day.exercises.length <= 1} style={{ background: 'none', border: 'none', color: day.exercises.length > 1 ? C.red + '88' : C.border, fontSize: 16, cursor: day.exercises.length > 1 ? 'pointer' : 'default', padding: 0, lineHeight: 1 }} title="Remove exercise">×</button>
-            </div>
-          ))}
+          {day.exercises.map((ex, exIdx) => {
+            const circuitColor = ex.circuit === 'A' ? C.accent : ex.circuit === 'B' ? C.indigo : ex.circuit === 'C' ? C.green : ex.circuit === 'D' ? C.orange : null
+            const sameCircuitAbove = exIdx > 0 && day.exercises[exIdx - 1].circuit && day.exercises[exIdx - 1].circuit === ex.circuit
+            const sameCircuitBelow = exIdx < day.exercises.length - 1 && day.exercises[exIdx + 1]?.circuit && day.exercises[exIdx + 1].circuit === ex.circuit
+            const showCircuitBar = !!ex.circuit && (sameCircuitAbove || sameCircuitBelow)
+            return (
+              <div key={ex.id || exIdx} style={{ display: 'grid', gridTemplateColumns: '32px 1fr 50px 50px 70px 50px 1fr 28px', gap: 4, marginBottom: 4, ...(showCircuitBar ? { borderLeft: `3px solid ${circuitColor}`, paddingLeft: 2, marginLeft: -3 } : {}) }}>
+                <button onClick={() => toggleCircuit(dayIdx, exIdx)} style={{ background: ex.circuit ? (circuitColor + '20') : 'transparent', border: `1.5px solid ${ex.circuit ? circuitColor : C.border}`, borderRadius: 6, fontSize: 10, fontWeight: 800, color: ex.circuit ? circuitColor : C.sub, cursor: 'pointer', padding: '4px 0', fontFamily: 'Montserrat,sans-serif', lineHeight: 1 }} title="Toggle circuit group (A/B/C/D)">
+                  {ex.circuit || '—'}
+                </button>
+                <input value={ex.exercise} onChange={e => updateExercise(dayIdx, exIdx, 'exercise', e.target.value)} placeholder="e.g. Back Squat" style={inputCell} />
+                <input value={ex.sets} onChange={e => updateExercise(dayIdx, exIdx, 'sets', e.target.value)} placeholder="3" style={{ ...inputCell, textAlign: 'center' }} />
+                <input value={ex.reps} onChange={e => updateExercise(dayIdx, exIdx, 'reps', e.target.value)} placeholder="10" style={{ ...inputCell, textAlign: 'center' }} />
+                <input value={ex.tempo || ''} onChange={e => updateExercise(dayIdx, exIdx, 'tempo', e.target.value)} placeholder="3-1-2-0" style={{ ...inputCell, textAlign: 'center' }} />
+                <select value={ex.rpe} onChange={e => updateExercise(dayIdx, exIdx, 'rpe', e.target.value)} style={{ ...inputCell, textAlign: 'center', padding: '6px 2px' }}>
+                  <option value="">—</option>
+                  {[1,2,3,4,5,6,7,8,9,10].map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+                <input value={ex.notes} onChange={e => updateExercise(dayIdx, exIdx, 'notes', e.target.value)} placeholder="Cues..." style={inputCell} />
+                <button onClick={() => removeExercise(dayIdx, exIdx)} disabled={day.exercises.length <= 1} style={{ background: 'none', border: 'none', color: day.exercises.length > 1 ? C.red + '88' : C.border, fontSize: 16, cursor: day.exercises.length > 1 ? 'pointer' : 'default', padding: 0, lineHeight: 1 }} title="Remove exercise">×</button>
+              </div>
+            )
+          })}
 
           {/* Add exercise button */}
-          <button onClick={() => addExercise(dayIdx)} style={{ background: 'none', border: `1px dashed ${C.border}`, borderRadius: 6, padding: '5px 14px', fontSize: 11, color: C.accent, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', marginTop: 2 }}>
+          <button onClick={() => addExercise(dayIdx)} style={{ background: 'none', border: `1px dashed ${C.border}`, borderRadius: 6, padding: '5px 14px', fontSize: 11, color: C.accent, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', marginTop: 4 }}>
             + Add Exercise
           </button>
 
