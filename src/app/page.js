@@ -3129,6 +3129,7 @@ function ProgramUploads({ client, onUpdate }) {
   const [unsavedDays, setUnsavedDays] = useState(new Set())
   const [savedDays, setSavedDays] = useState(new Set())
   const [collapsedNotes, setCollapsedNotes] = useState(new Set())
+  const [collapsedDays, setCollapsedDays] = useState(new Set())
 
   // Update locally only — no persist
   const updateWeekDataLocal = (newDays, changedDayIdx) => {
@@ -3182,9 +3183,11 @@ function ProgramUploads({ client, onUpdate }) {
   const duplicateExercise = (dayIdx, exIdx) => {
     const days = weekData.days.map((d, di) => {
       if (di !== dayIdx) return d
-      const copy = { ...d.exercises[exIdx], id: makeId() }
-      const exercises = [...d.exercises]
-      exercises.splice(exIdx + 1, 0, copy)
+      const exercises = d.exercises.map((ex, ei) => {
+        if (ei !== exIdx) return ex
+        const currentSets = parseInt(ex.sets) || 1
+        return { ...ex, sets: String(currentSets + 1) }
+      })
       return { ...d, exercises }
     })
     updateWeekDataLocal(days, dayIdx)
@@ -3192,6 +3195,14 @@ function ProgramUploads({ client, onUpdate }) {
 
   const toggleCollapsedNotes = (dayIdx) => {
     setCollapsedNotes(prev => {
+      const n = new Set(prev)
+      n.has(dayIdx) ? n.delete(dayIdx) : n.add(dayIdx)
+      return n
+    })
+  }
+
+  const toggleCollapsedDay = (dayIdx) => {
+    setCollapsedDays(prev => {
       const n = new Set(prev)
       n.has(dayIdx) ? n.delete(dayIdx) : n.add(dayIdx)
       return n
@@ -3470,9 +3481,12 @@ function ProgramUploads({ client, onUpdate }) {
       {weekData.days.map((day, dayIdx) => (
         <div key={day.id || dayIdx} style={{ border: `1.5px solid ${C.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 14, background: C.faint }}>
           {/* Day header with date */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: collapsedDays.has(dayIdx) ? 0 : 10, flexWrap: 'wrap', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: currentPhase.color, letterSpacing: 1 }}>DAY {dayIdx + 1}</div>
+              <button onClick={() => toggleCollapsedDay(dayIdx)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 10, color: C.sub, fontWeight: 700, transition: 'transform .2s', display: 'inline-block', transform: collapsedDays.has(dayIdx) ? 'rotate(-90deg)' : 'rotate(0deg)' }}>▼</span>
+                <span style={{ fontSize: 12, fontWeight: 800, color: currentPhase.color, letterSpacing: 1 }}>DAY {dayIdx + 1}</span>
+              </button>
               <input
                 type="date"
                 value={day.date || ''}
@@ -3484,12 +3498,18 @@ function ProgramUploads({ client, onUpdate }) {
                   {new Date(day.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
                 </span>
               )}
+              {collapsedDays.has(dayIdx) && (
+                <span style={{ fontSize: 10, color: C.sub, fontWeight: 600, fontStyle: 'italic' }}>
+                  {day.exercises.filter(e => e.exercise).length} exercise{day.exercises.filter(e => e.exercise).length !== 1 ? 's' : ''}
+                </span>
+              )}
             </div>
             {weekData.days.length > 1 && (
               <button onClick={() => removeDay(dayIdx)} style={{ background: 'none', border: 'none', color: C.red + '88', fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', fontWeight: 700 }}>Remove Day</button>
             )}
           </div>
 
+          {!collapsedDays.has(dayIdx) && <>
           {/* Exercise header row */}
           <div style={{ display: 'grid', gridTemplateColumns: '22px 32px 1fr 50px 50px 56px 70px 50px 1fr 28px 28px', gap: 4, marginBottom: 4, alignItems: 'end' }}>
             <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>#</div>
@@ -3589,6 +3609,7 @@ function ProgramUploads({ client, onUpdate }) {
               {saving ? 'Saving...' : savedDays.has(dayIdx) ? '✓ Saved!' : unsavedDays.has(dayIdx) ? 'Save Day' : 'Saved'}
             </button>
           </div>
+          </>}
         </div>
       ))}
 
