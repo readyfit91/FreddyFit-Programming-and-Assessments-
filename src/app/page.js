@@ -3004,22 +3004,34 @@ function SignInPad({ onSign, saving }) {
   )
 }
 
-// ── PROGRAM UPLOADS ──────────────────────────────────────────────────────────
-const DAYS_PER_WEEK = 2
+// ── PROGRAM JOURNAL ──────────────────────────────────────────────────────────
+const PHASES = [
+  { id: 'p1', name: 'Phase 1 — The Base', sub: 'Building movement patterns and capacity', color: C.teal },
+  { id: 'p2', name: 'Phase 2 — The Forge', sub: 'Developing raw strength', color: C.accent },
+  { id: 'p3', name: 'Phase 3 — The Engine', sub: 'VO2 and work capacity', color: C.indigo },
+  { id: 'p4', name: 'Phase 4 — The Peak', sub: 'Max strength and PRs', color: C.orange },
+]
+const YEARS = [1, 2, 3, 4, 5]
+const WEEKS = [...Array.from({ length: 12 }, (_, i) => `Week ${i + 1}`), 'Deload']
+
+const emptyExercise = () => ({ id: makeId(), exercise: '', sets: '', reps: '', rpe: '', notes: '' })
+const emptyDay = (num) => ({ id: makeId(), dayNum: num, exercises: [emptyExercise()], dayNotes: '' })
 
 function ProgramUploads({ client, onUpdate }) {
   const parseNotes = () => { try { return JSON.parse(client.trainerNotes || '{}') } catch { return {} } }
   const stored = parseNotes()
-  const [programFile, setProgramFile] = useState(stored.program_file || null)
-  const [entries, setEntries] = useState(stored.program_entries || [])
-  const [startWeek, setStartWeek] = useState(stored.program_start_week || 1)
-  const [startDay, setStartDay] = useState(stored.program_start_day || 1)
+
+  // program_journal: { "y1_p1_Week 1": { days: [...] }, ... }
+  const [journal, setJournal] = useState(stored.program_journal || {})
+  const [selYear, setSelYear] = useState(1)
+  const [selPhase, setSelPhase] = useState('p1')
+  const [selWeek, setSelWeek] = useState('Week 1')
   const [saving, setSaving] = useState(false)
-  const [copiedAll, setCopiedAll] = useState(false)
+  const [programFile, setProgramFile] = useState(stored.program_file || null)
   const [showProgram, setShowProgram] = useState(false)
-  const [activeEntry, setActiveEntry] = useState(null)
-  const [draftNotes, setDraftNotes] = useState('')
-  const [scrollToWeek, setScrollToWeek] = useState(null)
+
+  const journalKey = `y${selYear}_${selPhase}_${selWeek}`
+  const weekData = journal[journalKey] || { days: [emptyDay(1), emptyDay(2)] }
 
   const persist = async (updates) => {
     setSaving(true)
@@ -3033,10 +3045,56 @@ function ProgramUploads({ client, onUpdate }) {
     setSaving(false)
   }
 
+  const updateWeekData = (newDays) => {
+    const updated = { ...journal, [journalKey]: { days: newDays } }
+    setJournal(updated)
+    persist({ program_journal: updated })
+  }
+
+  const updateExercise = (dayIdx, exIdx, field, value) => {
+    const days = weekData.days.map((d, di) => {
+      if (di !== dayIdx) return d
+      const exercises = d.exercises.map((ex, ei) => ei === exIdx ? { ...ex, [field]: value } : ex)
+      return { ...d, exercises }
+    })
+    updateWeekData(days)
+  }
+
+  const addExercise = (dayIdx) => {
+    const days = weekData.days.map((d, di) => di === dayIdx ? { ...d, exercises: [...d.exercises, emptyExercise()] } : d)
+    updateWeekData(days)
+  }
+
+  const removeExercise = (dayIdx, exIdx) => {
+    const days = weekData.days.map((d, di) => {
+      if (di !== dayIdx) return d
+      if (d.exercises.length <= 1) return d
+      return { ...d, exercises: d.exercises.filter((_, ei) => ei !== exIdx) }
+    })
+    updateWeekData(days)
+  }
+
+  const updateDayNotes = (dayIdx, value) => {
+    const days = weekData.days.map((d, di) => di === dayIdx ? { ...d, dayNotes: value } : d)
+    updateWeekData(days)
+  }
+
+  const addDay = () => {
+    const nextNum = weekData.days.length + 1
+    updateWeekData([...weekData.days, emptyDay(nextNum)])
+  }
+
+  const removeDay = (dayIdx) => {
+    if (weekData.days.length <= 1) return
+    if (!confirm(`Remove Day ${dayIdx + 1}?`)) return
+    const days = weekData.days.filter((_, i) => i !== dayIdx).map((d, i) => ({ ...d, dayNum: i + 1 }))
+    updateWeekData(days)
+  }
+
   const handleUpload = (e) => {
     const file = e.target.files[0]
     if (!file) return
-    if (file.size > 2 * 1024 * 1024) { alert('File too large — max 2 MB. Try a lower resolution photo.'); return }
+    if (file.size > 2 * 1024 * 1024) { alert('File too large — max 2 MB.'); return }
     const reader = new FileReader()
     reader.onload = () => {
       const pf = { data: reader.result, name: file.name, uploadedAt: new Date().toISOString() }
@@ -3055,199 +3113,141 @@ function ProgramUploads({ client, onUpdate }) {
     persist({ program_file: null })
   }
 
-  // Calculate week/day for the next entry
-  const getNextWeekDay = () => {
-    if (entries.length === 0) return { week: startWeek, day: startDay }
-    const last = entries[entries.length - 1]
-    let nextDay = last.day + 1
-    let nextWeek = last.week
-    if (nextDay > DAYS_PER_WEEK) { nextDay = 1; nextWeek++ }
-    return { week: nextWeek, day: nextDay }
+  // Check if a week has data
+  const weekHasData = (yr, ph, wk) => {
+    const k = `y${yr}_${ph}_${wk}`
+    const d = journal[k]
+    if (!d) return false
+    return d.days.some(day => day.exercises.some(ex => ex.exercise.trim()) || day.dayNotes.trim())
   }
 
-  const saveEntry = () => {
-    if (!draftNotes.trim()) return
-    const wd = getNextWeekDay()
-    const newEntry = { week: wd.week, day: wd.day, notes: draftNotes.trim(), savedAt: new Date().toISOString() }
-    const updated = [...entries, newEntry]
-    setEntries(updated)
-    setDraftNotes('')
-    setActiveEntry(null)
-    persist({ program_entries: updated })
-  }
+  const currentPhase = PHASES.find(p => p.id === selPhase)
 
-  const deleteEntry = (idx) => {
-    if (!confirm('Delete this entry?')) return
-    const updated = entries.filter((_, i) => i !== idx)
-    setEntries(updated)
-    persist({ program_entries: updated })
-  }
+  const selectStyle = { padding: '7px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 12, fontWeight: 700, fontFamily: 'Montserrat,sans-serif', color: C.text, background: '#fff', cursor: 'pointer', outline: 'none' }
+  const inputCell = { padding: '6px 8px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', color: C.text, outline: 'none', background: '#fff', boxSizing: 'border-box' }
 
-  const updateStartWeek = (w) => {
-    const v = Math.max(1, parseInt(w) || 1)
-    setStartWeek(v)
-    persist({ program_start_week: v })
-  }
-
-  const updateStartDay = (d) => {
-    const v = Math.max(1, Math.min(DAYS_PER_WEEK, parseInt(d) || 1))
-    setStartDay(v)
-    persist({ program_start_day: v })
-  }
-
-  const copyAllNotes = () => {
-    const text = entries.map(e => `Week ${e.week} Day ${e.day}:\n${e.notes}`).join('\n\n')
-    navigator.clipboard.writeText(text).then(() => {
-      setCopiedAll(true)
-      setTimeout(() => setCopiedAll(false), 2000)
-    })
-  }
-
-  // Group entries by week for scrolling
-  const weeks = {}
-  entries.forEach((e, idx) => {
-    if (!weeks[e.week]) weeks[e.week] = []
-    weeks[e.week].push({ ...e, idx })
-  })
-  const weekNums = Object.keys(weeks).map(Number).sort((a, b) => a - b)
-
-  const next = getNextWeekDay()
-  const chipStyle = (active) => ({ padding: '4px 12px', borderRadius: 20, border: `1.5px solid ${active ? C.accent : C.border}`, background: active ? C.accent + '12' : 'transparent', color: active ? C.accent : C.sub, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' })
-
-  // ── No program uploaded yet ──
-  if (!programFile) {
-    return (
-      <div style={{ background: C.faint, border: `1px dashed ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 20, textAlign: 'center' }}>
-        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>Program Journal</div>
-        <div style={{ fontSize: 12, color: C.sub, marginBottom: 12 }}>Upload your written program, then log notes for each workout day</div>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 8, background: C.accent, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
-          Upload Program
-          <input type="file" accept="image/*,.pdf" onChange={handleUpload} style={{ display: 'none' }} />
-        </label>
-      </div>
-    )
-  }
-
-  // ── Main view ──
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 20 }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>Program Journal</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>Program Journal</div>
+          {saving && <span style={{ fontSize: 10, color: C.accent }}>Saving...</span>}
+        </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={() => setShowProgram(!showProgram)} style={{ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${showProgram ? C.accent : C.border}`, background: showProgram ? C.accent + '12' : 'transparent', color: showProgram ? C.accent : C.sub, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
-            {showProgram ? 'Hide Program' : 'View Program'}
-          </button>
+          {programFile && (
+            <button onClick={() => setShowProgram(!showProgram)} style={{ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${showProgram ? C.accent : C.border}`, background: showProgram ? C.accent + '12' : 'transparent', color: showProgram ? C.accent : C.sub, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+              {showProgram ? 'Hide Program' : 'View Program'}
+            </button>
+          )}
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.sub, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
-            Replace
+            {programFile ? 'Replace' : 'Upload'} Program
             <input type="file" accept="image/*,.pdf" onChange={handleUpload} style={{ display: 'none' }} />
           </label>
         </div>
       </div>
 
-      {/* Side-by-side: Program on left, Notes on right */}
-      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-
-        {/* Left: Program viewer (sticky so it stays visible while scrolling notes) */}
-        {showProgram && (
-          <div style={{ flex: '1 1 320px', minWidth: 280, maxWidth: 500, position: 'sticky', top: 60, alignSelf: 'flex-start' }}>
-            <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
-              {programFile.data?.startsWith('data:image') && (
-                <img src={programFile.data} alt={programFile.name} style={{ width: '100%', maxHeight: 600, objectFit: 'contain', display: 'block' }} />
-              )}
-              {programFile.data?.startsWith('data:application/pdf') && (
-                <div>
-                  <iframe src={programFile.data} style={{ width: '100%', height: 600, border: 'none', display: 'block' }} title={programFile.name} />
-                  <div style={{ padding: '8px 12px', textAlign: 'center', background: C.faint }}>
-                    <a href={programFile.data} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: C.accent, fontWeight: 700, textDecoration: 'none' }}>Open PDF in new tab</a>
-                  </div>
+      {/* Program viewer */}
+      {showProgram && programFile && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
+            {programFile.data?.startsWith('data:image') && (
+              <img src={programFile.data} alt={programFile.name} style={{ width: '100%', maxHeight: 500, objectFit: 'contain', display: 'block' }} />
+            )}
+            {programFile.data?.startsWith('data:application/pdf') && (
+              <div>
+                <iframe src={programFile.data} style={{ width: '100%', height: 500, border: 'none', display: 'block' }} title={programFile.name} />
+                <div style={{ padding: '6px 12px', textAlign: 'center', background: C.faint }}>
+                  <a href={programFile.data} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: C.accent, fontWeight: 700, textDecoration: 'none' }}>Open PDF in new tab</a>
                 </div>
-              )}
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
-              <div style={{ fontSize: 10, color: C.sub }}>{programFile.name}</div>
-              <button onClick={removeProgram} style={{ padding: '3px 10px', borderRadius: 6, border: `1px solid ${C.red}44`, background: 'transparent', color: C.red, fontSize: 9, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Remove</button>
-            </div>
+              </div>
+            )}
           </div>
-        )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+            <div style={{ fontSize: 10, color: C.sub }}>{programFile.name}</div>
+            <button onClick={removeProgram} style={{ padding: '3px 10px', borderRadius: 6, border: `1px solid ${C.red}44`, background: 'transparent', color: C.red, fontSize: 9, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Remove</button>
+          </div>
+        </div>
+      )}
 
-        {/* Right: Notes journal */}
-        <div style={{ flex: '1 1 320px', minWidth: 280 }}>
+      {/* Year / Phase / Week dropdowns */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
+        <select value={selYear} onChange={e => setSelYear(Number(e.target.value))} style={selectStyle}>
+          {YEARS.map(y => <option key={y} value={y}>Year {y}</option>)}
+        </select>
+        <select value={selPhase} onChange={e => setSelPhase(e.target.value)} style={{ ...selectStyle, borderColor: currentPhase.color, color: currentPhase.color }}>
+          {PHASES.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <select value={selWeek} onChange={e => setSelWeek(e.target.value)} style={selectStyle}>
+          {WEEKS.map(w => (
+            <option key={w} value={w}>{w}{weekHasData(selYear, selPhase, w) ? ' ✓' : ''}</option>
+          ))}
+        </select>
+      </div>
 
-          {/* Starting Week / Day selector */}
-          {entries.length === 0 && (
-            <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '12px 14px', borderRadius: 10, background: C.faint, border: `1px solid ${C.border}`, marginBottom: 14, flexWrap: 'wrap' }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: C.text }}>Start at:</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 11, color: C.sub }}>Week</span>
-                <input type="number" min="1" value={startWeek} onChange={e => updateStartWeek(e.target.value)} style={{ width: 50, padding: '4px 8px', borderRadius: 6, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, textAlign: 'center', fontFamily: 'Montserrat,sans-serif', color: C.text }} />
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 11, color: C.sub }}>Day</span>
-                <input type="number" min="1" max={DAYS_PER_WEEK} value={startDay} onChange={e => updateStartDay(e.target.value)} style={{ width: 50, padding: '4px 8px', borderRadius: 6, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, textAlign: 'center', fontFamily: 'Montserrat,sans-serif', color: C.text }} />
-              </div>
-              <div style={{ fontSize: 10, color: C.sub }}>({DAYS_PER_WEEK} days per week)</div>
-            </div>
-          )}
+      {/* Phase subtitle */}
+      <div style={{ fontSize: 11, color: currentPhase.color, fontWeight: 700, marginBottom: 14, padding: '6px 12px', background: currentPhase.color + '10', borderRadius: 8, borderLeft: `3px solid ${currentPhase.color}` }}>
+        {currentPhase.sub}
+      </div>
 
-          {/* Week chips for scrolling */}
-          {weekNums.length > 0 && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
-              <span style={{ fontSize: 10, color: C.sub, fontWeight: 700 }}>Jump to:</span>
-              {weekNums.map(w => (
-                <button key={w} onClick={() => { setScrollToWeek(w); setTimeout(() => setScrollToWeek(null), 100) }} style={chipStyle(scrollToWeek === w)}>
-                  Wk {w}
-                </button>
-              ))}
-              {entries.length > 0 && (
-                <button onClick={copyAllNotes} style={{ ...chipStyle(copiedAll), marginLeft: 'auto', borderColor: copiedAll ? C.green : C.accent, color: copiedAll ? C.green : C.accent, background: copiedAll ? C.green + '12' : C.accent + '08' }}>
-                  {copiedAll ? '✓ Copied!' : 'Copy All Notes'}
-                </button>
-              )}
-            </div>
-          )}
+      {/* Days */}
+      {weekData.days.map((day, dayIdx) => (
+        <div key={day.id || dayIdx} style={{ border: `1.5px solid ${C.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 14, background: C.faint }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: currentPhase.color, letterSpacing: 1 }}>DAY {dayIdx + 1}</div>
+            {weekData.days.length > 1 && (
+              <button onClick={() => removeDay(dayIdx)} style={{ background: 'none', border: 'none', color: C.red + '88', fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', fontWeight: 700 }}>Remove Day</button>
+            )}
+          </div>
 
-          {/* Previous entries grouped by week */}
-          {weekNums.map(w => (
-            <div key={w} id={`program-week-${w}`} ref={el => { if (scrollToWeek === w && el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }) }} style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.teal, textTransform: 'uppercase', marginBottom: 6, paddingLeft: 2 }}>Week {w}</div>
-              {weeks[w].map(e => (
-                <div key={e.idx} style={{ display: 'flex', gap: 10, padding: '10px 14px', borderRadius: 10, border: `1px solid ${C.border}`, marginBottom: 6, background: C.faint, alignItems: 'flex-start' }}>
-                  <div style={{ minWidth: 48, textAlign: 'center' }}>
-                    <div style={{ fontSize: 10, fontWeight: 800, color: C.accent, letterSpacing: 1 }}>DAY {e.day}</div>
-                    <div style={{ fontSize: 9, color: C.sub, marginTop: 2 }}>{new Date(e.savedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
-                  </div>
-                  <div style={{ flex: 1, fontSize: 12, color: C.text, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{e.notes}</div>
-                  <button onClick={() => deleteEntry(e.idx)} style={{ background: 'none', border: 'none', color: C.red + '88', fontSize: 14, cursor: 'pointer', padding: '0 4px', flexShrink: 0 }} title="Delete">x</button>
-                </div>
-              ))}
+          {/* Exercise header row */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 60px 60px 60px 1fr 28px', gap: 6, marginBottom: 4 }}>
+            <div style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', paddingLeft: 4 }}>Exercise</div>
+            <div style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', textAlign: 'center' }}>Sets</div>
+            <div style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', textAlign: 'center' }}>Reps</div>
+            <div style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', textAlign: 'center' }}>RPE</div>
+            <div style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', paddingLeft: 4 }}>Notes</div>
+            <div />
+          </div>
+
+          {/* Exercise rows */}
+          {day.exercises.map((ex, exIdx) => (
+            <div key={ex.id || exIdx} style={{ display: 'grid', gridTemplateColumns: '1fr 60px 60px 60px 1fr 28px', gap: 6, marginBottom: 6 }}>
+              <input value={ex.exercise} onChange={e => updateExercise(dayIdx, exIdx, 'exercise', e.target.value)} placeholder="e.g. Back Squat" style={inputCell} />
+              <input value={ex.sets} onChange={e => updateExercise(dayIdx, exIdx, 'sets', e.target.value)} placeholder="3" style={{ ...inputCell, textAlign: 'center' }} />
+              <input value={ex.reps} onChange={e => updateExercise(dayIdx, exIdx, 'reps', e.target.value)} placeholder="10" style={{ ...inputCell, textAlign: 'center' }} />
+              <select value={ex.rpe} onChange={e => updateExercise(dayIdx, exIdx, 'rpe', e.target.value)} style={{ ...inputCell, textAlign: 'center', padding: '6px 2px' }}>
+                <option value="">—</option>
+                {[1,2,3,4,5,6,7,8,9,10].map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+              <input value={ex.notes} onChange={e => updateExercise(dayIdx, exIdx, 'notes', e.target.value)} placeholder="Tempo, cues..." style={inputCell} />
+              <button onClick={() => removeExercise(dayIdx, exIdx)} disabled={day.exercises.length <= 1} style={{ background: 'none', border: 'none', color: day.exercises.length > 1 ? C.red + '88' : C.border, fontSize: 16, cursor: day.exercises.length > 1 ? 'pointer' : 'default', padding: 0, lineHeight: 1 }} title="Remove exercise">×</button>
             </div>
           ))}
 
-          {/* Active notes entry */}
-          <div style={{ border: `2px solid ${C.accent}44`, borderRadius: 12, padding: '14px 16px', background: C.accent + '04' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <div>
-                <span style={{ fontSize: 12, fontWeight: 800, color: C.accent }}>Week {next.week} — Day {next.day}</span>
-                <span style={{ fontSize: 10, color: C.sub, marginLeft: 8 }}>What did you end up doing?</span>
-              </div>
-              {saving && <span style={{ fontSize: 10, color: C.sub }}>Saving...</span>}
-            </div>
+          {/* Add exercise button */}
+          <button onClick={() => addExercise(dayIdx)} style={{ background: 'none', border: `1px dashed ${C.border}`, borderRadius: 6, padding: '5px 14px', fontSize: 11, color: C.accent, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', marginTop: 2 }}>
+            + Add Exercise
+          </button>
+
+          {/* Day notes */}
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4, paddingLeft: 2 }}>Day Notes</div>
             <textarea
-              value={draftNotes}
-              onChange={e => setDraftNotes(e.target.value)}
-              rows={4}
-              placeholder="e.g. Swapped barbell squats for goblet squats. Added face pulls. Client felt good at 3x10 tempo..."
-              style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontFamily: 'Montserrat,sans-serif', color: C.text, background: '#fff', resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.6 }}
+              value={day.dayNotes || ''}
+              onChange={e => updateDayNotes(dayIdx, e.target.value)}
+              rows={2}
+              placeholder="How did this session go? Swaps, modifications, client feedback..."
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', color: C.text, background: '#fff', resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.5 }}
             />
-            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-              <button onClick={saveEntry} disabled={!draftNotes.trim() || saving} style={{ padding: '7px 18px', borderRadius: 8, background: draftNotes.trim() ? C.accent : C.border, color: '#fff', fontSize: 12, fontWeight: 700, cursor: draftNotes.trim() ? 'pointer' : 'default', border: 'none', fontFamily: 'Montserrat,sans-serif', opacity: draftNotes.trim() ? 1 : 0.5 }}>
-                Save & Next Day
-              </button>
-            </div>
           </div>
         </div>
-      </div>
+      ))}
+
+      {/* Add day button */}
+      <button onClick={addDay} style={{ background: 'none', border: `1.5px dashed ${C.accent}44`, borderRadius: 10, padding: '10px 20px', fontSize: 12, color: C.accent, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', width: '100%' }}>
+        + Add Another Day
+      </button>
     </div>
   )
 }
