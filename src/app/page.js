@@ -3005,19 +3005,28 @@ function SignInPad({ onSign, saving }) {
 }
 
 // ── PROGRAM UPLOADS ──────────────────────────────────────────────────────────
+const DAYS_PER_WEEK = 2
+
 function ProgramUploads({ client, onUpdate }) {
   const parseNotes = () => { try { return JSON.parse(client.trainerNotes || '{}') } catch { return {} } }
-  const [uploads, setUploads] = useState(parseNotes().program_uploads || [])
+  const stored = parseNotes()
+  const [programFile, setProgramFile] = useState(stored.program_file || null)
+  const [entries, setEntries] = useState(stored.program_entries || [])
+  const [startWeek, setStartWeek] = useState(stored.program_start_week || 1)
+  const [startDay, setStartDay] = useState(stored.program_start_day || 1)
   const [saving, setSaving] = useState(false)
-  const [copiedIdx, setCopiedIdx] = useState(null)
-  const [expandedIdx, setExpandedIdx] = useState(null)
+  const [copiedAll, setCopiedAll] = useState(false)
+  const [showProgram, setShowProgram] = useState(false)
+  const [activeEntry, setActiveEntry] = useState(null)
+  const [draftNotes, setDraftNotes] = useState('')
+  const [scrollToWeek, setScrollToWeek] = useState(null)
 
-  const save = async (newUploads) => {
+  const persist = async (updates) => {
     setSaving(true)
     try {
-      let base = parseNotes()
-      base.program_uploads = newUploads
-      const updatedClient = { ...client, trainerNotes: JSON.stringify(base) }
+      const base = parseNotes()
+      const merged = { ...base, ...updates }
+      const updatedClient = { ...client, trainerNotes: JSON.stringify(merged) }
       await saveClient(updatedClient)
       onUpdate(updatedClient)
     } catch (e) { alert('Error saving: ' + e.message) }
@@ -3027,47 +3036,90 @@ function ProgramUploads({ client, onUpdate }) {
   const handleUpload = (e) => {
     const file = e.target.files[0]
     if (!file) return
-    // Limit to 2MB to keep trainerNotes manageable
-    if (file.size > 2 * 1024 * 1024) { alert('File too large — max 2 MB. Try taking a photo at lower resolution.'); return }
+    if (file.size > 2 * 1024 * 1024) { alert('File too large — max 2 MB. Try a lower resolution photo.'); return }
     const reader = new FileReader()
     reader.onload = () => {
-      const newUpload = { file: reader.result, name: file.name, notes: '', uploadedAt: new Date().toISOString() }
-      const updated = [newUpload, ...uploads]
-      setUploads(updated)
-      save(updated)
-      setExpandedIdx(0)
+      const pf = { data: reader.result, name: file.name, uploadedAt: new Date().toISOString() }
+      setProgramFile(pf)
+      setShowProgram(true)
+      persist({ program_file: pf })
     }
     reader.readAsDataURL(file)
     e.target.value = ''
   }
 
-  const updateNotes = (idx, notes) => {
-    const updated = uploads.map((u, i) => i === idx ? { ...u, notes } : u)
-    setUploads(updated)
+  const removeProgram = () => {
+    if (!confirm('Remove the uploaded program?')) return
+    setProgramFile(null)
+    setShowProgram(false)
+    persist({ program_file: null })
   }
 
-  const saveNotes = (idx) => { save(uploads) }
-
-  const deleteUpload = (idx) => {
-    if (!confirm('Delete this uploaded program?')) return
-    const updated = uploads.filter((_, i) => i !== idx)
-    setUploads(updated)
-    save(updated)
-    if (expandedIdx === idx) setExpandedIdx(null)
+  // Calculate week/day for the next entry
+  const getNextWeekDay = () => {
+    if (entries.length === 0) return { week: startWeek, day: startDay }
+    const last = entries[entries.length - 1]
+    let nextDay = last.day + 1
+    let nextWeek = last.week
+    if (nextDay > DAYS_PER_WEEK) { nextDay = 1; nextWeek++ }
+    return { week: nextWeek, day: nextDay }
   }
 
-  const copyNotes = (idx) => {
-    navigator.clipboard.writeText(uploads[idx].notes).then(() => {
-      setCopiedIdx(idx)
-      setTimeout(() => setCopiedIdx(null), 2000)
+  const saveEntry = () => {
+    if (!draftNotes.trim()) return
+    const wd = getNextWeekDay()
+    const newEntry = { week: wd.week, day: wd.day, notes: draftNotes.trim(), savedAt: new Date().toISOString() }
+    const updated = [...entries, newEntry]
+    setEntries(updated)
+    setDraftNotes('')
+    setActiveEntry(null)
+    persist({ program_entries: updated })
+  }
+
+  const deleteEntry = (idx) => {
+    if (!confirm('Delete this entry?')) return
+    const updated = entries.filter((_, i) => i !== idx)
+    setEntries(updated)
+    persist({ program_entries: updated })
+  }
+
+  const updateStartWeek = (w) => {
+    const v = Math.max(1, parseInt(w) || 1)
+    setStartWeek(v)
+    persist({ program_start_week: v })
+  }
+
+  const updateStartDay = (d) => {
+    const v = Math.max(1, Math.min(DAYS_PER_WEEK, parseInt(d) || 1))
+    setStartDay(v)
+    persist({ program_start_day: v })
+  }
+
+  const copyAllNotes = () => {
+    const text = entries.map(e => `Week ${e.week} Day ${e.day}:\n${e.notes}`).join('\n\n')
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedAll(true)
+      setTimeout(() => setCopiedAll(false), 2000)
     })
   }
 
-  if (uploads.length === 0) {
+  // Group entries by week for scrolling
+  const weeks = {}
+  entries.forEach((e, idx) => {
+    if (!weeks[e.week]) weeks[e.week] = []
+    weeks[e.week].push({ ...e, idx })
+  })
+  const weekNums = Object.keys(weeks).map(Number).sort((a, b) => a - b)
+
+  const next = getNextWeekDay()
+  const chipStyle = (active) => ({ padding: '4px 12px', borderRadius: 20, border: `1.5px solid ${active ? C.accent : C.border}`, background: active ? C.accent + '12' : 'transparent', color: active ? C.accent : C.sub, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' })
+
+  // ── No program uploaded yet ──
+  if (!programFile) {
     return (
       <div style={{ background: C.faint, border: `1px dashed ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 20, textAlign: 'center' }}>
-        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>Program Uploads</div>
-        <div style={{ fontSize: 12, color: C.sub, marginBottom: 12 }}>Upload a written program (photo or PDF) and add notes on what you actually did</div>
+        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>Program Journal</div>
+        <div style={{ fontSize: 12, color: C.sub, marginBottom: 12 }}>Upload your written program, then log notes for each workout day</div>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 8, background: C.accent, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
           Upload Program
           <input type="file" accept="image/*,.pdf" onChange={handleUpload} style={{ display: 'none' }} />
@@ -3076,69 +3128,115 @@ function ProgramUploads({ client, onUpdate }) {
     )
   }
 
+  // ── Main view ──
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 20 }}>
+      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>Program Uploads ({uploads.length})</div>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 7, background: C.accent, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
-          + Upload
-          <input type="file" accept="image/*,.pdf" onChange={handleUpload} style={{ display: 'none' }} />
-        </label>
+        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>Program Journal</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.sub, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+            Replace Program
+            <input type="file" accept="image/*,.pdf" onChange={handleUpload} style={{ display: 'none' }} />
+          </label>
+        </div>
       </div>
-      {uploads.map((u, idx) => {
-        const expanded = expandedIdx === idx
-        const dateStr = u.uploadedAt ? new Date(u.uploadedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''
-        return (
-          <div key={idx} style={{ border: `1px solid ${expanded ? C.accent + '44' : C.border}`, borderRadius: 12, marginBottom: 10, overflow: 'hidden', background: expanded ? C.accent + '04' : 'transparent' }}>
-            {/* Header row */}
-            <div onClick={() => setExpandedIdx(expanded ? null : idx)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', cursor: 'pointer' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 16 }}>{u.file?.startsWith('data:image') ? '🖼' : '📄'}</span>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{u.name || 'Program'}</div>
-                  <div style={{ fontSize: 10, color: C.sub }}>{dateStr}{u.notes ? ' — has notes' : ''}</div>
-                </div>
-              </div>
-              <span style={{ fontSize: 11, color: C.sub }}>{expanded ? '▲' : '▼'}</span>
+
+      {/* View Program toggle */}
+      <div onClick={() => setShowProgram(!showProgram)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 10, border: `1px solid ${C.border}`, cursor: 'pointer', marginBottom: 14, background: showProgram ? C.accent + '06' : 'transparent' }}>
+        <span style={{ fontSize: 16 }}>{programFile.data?.startsWith('data:image') ? '🖼' : '📄'}</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{programFile.name || 'Program'}</div>
+          <div style={{ fontSize: 10, color: C.sub }}>{showProgram ? 'Tap to hide' : 'Tap to view program'}</div>
+        </div>
+        <span style={{ fontSize: 11, color: C.sub }}>{showProgram ? '▲' : '▼'}</span>
+      </div>
+      {showProgram && (
+        <div style={{ marginBottom: 14 }}>
+          {programFile.data?.startsWith('data:image') && (
+            <img src={programFile.data} alt={programFile.name} style={{ width: '100%', maxHeight: 500, objectFit: 'contain', borderRadius: 8, border: `1px solid ${C.border}`, background: '#fff' }} />
+          )}
+          {programFile.data?.startsWith('data:application/pdf') && (
+            <div style={{ padding: '12px 16px', background: C.faint, borderRadius: 8, border: `1px solid ${C.border}`, textAlign: 'center' }}>
+              <a href={programFile.data} download={programFile.name} style={{ fontSize: 12, color: C.accent, fontWeight: 700, textDecoration: 'none' }}>Download PDF: {programFile.name}</a>
             </div>
-            {/* Expanded content */}
-            {expanded && (
-              <div style={{ padding: '0 14px 14px' }}>
-                {/* Image/file preview */}
-                {u.file?.startsWith('data:image') && (
-                  <img src={u.file} alt={u.name} style={{ width: '100%', maxHeight: 400, objectFit: 'contain', borderRadius: 8, border: `1px solid ${C.border}`, marginBottom: 12, background: '#fff' }} />
-                )}
-                {u.file?.startsWith('data:application/pdf') && (
-                  <div style={{ marginBottom: 12, padding: '12px 16px', background: C.faint, borderRadius: 8, border: `1px solid ${C.border}`, textAlign: 'center' }}>
-                    <a href={u.file} download={u.name} style={{ fontSize: 12, color: C.accent, fontWeight: 700, textDecoration: 'none' }}>Download PDF: {u.name}</a>
-                  </div>
-                )}
-                {/* Notes */}
-                <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>Notes — what we actually did</div>
-                <textarea
-                  value={u.notes}
-                  onChange={e => updateNotes(idx, e.target.value)}
-                  onBlur={() => saveNotes(idx)}
-                  rows={5}
-                  placeholder="e.g. Swapped barbell squats for goblet squats due to knee pain. Added extra set of face pulls. Client responded well to 3x10 tempo work..."
-                  style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontFamily: 'Montserrat,sans-serif', color: C.text, background: '#fff', resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.6 }}
-                />
-                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                  {u.notes && (
-                    <button onClick={() => copyNotes(idx)} style={{ padding: '6px 14px', borderRadius: 7, border: `1.5px solid ${copiedIdx === idx ? C.green : C.accent}`, background: copiedIdx === idx ? C.green + '15' : C.accent + '10', color: copiedIdx === idx ? C.green : C.accent, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
-                      {copiedIdx === idx ? '✓ Copied!' : 'Copy Notes'}
-                    </button>
-                  )}
-                  <button onClick={() => deleteUpload(idx)} style={{ padding: '6px 14px', borderRadius: 7, border: `1.5px solid ${C.red}44`, background: 'transparent', color: C.red, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
-                    Delete
-                  </button>
-                  {saving && <span style={{ fontSize: 11, color: C.sub, alignSelf: 'center' }}>Saving...</span>}
-                </div>
-              </div>
-            )}
+          )}
+          <button onClick={removeProgram} style={{ marginTop: 8, padding: '4px 12px', borderRadius: 6, border: `1px solid ${C.red}44`, background: 'transparent', color: C.red, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Remove Program</button>
+        </div>
+      )}
+
+      {/* Starting Week / Day selector */}
+      {entries.length === 0 && (
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '12px 14px', borderRadius: 10, background: C.faint, border: `1px solid ${C.border}`, marginBottom: 14, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.text }}>Start at:</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 11, color: C.sub }}>Week</span>
+            <input type="number" min="1" value={startWeek} onChange={e => updateStartWeek(e.target.value)} style={{ width: 50, padding: '4px 8px', borderRadius: 6, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, textAlign: 'center', fontFamily: 'Montserrat,sans-serif', color: C.text }} />
           </div>
-        )
-      })}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 11, color: C.sub }}>Day</span>
+            <input type="number" min="1" max={DAYS_PER_WEEK} value={startDay} onChange={e => updateStartDay(e.target.value)} style={{ width: 50, padding: '4px 8px', borderRadius: 6, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 700, textAlign: 'center', fontFamily: 'Montserrat,sans-serif', color: C.text }} />
+          </div>
+          <div style={{ fontSize: 10, color: C.sub }}>({DAYS_PER_WEEK} days per week)</div>
+        </div>
+      )}
+
+      {/* Week chips for scrolling */}
+      {weekNums.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
+          <span style={{ fontSize: 10, color: C.sub, fontWeight: 700 }}>Jump to:</span>
+          {weekNums.map(w => (
+            <button key={w} onClick={() => { setScrollToWeek(w); setTimeout(() => setScrollToWeek(null), 100) }} style={chipStyle(scrollToWeek === w)}>
+              Wk {w}
+            </button>
+          ))}
+          {entries.length > 0 && (
+            <button onClick={copyAllNotes} style={{ ...chipStyle(copiedAll), marginLeft: 'auto', borderColor: copiedAll ? C.green : C.accent, color: copiedAll ? C.green : C.accent, background: copiedAll ? C.green + '12' : C.accent + '08' }}>
+              {copiedAll ? '✓ Copied!' : 'Copy All Notes'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Previous entries grouped by week */}
+      {weekNums.map(w => (
+        <div key={w} id={`program-week-${w}`} ref={el => { if (scrollToWeek === w && el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }) }} style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.teal, textTransform: 'uppercase', marginBottom: 6, paddingLeft: 2 }}>Week {w}</div>
+          {weeks[w].map(e => (
+            <div key={e.idx} style={{ display: 'flex', gap: 10, padding: '10px 14px', borderRadius: 10, border: `1px solid ${C.border}`, marginBottom: 6, background: C.faint, alignItems: 'flex-start' }}>
+              <div style={{ minWidth: 48, textAlign: 'center' }}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: C.accent, letterSpacing: 1 }}>DAY {e.day}</div>
+                <div style={{ fontSize: 9, color: C.sub, marginTop: 2 }}>{new Date(e.savedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+              </div>
+              <div style={{ flex: 1, fontSize: 12, color: C.text, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{e.notes}</div>
+              <button onClick={() => deleteEntry(e.idx)} style={{ background: 'none', border: 'none', color: C.red + '88', fontSize: 14, cursor: 'pointer', padding: '0 4px', flexShrink: 0 }} title="Delete">×</button>
+            </div>
+          ))}
+        </div>
+      ))}
+
+      {/* Active notes entry */}
+      <div style={{ border: `2px solid ${C.accent}44`, borderRadius: 12, padding: '14px 16px', background: C.accent + '04' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <div>
+            <span style={{ fontSize: 12, fontWeight: 800, color: C.accent }}>Week {next.week} — Day {next.day}</span>
+            <span style={{ fontSize: 10, color: C.sub, marginLeft: 8 }}>What did you end up doing?</span>
+          </div>
+          {saving && <span style={{ fontSize: 10, color: C.sub }}>Saving...</span>}
+        </div>
+        <textarea
+          value={draftNotes}
+          onChange={e => setDraftNotes(e.target.value)}
+          rows={4}
+          placeholder="e.g. Swapped barbell squats for goblet squats. Added face pulls. Client felt good at 3x10 tempo..."
+          style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontFamily: 'Montserrat,sans-serif', color: C.text, background: '#fff', resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.6 }}
+        />
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <button onClick={saveEntry} disabled={!draftNotes.trim() || saving} style={{ padding: '7px 18px', borderRadius: 8, background: draftNotes.trim() ? C.accent : C.border, color: '#fff', fontSize: 12, fontWeight: 700, cursor: draftNotes.trim() ? 'pointer' : 'default', border: 'none', fontFamily: 'Montserrat,sans-serif', opacity: draftNotes.trim() ? 1 : 0.5 }}>
+            Save & Next Day
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
