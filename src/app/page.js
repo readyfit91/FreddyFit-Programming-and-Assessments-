@@ -3004,6 +3004,145 @@ function SignInPad({ onSign, saving }) {
   )
 }
 
+// ── PROGRAM UPLOADS ──────────────────────────────────────────────────────────
+function ProgramUploads({ client, onUpdate }) {
+  const parseNotes = () => { try { return JSON.parse(client.trainerNotes || '{}') } catch { return {} } }
+  const [uploads, setUploads] = useState(parseNotes().program_uploads || [])
+  const [saving, setSaving] = useState(false)
+  const [copiedIdx, setCopiedIdx] = useState(null)
+  const [expandedIdx, setExpandedIdx] = useState(null)
+
+  const save = async (newUploads) => {
+    setSaving(true)
+    try {
+      let base = parseNotes()
+      base.program_uploads = newUploads
+      const updatedClient = { ...client, trainerNotes: JSON.stringify(base) }
+      await saveClient(updatedClient)
+      onUpdate(updatedClient)
+    } catch (e) { alert('Error saving: ' + e.message) }
+    setSaving(false)
+  }
+
+  const handleUpload = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    // Limit to 2MB to keep trainerNotes manageable
+    if (file.size > 2 * 1024 * 1024) { alert('File too large — max 2 MB. Try taking a photo at lower resolution.'); return }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const newUpload = { file: reader.result, name: file.name, notes: '', uploadedAt: new Date().toISOString() }
+      const updated = [newUpload, ...uploads]
+      setUploads(updated)
+      save(updated)
+      setExpandedIdx(0)
+    }
+    reader.readAsDataURL(file)
+    e.target.value = ''
+  }
+
+  const updateNotes = (idx, notes) => {
+    const updated = uploads.map((u, i) => i === idx ? { ...u, notes } : u)
+    setUploads(updated)
+  }
+
+  const saveNotes = (idx) => { save(uploads) }
+
+  const deleteUpload = (idx) => {
+    if (!confirm('Delete this uploaded program?')) return
+    const updated = uploads.filter((_, i) => i !== idx)
+    setUploads(updated)
+    save(updated)
+    if (expandedIdx === idx) setExpandedIdx(null)
+  }
+
+  const copyNotes = (idx) => {
+    navigator.clipboard.writeText(uploads[idx].notes).then(() => {
+      setCopiedIdx(idx)
+      setTimeout(() => setCopiedIdx(null), 2000)
+    })
+  }
+
+  if (uploads.length === 0) {
+    return (
+      <div style={{ background: C.faint, border: `1px dashed ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 20, textAlign: 'center' }}>
+        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>Program Uploads</div>
+        <div style={{ fontSize: 12, color: C.sub, marginBottom: 12 }}>Upload a written program (photo or PDF) and add notes on what you actually did</div>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 8, background: C.accent, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+          Upload Program
+          <input type="file" accept="image/*,.pdf" onChange={handleUpload} style={{ display: 'none' }} />
+        </label>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>Program Uploads ({uploads.length})</div>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 7, background: C.accent, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+          + Upload
+          <input type="file" accept="image/*,.pdf" onChange={handleUpload} style={{ display: 'none' }} />
+        </label>
+      </div>
+      {uploads.map((u, idx) => {
+        const expanded = expandedIdx === idx
+        const dateStr = u.uploadedAt ? new Date(u.uploadedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''
+        return (
+          <div key={idx} style={{ border: `1px solid ${expanded ? C.accent + '44' : C.border}`, borderRadius: 12, marginBottom: 10, overflow: 'hidden', background: expanded ? C.accent + '04' : 'transparent' }}>
+            {/* Header row */}
+            <div onClick={() => setExpandedIdx(expanded ? null : idx)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', cursor: 'pointer' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 16 }}>{u.file?.startsWith('data:image') ? '🖼' : '📄'}</span>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{u.name || 'Program'}</div>
+                  <div style={{ fontSize: 10, color: C.sub }}>{dateStr}{u.notes ? ' — has notes' : ''}</div>
+                </div>
+              </div>
+              <span style={{ fontSize: 11, color: C.sub }}>{expanded ? '▲' : '▼'}</span>
+            </div>
+            {/* Expanded content */}
+            {expanded && (
+              <div style={{ padding: '0 14px 14px' }}>
+                {/* Image/file preview */}
+                {u.file?.startsWith('data:image') && (
+                  <img src={u.file} alt={u.name} style={{ width: '100%', maxHeight: 400, objectFit: 'contain', borderRadius: 8, border: `1px solid ${C.border}`, marginBottom: 12, background: '#fff' }} />
+                )}
+                {u.file?.startsWith('data:application/pdf') && (
+                  <div style={{ marginBottom: 12, padding: '12px 16px', background: C.faint, borderRadius: 8, border: `1px solid ${C.border}`, textAlign: 'center' }}>
+                    <a href={u.file} download={u.name} style={{ fontSize: 12, color: C.accent, fontWeight: 700, textDecoration: 'none' }}>Download PDF: {u.name}</a>
+                  </div>
+                )}
+                {/* Notes */}
+                <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>Notes — what we actually did</div>
+                <textarea
+                  value={u.notes}
+                  onChange={e => updateNotes(idx, e.target.value)}
+                  onBlur={() => saveNotes(idx)}
+                  rows={5}
+                  placeholder="e.g. Swapped barbell squats for goblet squats due to knee pain. Added extra set of face pulls. Client responded well to 3x10 tempo work..."
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontFamily: 'Montserrat,sans-serif', color: C.text, background: '#fff', resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.6 }}
+                />
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  {u.notes && (
+                    <button onClick={() => copyNotes(idx)} style={{ padding: '6px 14px', borderRadius: 7, border: `1.5px solid ${copiedIdx === idx ? C.green : C.accent}`, background: copiedIdx === idx ? C.green + '15' : C.accent + '10', color: copiedIdx === idx ? C.green : C.accent, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+                      {copiedIdx === idx ? '✓ Copied!' : 'Copy Notes'}
+                    </button>
+                  )}
+                  <button onClick={() => deleteUpload(idx)} style={{ padding: '6px 14px', borderRadius: 7, border: `1.5px solid ${C.red}44`, background: 'transparent', color: C.red, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+                    Delete
+                  </button>
+                  {saving && <span style={{ fontSize: 11, color: C.sub, alignSelf: 'center' }}>Saving...</span>}
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── CLIENT PROFILE ────────────────────────────────────────────────────────────
 function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onSignInSheet, onBack }) {
   const assessmentsDone = Object.keys(client.assessments || {})
@@ -3145,6 +3284,9 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
           <Btn onClick={() => onEditClient(client)} small outline color={C.sub}>Fill Out Intake Form</Btn>
         </div>
       )}
+
+      {/* Program Uploads */}
+      <ProgramUploads client={client} onUpdate={onUpdate} />
 
       {FLOW.map(group => {
         const locked = group.requires && !group.requires.every(id => assessmentsDone.includes(id))
