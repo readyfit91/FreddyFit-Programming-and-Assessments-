@@ -3092,7 +3092,7 @@ const YEARS = [1, 2, 3, 4, 5]
 // Default week order — deloads can be inserted between any weeks
 const DEFAULT_WEEK_ORDER = ['Week 1','Week 2','Week 3','Week 4','Week 5','Week 6','Week 7','Week 8','Week 9','Week 10','Week 11','Week 12','Deload']
 
-const emptyExercise = () => ({ id: makeId(), exercise: '', sets: '', reps: '', weight: '', tempo: '', rpe: '', notes: '', circuit: '' })
+const emptyExercise = () => ({ id: makeId(), exercise: '', sets: '', setsType: 'sets', reps: '', repsType: 'reps', weight: '', tempo: '', rpe: '', notes: '', circuit: '' })
 const emptyDay = (num) => ({ id: makeId(), dayNum: num, exercises: [emptyExercise()], dayNotes: '', date: '' })
 
 function ProgramUploads({ client, onUpdate }) {
@@ -3283,8 +3283,8 @@ function ProgramUploads({ client, onUpdate }) {
       day.exercises.forEach(ex => {
         if (!ex.exercise.trim()) return
         const parts = [ex.circuit ? `[Circuit ${ex.circuit}]` : '', ex.exercise]
-        if (ex.sets) parts.push(`${ex.sets} sets`)
-        if (ex.reps) parts.push(`x ${ex.reps} reps`)
+        if (ex.sets) parts.push(`${ex.sets} ${ex.setsType === 'rounds' ? 'rounds' : 'sets'}`)
+        if (ex.reps) parts.push(`x ${ex.reps} ${ex.repsType === 'time' ? 'sec' : 'reps'}`)
         if (ex.tempo) parts.push(`@ ${ex.tempo}`)
         if (ex.rpe) parts.push(`RPE ${ex.rpe}`)
         if (ex.notes) parts.push(`— ${ex.notes}`)
@@ -3495,8 +3495,20 @@ function ProgramUploads({ client, onUpdate }) {
                   {ex.circuit || '—'}
                 </button>
                 <input value={ex.exercise} onChange={e => updateExercise(dayIdx, exIdx, 'exercise', e.target.value)} placeholder="e.g. Back Squat" style={inputCell} />
-                <input value={ex.sets} onChange={e => updateExercise(dayIdx, exIdx, 'sets', e.target.value)} placeholder="3" style={{ ...inputCell, textAlign: 'center' }} />
-                <input value={ex.reps} onChange={e => updateExercise(dayIdx, exIdx, 'reps', e.target.value)} placeholder="10" style={{ ...inputCell, textAlign: 'center' }} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <input value={ex.sets} onChange={e => updateExercise(dayIdx, exIdx, 'sets', e.target.value)} placeholder="3" style={{ ...inputCell, textAlign: 'center' }} />
+                  <select value={ex.setsType || 'sets'} onChange={e => updateExercise(dayIdx, exIdx, 'setsType', e.target.value)} style={{ fontSize: 8, border: `1px solid ${C.border}`, borderRadius: 4, background: '#fff', color: C.sub, padding: '1px 2px', fontFamily: 'Montserrat,sans-serif', textAlign: 'center' }}>
+                    <option value="sets">Sets</option>
+                    <option value="rounds">Rounds</option>
+                  </select>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <input value={ex.reps} onChange={e => updateExercise(dayIdx, exIdx, 'reps', e.target.value)} placeholder={ex.repsType === 'time' ? 'sec' : '10'} style={{ ...inputCell, textAlign: 'center' }} />
+                  <select value={ex.repsType || 'reps'} onChange={e => updateExercise(dayIdx, exIdx, 'repsType', e.target.value)} style={{ fontSize: 8, border: `1px solid ${C.border}`, borderRadius: 4, background: '#fff', color: C.sub, padding: '1px 2px', fontFamily: 'Montserrat,sans-serif', textAlign: 'center' }}>
+                    <option value="reps">Reps</option>
+                    <option value="time">Time</option>
+                  </select>
+                </div>
                 <input value={ex.weight || ''} onChange={e => updateExercise(dayIdx, exIdx, 'weight', e.target.value)} placeholder="lbs" style={{ ...inputCell, textAlign: 'center' }} />
                 <input value={ex.tempo || ''} onChange={e => { const digits = e.target.value.replace(/[^0-9]/g, '').slice(0, 4); const formatted = digits.split('').join('-'); updateExercise(dayIdx, exIdx, 'tempo', formatted); }} placeholder="3-1-2-0" style={{ ...inputCell, textAlign: 'center' }} maxLength={7} />
                 <select value={ex.rpe} onChange={e => updateExercise(dayIdx, exIdx, 'rpe', e.target.value)} style={{ ...inputCell, textAlign: 'center', padding: '6px 2px' }}>
