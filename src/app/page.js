@@ -3971,7 +3971,7 @@ function LoginScreen({ onLogin }) {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: C.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <div style={{ minHeight: '100dvh', background: C.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <form onSubmit={handleSubmit} style={{ background: C.panel, borderRadius: 16, padding: '40px 32px', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', border: `1px solid ${C.border}`, maxWidth: 360, width: '100%', textAlign: 'center' }}>
         <img src="/logo.png" alt="FreddyFit" style={{ maxWidth: 200, width: '100%', height: 'auto', marginBottom: 24 }} />
         <div style={{ fontSize: 13, color: C.sub, marginBottom: 20, fontFamily: 'Montserrat,sans-serif' }}>Enter your password to continue</div>
@@ -4020,19 +4020,23 @@ export default function App() {
     }).catch(() => {}).finally(() => setCheckingAuth(false))
   }, [])
 
-  // Prevent inputs from scrolling to the very top — keep them centered on screen
+  // Prevent iPad/iOS keyboard from pushing the viewport around
   useEffect(() => {
-    const handleFocus = (e) => {
-      const el = e.target
-      if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') {
-        // Small delay to let the keyboard open and layout settle
-        setTimeout(() => {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        }, 300)
+    if (typeof window === 'undefined') return
+    const handleResize = () => {
+      // Force scroll to top of document when keyboard causes a resize
+      window.scrollTo(0, 0)
+    }
+    // visualViewport API tracks actual visible area (shrinks when keyboard opens)
+    const vv = window.visualViewport
+    if (vv) {
+      vv.addEventListener('resize', handleResize)
+      vv.addEventListener('scroll', handleResize)
+      return () => {
+        vv.removeEventListener('resize', handleResize)
+        vv.removeEventListener('scroll', handleResize)
       }
     }
-    document.addEventListener('focus', handleFocus, true)
-    return () => document.removeEventListener('focus', handleFocus, true)
   }, [])
 
   if (checkingAuth) return null
@@ -4055,7 +4059,7 @@ export default function App() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: C.bg, display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: '100dvh', background: C.bg, display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
       <div style={{ padding: '12px 24px', borderBottom: `1px solid ${C.border}`, background: C.panel, display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', flexShrink: 0 }} className="no-print">
         <button onClick={() => setView('roster')} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10 }}>
