@@ -3156,8 +3156,11 @@ function ProgramUploads({ client, onUpdate }) {
                 <img src={programFile.data} alt={programFile.name} style={{ width: '100%', maxHeight: 600, objectFit: 'contain', display: 'block' }} />
               )}
               {programFile.data?.startsWith('data:application/pdf') && (
-                <div style={{ padding: '20px 16px', textAlign: 'center' }}>
-                  <a href={programFile.data} download={programFile.name} style={{ fontSize: 12, color: C.accent, fontWeight: 700, textDecoration: 'none' }}>Download PDF: {programFile.name}</a>
+                <div>
+                  <iframe src={programFile.data} style={{ width: '100%', height: 600, border: 'none', display: 'block' }} title={programFile.name} />
+                  <div style={{ padding: '8px 12px', textAlign: 'center', background: C.faint }}>
+                    <a href={programFile.data} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: C.accent, fontWeight: 700, textDecoration: 'none' }}>Open PDF in new tab</a>
+                  </div>
                 </div>
               )}
             </div>
