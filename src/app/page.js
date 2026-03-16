@@ -3764,7 +3764,6 @@ function LoginScreen({ onLogin }) {
       })
       const data = await res.json()
       if (data.success) {
-        sessionStorage.setItem('ff_auth', 'true')
         onLogin()
       } else {
         setError(data.error || 'Wrong password')
@@ -3821,8 +3820,9 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (sessionStorage.getItem('ff_auth') === 'true') setAuthed(true)
-    setCheckingAuth(false)
+    fetch('/api/auth').then(r => r.json()).then(d => {
+      if (d.authed) setAuthed(true)
+    }).catch(() => {}).finally(() => setCheckingAuth(false))
   }, [])
 
   // Prevent inputs from scrolling to the very top — keep them centered on screen
@@ -3871,11 +3871,16 @@ export default function App() {
           <div style={{ width: 1, height: 20, background: C.border }} />
           <div style={{ fontSize: 11, color: C.sub, letterSpacing: 2, fontWeight: 600, textTransform: 'uppercase' }}>TrainDesk</div>
         </button>
-        {view !== 'roster' && (
-          <div style={{ fontSize: 12, color: C.sub }}>
-            {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : view === 'signin' ? 'Sign-In Sheet' : view === 'editClient' ? 'Edit Client' : client?.name}
-          </div>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {view !== 'roster' && (
+            <div style={{ fontSize: 12, color: C.sub }}>
+              {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : view === 'signin' ? 'Sign-In Sheet' : view === 'editClient' ? 'Edit Client' : client?.name}
+            </div>
+          )}
+          <button onClick={async () => { await fetch('/api/auth', { method: 'DELETE' }); setAuthed(false) }} style={{ padding: '4px 10px', borderRadius: 6, border: `1px solid ${C.border}`, background: 'transparent', color: C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+            Log Out
+          </button>
+        </div>
       </div>
 
       {/* Content */}
