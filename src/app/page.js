@@ -3004,6 +3004,83 @@ function SignInPad({ onSign, saving }) {
   )
 }
 
+// ── PDF VIEWER (renders all pages for iPad compatibility) ────────────────────
+function PdfViewer({ dataUrl, name }) {
+  const containerRef = useRef(null)
+  const [pages, setPages] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    setPages([])
+
+    const loadPdf = async () => {
+      try {
+        // Load pdf.js from CDN
+        if (!window.pdfjsLib) {
+          await new Promise((resolve, reject) => {
+            const s = document.createElement('script')
+            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'
+            s.onload = resolve
+            s.onerror = () => reject(new Error('Failed to load PDF viewer'))
+            document.head.appendChild(s)
+          })
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+        }
+
+        const pdf = await window.pdfjsLib.getDocument(dataUrl).promise
+        if (cancelled) return
+
+        const rendered = []
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i)
+          const scale = containerRef.current ? (containerRef.current.clientWidth / page.getViewport({ scale: 1 }).width) : 1.5
+          const viewport = page.getViewport({ scale })
+          const canvas = document.createElement('canvas')
+          canvas.width = viewport.width
+          canvas.height = viewport.height
+          await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise
+          rendered.push(canvas.toDataURL())
+          if (cancelled) return
+        }
+        setPages(rendered)
+      } catch (err) {
+        if (!cancelled) setError(err.message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    loadPdf()
+    return () => { cancelled = true }
+  }, [dataUrl])
+
+  if (error) return (
+    <div style={{ padding: 16, textAlign: 'center' }}>
+      <div style={{ fontSize: 12, color: C.red, marginBottom: 8 }}>Could not render PDF</div>
+      <a href={dataUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: C.accent, fontWeight: 700, textDecoration: 'none' }}>Open PDF in new tab</a>
+    </div>
+  )
+
+  return (
+    <div ref={containerRef}>
+      {loading && <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: C.sub }}>Loading PDF...</div>}
+      <div style={{ maxHeight: 600, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+        {pages.map((src, i) => (
+          <img key={i} src={src} alt={`${name} page ${i + 1}`} style={{ width: '100%', display: 'block', borderBottom: i < pages.length - 1 ? `2px solid ${C.border}` : 'none' }} />
+        ))}
+      </div>
+      {pages.length > 0 && (
+        <div style={{ padding: '6px 12px', textAlign: 'center', background: C.faint, fontSize: 10, color: C.sub }}>
+          {pages.length} page{pages.length !== 1 ? 's' : ''} — <a href={dataUrl} target="_blank" rel="noopener noreferrer" style={{ color: C.accent, fontWeight: 700, textDecoration: 'none' }}>Open in new tab</a>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── PROGRAM JOURNAL ──────────────────────────────────────────────────────────
 const PHASES = [
   { id: 'p1', name: 'Phase 1 — The Base', sub: 'Building movement patterns and capacity', color: C.teal },
@@ -3281,12 +3358,7 @@ function ProgramUploads({ client, onUpdate }) {
               <img src={programFile.data} alt={programFile.name} style={{ width: '100%', maxHeight: 500, objectFit: 'contain', display: 'block' }} />
             )}
             {programFile.data?.startsWith('data:application/pdf') && (
-              <div>
-                <iframe src={programFile.data} style={{ width: '100%', height: 500, border: 'none', display: 'block' }} title={programFile.name} />
-                <div style={{ padding: '6px 12px', textAlign: 'center', background: C.faint }}>
-                  <a href={programFile.data} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: C.accent, fontWeight: 700, textDecoration: 'none' }}>Open PDF in new tab</a>
-                </div>
-              </div>
+              <PdfViewer dataUrl={programFile.data} name={programFile.name} />
             )}
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
