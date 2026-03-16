@@ -2558,6 +2558,8 @@ function SignInSheet({ client, onBack, onUpdate }) {
   const [saving, setSaving] = useState(false)
   const [editingOffset, setEditingOffset] = useState(false)
   const [tempOffset, setTempOffset] = useState(String(initialData.sign_in_offset || 0))
+  const [selected, setSelected] = useState(new Set()) // indices of selected entries
+  const [deleteConfirm, setDeleteConfirm] = useState(0) // 0=none, 1=first, 2=second, 3=third (executes)
 
   const totalSessions = PACKAGE_OPTIONS.find(p => p.label === packageType)?.sessions || 0
   const sessionsUsed = entries.length + sessionOffset
@@ -2600,6 +2602,38 @@ function SignInSheet({ client, onBack, onUpdate }) {
   const handleDeleteEntry = (idx) => {
     const newEntries = entries.filter((_, i) => i !== idx).map((e, i) => ({ ...e, session: i + sessionOffset + 1 }))
     setEntries(newEntries)
+    setSelected(new Set())
+    saveData(packageType, newEntries, sessionOffset)
+  }
+
+  const toggleSelect = (idx) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(idx) ? next.delete(idx) : next.add(idx)
+      return next
+    })
+    setDeleteConfirm(0)
+  }
+
+  const toggleSelectAll = () => {
+    if (selected.size === entries.length) {
+      setSelected(new Set())
+    } else {
+      setSelected(new Set(entries.map((_, i) => i)))
+    }
+    setDeleteConfirm(0)
+  }
+
+  const handleBulkDelete = () => {
+    if (deleteConfirm < 3) {
+      setDeleteConfirm(deleteConfirm + 1)
+      return
+    }
+    // 3rd confirmation reached — delete
+    const newEntries = entries.filter((_, i) => !selected.has(i)).map((e, i) => ({ ...e, session: i + sessionOffset + 1 }))
+    setEntries(newEntries)
+    setSelected(new Set())
+    setDeleteConfirm(0)
     saveData(packageType, newEntries, sessionOffset)
   }
 
@@ -2700,23 +2734,45 @@ function SignInSheet({ client, onBack, onUpdate }) {
           {/* Sign-In History */}
           {entries.length > 0 && (
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px' }}>
-              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 14 }}>Sign-In History</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '40px 1fr 70px 70px 32px', gap: '0', fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', padding: '0 0 8px', borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>Sign-In History</div>
+                {selected.size > 0 && (
+                  <button onClick={handleBulkDelete} style={{
+                    background: deleteConfirm === 0 ? C.red : deleteConfirm === 1 ? C.red : deleteConfirm === 2 ? '#b91c1c' : '#7f1d1d',
+                    color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif',
+                    animation: deleteConfirm > 0 ? 'none' : undefined
+                  }}>
+                    {deleteConfirm === 0 && `Delete ${selected.size} Selected`}
+                    {deleteConfirm === 1 && `Are you sure? (1/3)`}
+                    {deleteConfirm === 2 && `Really delete? (2/3)`}
+                    {deleteConfirm === 3 && `FINAL confirm — delete forever (3/3)`}
+                  </button>
+                )}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '30px 40px 1fr 70px 70px', gap: '0', fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', padding: '0 0 8px', borderBottom: `1px solid ${C.border}`, alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <input type="checkbox" checked={selected.size === entries.length && entries.length > 0} onChange={toggleSelectAll} style={{ width: 16, height: 16, cursor: 'pointer', accentColor: C.accent }} title="Select All" />
+                </div>
                 <div>#</div>
                 <div>Date</div>
                 <div>Time</div>
                 <div>Signature</div>
-                <div />
               </div>
-              {[...entries].reverse().map((entry, i) => (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: '40px 1fr 70px 70px 32px', gap: '0', alignItems: 'center', padding: '10px 0', borderBottom: `1px solid ${C.border}11` }}>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: C.accent }}>{entry.session}</div>
-                  <div style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>{entry.date}</div>
-                  <div style={{ fontSize: 12, color: C.sub, fontWeight: 600 }}>{entry.time || '—'}</div>
-                  <div>{entry.signature && <img src={entry.signature} alt="sig" style={{ height: 28, borderRadius: 4, border: `1px solid ${C.border}` }} />}</div>
-                  <button onClick={() => handleDeleteEntry(entries.length - 1 - i)} style={{ background: 'none', border: 'none', color: C.sub, fontSize: 14, cursor: 'pointer', padding: 0 }} title="Remove">×</button>
-                </div>
-              ))}
+              {[...entries].reverse().map((entry, i) => {
+                const realIdx = entries.length - 1 - i
+                const isSelected = selected.has(realIdx)
+                return (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '30px 40px 1fr 70px 70px', gap: '0', alignItems: 'center', padding: '10px 0', borderBottom: `1px solid ${C.border}11`, background: isSelected ? C.red + '08' : 'transparent' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(realIdx)} style={{ width: 16, height: 16, cursor: 'pointer', accentColor: C.accent }} />
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: C.accent }}>{entry.session}</div>
+                    <div style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>{entry.date}</div>
+                    <div style={{ fontSize: 12, color: C.sub, fontWeight: 600 }}>{entry.time || '—'}</div>
+                    <div>{entry.signature && <img src={entry.signature} alt="sig" style={{ height: 28, borderRadius: 4, border: `1px solid ${C.border}` }} />}</div>
+                  </div>
+                )
+              })}
             </div>
           )}
         </>
