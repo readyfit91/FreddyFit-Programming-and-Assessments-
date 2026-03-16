@@ -3130,7 +3130,6 @@ function ProgramUploads({ client, onUpdate }) {
   const [savedDays, setSavedDays] = useState(new Set())
   const [collapsedNotes, setCollapsedNotes] = useState(new Set())
   const [collapsedDays, setCollapsedDays] = useState(new Set())
-  const [expandedSetLogs, setExpandedSetLogs] = useState(new Set())
 
   // Update locally only — no persist
   const updateWeekDataLocal = (newDays, changedDayIdx) => {
@@ -3211,29 +3210,6 @@ function ProgramUploads({ client, onUpdate }) {
       n.has(dayIdx) ? n.delete(dayIdx) : n.add(dayIdx)
       return n
     })
-  }
-
-  const toggleSetLogs = (dayIdx, exIdx) => {
-    const key = `${dayIdx}-${exIdx}`
-    setExpandedSetLogs(prev => {
-      const n = new Set(prev)
-      n.has(key) ? n.delete(key) : n.add(key)
-      return n
-    })
-  }
-
-  const updateSetLog = (dayIdx, exIdx, setIdx, field, value) => {
-    const days = weekData.days.map((d, di) => {
-      if (di !== dayIdx) return d
-      const exercises = d.exercises.map((ex, ei) => {
-        if (ei !== exIdx) return ex
-        const setLogs = [...(ex.setLogs || [])]
-        setLogs[setIdx] = { ...(setLogs[setIdx] || {}), [field]: value }
-        return { ...ex, setLogs }
-      })
-      return { ...d, exercises }
-    })
-    updateWeekDataLocal(days, dayIdx)
   }
 
   const updateDayNotes = (dayIdx, value) => {
@@ -3383,7 +3359,7 @@ function ProgramUploads({ client, onUpdate }) {
   const toggleCopyWeek = (w) => setCopySelWeeks(prev => prev.includes(w) ? prev.filter(v => v !== w) : [...prev, w])
 
   const selectStyle = { padding: '7px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 12, fontWeight: 700, fontFamily: 'Montserrat,sans-serif', color: C.text, background: '#fff', cursor: 'pointer', outline: 'none' }
-  const inputCell = { padding: '6px 8px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', color: C.text, outline: 'none', background: '#fff', boxSizing: 'border-box' }
+  const inputCell = { padding: '6px 8px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', color: C.text, outline: 'none', background: '#fff', boxSizing: 'border-box', width: '100%', minWidth: 0 }
   const copyBtnStyle = (active) => ({ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${active ? C.accent : C.border}`, background: active ? C.accent + '15' : 'transparent', color: active ? C.accent : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', letterSpacing: 0.5 })
   const chipStyle = (active) => ({ padding: '4px 10px', borderRadius: 6, border: `1.5px solid ${active ? C.accent : C.border}`, background: active ? C.accent + '15' : '#fff', color: active ? C.accent : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' })
 
@@ -3537,8 +3513,9 @@ function ProgramUploads({ client, onUpdate }) {
           </div>
 
           {!collapsedDays.has(dayIdx) && <>
+          <div style={{ overflowX: 'auto' }}>
           {/* Exercise header row */}
-          <div style={{ display: 'grid', gridTemplateColumns: '22px 32px 1fr 50px 50px 56px 70px 50px 1fr 28px 28px', gap: 4, marginBottom: 4, alignItems: 'end' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '22px 32px 1fr 50px 50px 56px 70px 50px 1fr 28px 28px', gap: 4, marginBottom: 4, alignItems: 'center', minWidth: 580 }}>
             <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>#</div>
             <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>CIR</div>
             <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', paddingLeft: 4 }}>Exercise</div>
@@ -3558,33 +3535,16 @@ function ProgramUploads({ client, onUpdate }) {
             const sameCircuitAbove = exIdx > 0 && day.exercises[exIdx - 1].circuit && day.exercises[exIdx - 1].circuit === ex.circuit
             const sameCircuitBelow = exIdx < day.exercises.length - 1 && day.exercises[exIdx + 1]?.circuit && day.exercises[exIdx + 1].circuit === ex.circuit
             const showCircuitBar = !!ex.circuit && (sameCircuitAbove || sameCircuitBelow)
-            const setLogKey = `${dayIdx}-${exIdx}`
-            const setsNum = parseInt(ex.sets) || 0
-            const hasSetLogs = ex.setLogs && ex.setLogs.some(s => s && (s.rpe || s.notes))
             return (
-              <div key={ex.id || exIdx} style={{ marginBottom: 4, ...(showCircuitBar ? { borderLeft: `3px solid ${circuitColor}`, paddingLeft: 2, marginLeft: -3 } : {}) }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '22px 32px 1fr 50px 50px 56px 70px 50px 1fr 28px 28px', gap: 4, alignItems: 'start' }}>
+              <div key={ex.id || exIdx} style={{ marginBottom: 4, ...(showCircuitBar ? { boxShadow: `inset 3px 0 0 ${circuitColor}` } : {}) }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '22px 32px 1fr 50px 50px 56px 70px 50px 1fr 28px 28px', gap: 4, alignItems: 'center', minWidth: 580 }}>
                 <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, textAlign: 'center', padding: '7px 0', lineHeight: 1 }}>{exIdx + 1}</div>
                 <button onClick={() => toggleCircuit(dayIdx, exIdx)} style={{ background: ex.circuit ? (circuitColor + '20') : 'transparent', border: `1.5px solid ${ex.circuit ? circuitColor : C.border}`, borderRadius: 6, fontSize: 10, fontWeight: 800, color: ex.circuit ? circuitColor : C.sub, cursor: 'pointer', padding: '4px 0', fontFamily: 'Montserrat,sans-serif', lineHeight: 1 }} title="Toggle circuit group (A/B/C/D)">
                   {ex.circuit || '—'}
                 </button>
                 <input value={ex.exercise} onChange={e => updateExercise(dayIdx, exIdx, 'exercise', e.target.value)} placeholder="e.g. Back Squat" style={inputCell} />
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <div style={{ position: 'relative' }}>
-                    <input value={ex.sets} onChange={e => updateExercise(dayIdx, exIdx, 'sets', e.target.value)} placeholder="3" style={{ ...inputCell, textAlign: 'center', cursor: setsNum >= 2 ? 'pointer' : undefined, ...(setsNum >= 2 ? { borderColor: expandedSetLogs.has(setLogKey) ? C.accent : hasSetLogs ? C.accent + '66' : C.border } : {}) }} onClick={() => { if (setsNum >= 2) toggleSetLogs(dayIdx, exIdx) }} readOnly={setsNum >= 2} title={setsNum >= 2 ? 'Click to view per-set RPE & Notes' : ''} />
-                  </div>
-                  <select value={ex.setsType || 'sets'} onChange={e => updateExercise(dayIdx, exIdx, 'setsType', e.target.value)} style={{ fontSize: 8, border: `1px solid ${C.border}`, borderRadius: 4, background: '#fff', color: C.sub, padding: '1px 2px', fontFamily: 'Montserrat,sans-serif', textAlign: 'center' }}>
-                    <option value="sets">Sets</option>
-                    <option value="rounds">Rounds</option>
-                  </select>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <input value={ex.reps} onChange={e => updateExercise(dayIdx, exIdx, 'reps', e.target.value)} placeholder={ex.repsType === 'time' ? 'sec' : '10'} style={{ ...inputCell, textAlign: 'center' }} />
-                  <select value={ex.repsType || 'reps'} onChange={e => updateExercise(dayIdx, exIdx, 'repsType', e.target.value)} style={{ fontSize: 8, border: `1px solid ${C.border}`, borderRadius: 4, background: '#fff', color: C.sub, padding: '1px 2px', fontFamily: 'Montserrat,sans-serif', textAlign: 'center' }}>
-                    <option value="reps">Reps</option>
-                    <option value="time">Time</option>
-                  </select>
-                </div>
+                <input value={ex.sets} onChange={e => updateExercise(dayIdx, exIdx, 'sets', e.target.value)} placeholder="3" style={{ ...inputCell, textAlign: 'center' }} />
+                <input value={ex.reps} onChange={e => updateExercise(dayIdx, exIdx, 'reps', e.target.value)} placeholder="10" style={{ ...inputCell, textAlign: 'center' }} />
                 <input value={ex.weight || ''} onChange={e => updateExercise(dayIdx, exIdx, 'weight', e.target.value)} placeholder="lbs" style={{ ...inputCell, textAlign: 'center' }} />
                 <input value={ex.tempo || ''} onChange={e => { const digits = e.target.value.replace(/[^0-9]/g, '').slice(0, 4); const formatted = digits.split('').join('-'); updateExercise(dayIdx, exIdx, 'tempo', formatted); }} placeholder="3-1-2-0" style={{ ...inputCell, textAlign: 'center' }} maxLength={7} />
                 <select value={ex.rpe} onChange={e => updateExercise(dayIdx, exIdx, 'rpe', e.target.value)} style={{ ...inputCell, textAlign: 'center', padding: '6px 2px' }}>
@@ -3595,33 +3555,10 @@ function ProgramUploads({ client, onUpdate }) {
                 <button onClick={() => duplicateExercise(dayIdx, exIdx)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 5, color: C.accent, fontSize: 11, cursor: 'pointer', padding: 0, lineHeight: 1, fontWeight: 700, fontFamily: 'Montserrat,sans-serif' }} title="Add set">+</button>
                 <button onClick={() => removeExercise(dayIdx, exIdx)} disabled={day.exercises.length <= 1} style={{ background: 'none', border: 'none', color: day.exercises.length > 1 ? C.red + '88' : C.border, fontSize: 16, cursor: day.exercises.length > 1 ? 'pointer' : 'default', padding: 0, lineHeight: 1 }} title="Remove exercise">×</button>
                 </div>
-                {/* Per-set RPE & Notes breakdown */}
-                {expandedSetLogs.has(setLogKey) && setsNum >= 2 && (
-                  <div style={{ marginLeft: 56, marginTop: 4, marginBottom: 6, padding: '8px 10px', background: '#fff', borderRadius: 8, border: `1px solid ${C.accent}33` }}>
-                    <div style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Per-Set Breakdown</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '40px 60px 1fr', gap: 4, marginBottom: 4, alignItems: 'end' }}>
-                      <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>Set</div>
-                      <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>RPE</div>
-                      <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>Notes</div>
-                    </div>
-                    {Array.from({ length: setsNum }, (_, si) => {
-                      const log = (ex.setLogs || [])[si] || {}
-                      return (
-                        <div key={si} style={{ display: 'grid', gridTemplateColumns: '40px 60px 1fr', gap: 4, marginBottom: 3, alignItems: 'center' }}>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, paddingLeft: 4 }}>#{si + 1}</div>
-                          <select value={log.rpe || ''} onChange={e => updateSetLog(dayIdx, exIdx, si, 'rpe', e.target.value)} style={{ ...inputCell, textAlign: 'center', padding: '4px 2px', fontSize: 11 }}>
-                            <option value="">—</option>
-                            {[1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8,8.5,9,9.5,10].map(n => <option key={n} value={n}>{n}</option>)}
-                          </select>
-                          <input value={log.notes || ''} onChange={e => updateSetLog(dayIdx, exIdx, si, 'notes', e.target.value)} placeholder="Set notes..." style={{ ...inputCell, fontSize: 11, padding: '4px 6px' }} />
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
               </div>
             )
           })}
+          </div>
 
           {/* Add exercise button */}
           <button onClick={() => addExercise(dayIdx)} style={{ background: 'none', border: `1px dashed ${C.border}`, borderRadius: 6, padding: '5px 14px', fontSize: 11, color: C.accent, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', marginTop: 4 }}>
