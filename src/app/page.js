@@ -3142,9 +3142,66 @@ function ProgramUploads({ client, onUpdate }) {
   }
 
   const currentPhase = PHASES.find(p => p.id === selPhase)
+  const [copied, setCopied] = useState('')
+
+  // Format a single week's data as text
+  const formatWeekText = (yr, ph, wk) => {
+    const k = `y${yr}_${ph}_${wk}`
+    const d = journal[k]
+    if (!d) return ''
+    const phaseName = PHASES.find(p => p.id === ph)?.name || ph
+    let lines = [`=== Year ${yr} | ${phaseName} | ${wk} ===\n`]
+    d.days.forEach((day, i) => {
+      lines.push(`--- Day ${i + 1}${day.date ? ` (${new Date(day.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })})` : ''} ---`)
+      // Group exercises by circuit
+      day.exercises.forEach(ex => {
+        if (!ex.exercise.trim()) return
+        const parts = [ex.circuit ? `[Circuit ${ex.circuit}]` : '', ex.exercise]
+        if (ex.sets) parts.push(`${ex.sets} sets`)
+        if (ex.reps) parts.push(`x ${ex.reps} reps`)
+        if (ex.tempo) parts.push(`@ ${ex.tempo}`)
+        if (ex.rpe) parts.push(`RPE ${ex.rpe}`)
+        if (ex.notes) parts.push(`— ${ex.notes}`)
+        lines.push(parts.filter(Boolean).join(' '))
+      })
+      if (day.dayNotes?.trim()) lines.push(`Notes: ${day.dayNotes.trim()}`)
+      lines.push('')
+    })
+    return lines.join('\n')
+  }
+
+  const copyToClipboard = (text, label) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(label)
+      setTimeout(() => setCopied(''), 2000)
+    })
+  }
+
+  const copyWeek = () => {
+    const text = formatWeekText(selYear, selPhase, selWeek)
+    if (!text.trim()) { alert('No data in this week to copy.'); return }
+    copyToClipboard(text, 'week')
+  }
+
+  const copyPhase = () => {
+    const order = journal[`y${selYear}_${selPhase}_weekorder`] || DEFAULT_WEEK_ORDER
+    const texts = order.map(wk => formatWeekText(selYear, selPhase, wk)).filter(t => t.trim())
+    if (texts.length === 0) { alert('No data in this phase to copy.'); return }
+    copyToClipboard(texts.join('\n'), 'phase')
+  }
+
+  const copyYear = () => {
+    const texts = PHASES.flatMap(ph => {
+      const order = journal[`y${selYear}_${ph.id}_weekorder`] || DEFAULT_WEEK_ORDER
+      return order.map(wk => formatWeekText(selYear, ph.id, wk))
+    }).filter(t => t.trim())
+    if (texts.length === 0) { alert('No data in this year to copy.'); return }
+    copyToClipboard(texts.join('\n'), 'year')
+  }
 
   const selectStyle = { padding: '7px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 12, fontWeight: 700, fontFamily: 'Montserrat,sans-serif', color: C.text, background: '#fff', cursor: 'pointer', outline: 'none' }
   const inputCell = { padding: '6px 8px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', color: C.text, outline: 'none', background: '#fff', boxSizing: 'border-box' }
+  const copyBtnStyle = (label) => ({ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${copied === label ? C.green : C.border}`, background: copied === label ? C.green + '12' : 'transparent', color: copied === label ? C.green : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', letterSpacing: 0.5 })
 
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 20 }}>
@@ -3203,6 +3260,14 @@ function ProgramUploads({ client, onUpdate }) {
             <option key={w} value={w}>{w}{weekHasData(selYear, selPhase, w) ? ' ✓' : ''}</option>
           ))}
         </select>
+      </div>
+
+      {/* Copy buttons */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1 }}>COPY:</span>
+        <button onClick={copyWeek} style={copyBtnStyle('week')}>{copied === 'week' ? '✓ Copied!' : `This Week (${selWeek})`}</button>
+        <button onClick={copyPhase} style={copyBtnStyle('phase')}>{copied === 'phase' ? '✓ Copied!' : `All of ${currentPhase.name.split('—')[0].trim()}`}</button>
+        <button onClick={copyYear} style={copyBtnStyle('year')}>{copied === 'year' ? '✓ Copied!' : `All of Year ${selYear}`}</button>
       </div>
 
       {/* Phase subtitle */}
