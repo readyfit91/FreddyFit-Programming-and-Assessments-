@@ -3253,15 +3253,61 @@ function ProgramUploads({ client, onUpdate }) {
 }
 
 // ── CLIENT PROFILE ────────────────────────────────────────────────────────────
-function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onSignInSheet, onBack }) {
+function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onSignInSheet, onBack, allClients = [], onSwitchClient }) {
   const assessmentsDone = Object.keys(client.assessments || {})
   const [showIntake, setShowIntake] = useState(false)
+  const [showLinkMenu, setShowLinkMenu] = useState(false)
 
   // Parse intake data from trainerNotes JSON
   const intake = (() => {
     if (!client.trainerNotes) return null
     try { return JSON.parse(client.trainerNotes) } catch { return null }
   })()
+
+  // Linked clients
+  const linkedIds = intake?.linked_clients || []
+  const linkedClients = allClients.filter(c => linkedIds.includes(c.id))
+  const availableToLink = allClients.filter(c => c.id !== client.id && !linkedIds.includes(c.id))
+
+  const linkClient = async (targetId) => {
+    const base = intake || {}
+    const myLinked = [...(base.linked_clients || []), targetId]
+    const updatedNotes = JSON.stringify({ ...base, linked_clients: myLinked })
+    const updatedClient = { ...client, trainerNotes: updatedNotes }
+    await saveClient(updatedClient)
+    onUpdate(updatedClient)
+
+    // Also link back: add this client's id to target's linked_clients
+    const target = allClients.find(c => c.id === targetId)
+    if (target) {
+      let targetData = {}
+      try { targetData = JSON.parse(target.trainerNotes || '{}') } catch {}
+      const targetLinked = [...(targetData.linked_clients || []), client.id]
+      const targetNotes = JSON.stringify({ ...targetData, linked_clients: targetLinked })
+      await saveClient({ ...target, trainerNotes: targetNotes })
+    }
+    setShowLinkMenu(false)
+  }
+
+  const unlinkClient = async (targetId) => {
+    if (!confirm('Unlink this client?')) return
+    const base = intake || {}
+    const myLinked = (base.linked_clients || []).filter(id => id !== targetId)
+    const updatedNotes = JSON.stringify({ ...base, linked_clients: myLinked })
+    const updatedClient = { ...client, trainerNotes: updatedNotes }
+    await saveClient(updatedClient)
+    onUpdate(updatedClient)
+
+    // Remove back-link
+    const target = allClients.find(c => c.id === targetId)
+    if (target) {
+      let targetData = {}
+      try { targetData = JSON.parse(target.trainerNotes || '{}') } catch {}
+      const targetLinked = (targetData.linked_clients || []).filter(id => id !== client.id)
+      const targetNotes = JSON.stringify({ ...targetData, linked_clients: targetLinked })
+      await saveClient({ ...target, trainerNotes: targetNotes })
+    }
+  }
 
   const FLOW = [
     { phase: 'Phase 1 — Always First', color: C.teal, items: [ALL_ASSESSMENTS.hypermobility] },
@@ -3280,6 +3326,42 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
     <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 24px 32px' }}>
       <LogoHeader />
       <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 24 }}>← All Clients</button>
+
+      {/* Linked client switcher */}
+      {(linkedClients.length > 0 || availableToLink.length > 0) && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16, padding: '10px 14px', background: C.faint, borderRadius: 10, border: `1px solid ${C.border}` }}>
+          <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.5, color: C.sub, textTransform: 'uppercase' }}>Switch:</span>
+          <div style={{ padding: '5px 12px', borderRadius: 8, background: C.accent + '15', border: `1.5px solid ${C.accent}`, fontSize: 12, fontWeight: 700, color: C.accent, fontFamily: 'Montserrat,sans-serif' }}>
+            {client.name}
+          </div>
+          {linkedClients.map(lc => (
+            <div key={lc.id} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <button onClick={() => onSwitchClient(lc)} style={{ padding: '5px 12px', borderRadius: 8, background: 'transparent', border: `1.5px solid ${C.border}`, fontSize: 12, fontWeight: 700, color: C.text, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', transition: 'border-color .15s' }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
+                onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
+                {lc.name}
+              </button>
+              <button onClick={() => unlinkClient(lc.id)} style={{ background: 'none', border: 'none', color: C.red + '88', fontSize: 13, cursor: 'pointer', padding: '0 2px', lineHeight: 1 }} title="Unlink">×</button>
+            </div>
+          ))}
+          <div style={{ position: 'relative' }}>
+            <button onClick={() => setShowLinkMenu(!showLinkMenu)} style={{ padding: '4px 10px', borderRadius: 7, border: `1.5px dashed ${C.accent}44`, background: 'transparent', color: C.accent, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+              + Link Client
+            </button>
+            {showLinkMenu && availableToLink.length > 0 && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, background: '#fff', border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: '0 4px 16px rgba(0,0,0,0.1)', zIndex: 100, minWidth: 180, maxHeight: 200, overflowY: 'auto' }}>
+                {availableToLink.map(ac => (
+                  <button key={ac.id} onClick={() => linkClient(ac.id)} style={{ display: 'block', width: '100%', padding: '10px 14px', background: 'transparent', border: 'none', borderBottom: `1px solid ${C.border}22`, fontSize: 12, fontWeight: 600, color: C.text, cursor: 'pointer', textAlign: 'left', fontFamily: 'Montserrat,sans-serif' }}
+                    onMouseEnter={e => e.currentTarget.style.background = C.faint}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    {ac.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16, marginBottom: 24 }}>
         <div>
@@ -3605,6 +3687,20 @@ export default function App() {
   const [view, setView] = useState('roster')
   const [client, setClient] = useState(null)
   const [assessment, setAssessment] = useState(null)
+  const [allClients, setAllClients] = useState([])
+
+  // Load all clients for linked-client switching
+  const refreshAllClients = useCallback(async () => {
+    try {
+      const all = await getAllClients()
+      const withAssessments = await Promise.all(all.map(async c => {
+        const assessments = await getAssessmentsForClient(c.id).catch(() => ({}))
+        return { ...c, trainerNotes: c.trainer_notes, assessments }
+      }))
+      setAllClients(withAssessments)
+      return withAssessments
+    } catch { return [] }
+  }, [])
 
   useEffect(() => {
     if (sessionStorage.getItem('ff_auth') === 'true') setAuthed(true)
@@ -3629,8 +3725,9 @@ export default function App() {
   if (checkingAuth) return null
   if (!authed) return <LoginScreen onLogin={() => setAuthed(true)} />
 
-  const goToClient = (c) => { setClient(c); setView('client') }
-  const updateClient = (c) => setClient(c)
+  const goToClient = (c) => { setClient(c); setView('client'); refreshAllClients() }
+  const updateClient = (c) => { setClient(c); setAllClients(prev => prev.map(p => p.id === c.id ? c : p)) }
+  const switchToClient = (c) => { setClient(c); setView('client') }
   const openIntake = () => { setClient(null); setView('intake') }
   const openEditClient = (c) => { setClient(c); setView('editClient') }
 
@@ -3677,6 +3774,8 @@ export default function App() {
             onSignInSheet={c => { setClient(c); setView('signin') }}
             onEditClient={openEditClient}
             onBack={() => setView('roster')}
+            allClients={allClients}
+            onSwitchClient={switchToClient}
           />
         )}
         {view === 'assessment' && client && assessment && (
