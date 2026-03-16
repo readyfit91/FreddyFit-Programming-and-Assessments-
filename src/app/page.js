@@ -3501,7 +3501,7 @@ function ProgramUploads({ client, onUpdate }) {
                 <input value={ex.tempo || ''} onChange={e => updateExercise(dayIdx, exIdx, 'tempo', e.target.value)} placeholder="3-1-2-0" style={{ ...inputCell, textAlign: 'center' }} />
                 <select value={ex.rpe} onChange={e => updateExercise(dayIdx, exIdx, 'rpe', e.target.value)} style={{ ...inputCell, textAlign: 'center', padding: '6px 2px' }}>
                   <option value="">—</option>
-                  {[1,2,3,4,5,6,7,8,9,10].map(n => <option key={n} value={n}>{n}</option>)}
+                  {[1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8,8.5,9,9.5,10].map(n => <option key={n} value={n}>{n}</option>)}
                 </select>
                 <input value={ex.notes} onChange={e => updateExercise(dayIdx, exIdx, 'notes', e.target.value)} placeholder="Cues..." style={inputCell} />
                 <button onClick={() => removeExercise(dayIdx, exIdx)} disabled={day.exercises.length <= 1} style={{ background: 'none', border: 'none', color: day.exercises.length > 1 ? C.red + '88' : C.border, fontSize: 16, cursor: day.exercises.length > 1 ? 'pointer' : 'default', padding: 0, lineHeight: 1 }} title="Remove exercise">×</button>
