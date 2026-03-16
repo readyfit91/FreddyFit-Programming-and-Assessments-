@@ -3498,7 +3498,7 @@ function ProgramUploads({ client, onUpdate }) {
                 <input value={ex.sets} onChange={e => updateExercise(dayIdx, exIdx, 'sets', e.target.value)} placeholder="3" style={{ ...inputCell, textAlign: 'center' }} />
                 <input value={ex.reps} onChange={e => updateExercise(dayIdx, exIdx, 'reps', e.target.value)} placeholder="10" style={{ ...inputCell, textAlign: 'center' }} />
                 <input value={ex.weight || ''} onChange={e => updateExercise(dayIdx, exIdx, 'weight', e.target.value)} placeholder="lbs" style={{ ...inputCell, textAlign: 'center' }} />
-                <input value={ex.tempo || ''} onChange={e => updateExercise(dayIdx, exIdx, 'tempo', e.target.value)} placeholder="3-1-2-0" style={{ ...inputCell, textAlign: 'center' }} />
+                <input value={ex.tempo || ''} onChange={e => { const digits = e.target.value.replace(/[^0-9]/g, '').slice(0, 4); const formatted = digits.split('').join('-'); updateExercise(dayIdx, exIdx, 'tempo', formatted); }} placeholder="3-1-2-0" style={{ ...inputCell, textAlign: 'center' }} maxLength={7} />
                 <select value={ex.rpe} onChange={e => updateExercise(dayIdx, exIdx, 'rpe', e.target.value)} style={{ ...inputCell, textAlign: 'center', padding: '6px 2px' }}>
                   <option value="">—</option>
                   {[1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8,8.5,9,9.5,10].map(n => <option key={n} value={n}>{n}</option>)}
