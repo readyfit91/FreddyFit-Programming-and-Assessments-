@@ -3663,7 +3663,7 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
       )}
 
       {/* Program Uploads */}
-      <ProgramUploads client={client} onUpdate={onUpdate} />
+      <ProgramUploads key={client.id} client={client} onUpdate={onUpdate} />
 
       {FLOW.map(group => {
         const locked = group.requires && !group.requires.every(id => assessmentsDone.includes(id))
