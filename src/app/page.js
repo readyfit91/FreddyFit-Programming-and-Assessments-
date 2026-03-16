@@ -3128,6 +3128,7 @@ function ProgramUploads({ client, onUpdate }) {
 
   const [unsavedDays, setUnsavedDays] = useState(new Set())
   const [savedDays, setSavedDays] = useState(new Set())
+  const [collapsedNotes, setCollapsedNotes] = useState(new Set())
 
   // Update locally only — no persist
   const updateWeekDataLocal = (newDays, changedDayIdx) => {
@@ -3176,6 +3177,25 @@ function ProgramUploads({ client, onUpdate }) {
       return { ...d, exercises: d.exercises.filter((_, ei) => ei !== exIdx) }
     })
     updateWeekDataLocal(days, dayIdx)
+  }
+
+  const duplicateExercise = (dayIdx, exIdx) => {
+    const days = weekData.days.map((d, di) => {
+      if (di !== dayIdx) return d
+      const copy = { ...d.exercises[exIdx], id: makeId() }
+      const exercises = [...d.exercises]
+      exercises.splice(exIdx + 1, 0, copy)
+      return { ...d, exercises }
+    })
+    updateWeekDataLocal(days, dayIdx)
+  }
+
+  const toggleCollapsedNotes = (dayIdx) => {
+    setCollapsedNotes(prev => {
+      const n = new Set(prev)
+      n.has(dayIdx) ? n.delete(dayIdx) : n.add(dayIdx)
+      return n
+    })
   }
 
   const updateDayNotes = (dayIdx, value) => {
@@ -3471,7 +3491,8 @@ function ProgramUploads({ client, onUpdate }) {
           </div>
 
           {/* Exercise header row */}
-          <div style={{ display: 'grid', gridTemplateColumns: '32px 1fr 50px 50px 56px 70px 50px 1fr 28px', gap: 4, marginBottom: 4 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '22px 32px 1fr 50px 50px 56px 70px 50px 1fr 28px 28px', gap: 4, marginBottom: 4, alignItems: 'end' }}>
+            <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>#</div>
             <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>CIR</div>
             <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', paddingLeft: 4 }}>Exercise</div>
             <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>Sets</div>
@@ -3480,6 +3501,7 @@ function ProgramUploads({ client, onUpdate }) {
             <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>Tempo</div>
             <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>RPE</div>
             <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', paddingLeft: 4 }}>Notes</div>
+            <div />
             <div />
           </div>
 
@@ -3490,7 +3512,8 @@ function ProgramUploads({ client, onUpdate }) {
             const sameCircuitBelow = exIdx < day.exercises.length - 1 && day.exercises[exIdx + 1]?.circuit && day.exercises[exIdx + 1].circuit === ex.circuit
             const showCircuitBar = !!ex.circuit && (sameCircuitAbove || sameCircuitBelow)
             return (
-              <div key={ex.id || exIdx} style={{ display: 'grid', gridTemplateColumns: '32px 1fr 50px 50px 56px 70px 50px 1fr 28px', gap: 4, marginBottom: 4, ...(showCircuitBar ? { borderLeft: `3px solid ${circuitColor}`, paddingLeft: 2, marginLeft: -3 } : {}) }}>
+              <div key={ex.id || exIdx} style={{ display: 'grid', gridTemplateColumns: '22px 32px 1fr 50px 50px 56px 70px 50px 1fr 28px 28px', gap: 4, marginBottom: 4, alignItems: 'start', ...(showCircuitBar ? { borderLeft: `3px solid ${circuitColor}`, paddingLeft: 2, marginLeft: -3 } : {}) }}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, textAlign: 'center', padding: '7px 0', lineHeight: 1 }}>{exIdx + 1}</div>
                 <button onClick={() => toggleCircuit(dayIdx, exIdx)} style={{ background: ex.circuit ? (circuitColor + '20') : 'transparent', border: `1.5px solid ${ex.circuit ? circuitColor : C.border}`, borderRadius: 6, fontSize: 10, fontWeight: 800, color: ex.circuit ? circuitColor : C.sub, cursor: 'pointer', padding: '4px 0', fontFamily: 'Montserrat,sans-serif', lineHeight: 1 }} title="Toggle circuit group (A/B/C/D)">
                   {ex.circuit || '—'}
                 </button>
@@ -3516,6 +3539,7 @@ function ProgramUploads({ client, onUpdate }) {
                   {[1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8,8.5,9,9.5,10].map(n => <option key={n} value={n}>{n}</option>)}
                 </select>
                 <input value={ex.notes} onChange={e => updateExercise(dayIdx, exIdx, 'notes', e.target.value)} placeholder="Cues..." style={inputCell} />
+                <button onClick={() => duplicateExercise(dayIdx, exIdx)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 5, color: C.accent, fontSize: 11, cursor: 'pointer', padding: 0, lineHeight: 1, fontWeight: 700, fontFamily: 'Montserrat,sans-serif' }} title="Duplicate exercise">+</button>
                 <button onClick={() => removeExercise(dayIdx, exIdx)} disabled={day.exercises.length <= 1} style={{ background: 'none', border: 'none', color: day.exercises.length > 1 ? C.red + '88' : C.border, fontSize: 16, cursor: day.exercises.length > 1 ? 'pointer' : 'default', padding: 0, lineHeight: 1 }} title="Remove exercise">×</button>
               </div>
             )
@@ -3526,16 +3550,27 @@ function ProgramUploads({ client, onUpdate }) {
             + Add Exercise
           </button>
 
-          {/* Day notes */}
+          {/* Day notes with collapse toggle */}
           <div style={{ marginTop: 10 }}>
-            <div style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4, paddingLeft: 2 }}>Day Notes</div>
-            <textarea
-              value={day.dayNotes || ''}
-              onChange={e => updateDayNotes(dayIdx, e.target.value)}
-              rows={2}
-              placeholder="How did this session go? Swaps, modifications, client feedback..."
-              style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', color: C.text, background: '#fff', resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.5 }}
-            />
+            <button
+              onClick={() => toggleCollapsedNotes(dayIdx)}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: '2px 2px', marginBottom: collapsedNotes.has(dayIdx) ? 0 : 4 }}
+            >
+              <span style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Day Notes</span>
+              <span style={{ fontSize: 10, color: C.sub, fontWeight: 700, transition: 'transform .2s', display: 'inline-block', transform: collapsedNotes.has(dayIdx) ? 'rotate(-90deg)' : 'rotate(0deg)' }}>▼</span>
+              {collapsedNotes.has(dayIdx) && day.dayNotes && (
+                <span style={{ fontSize: 10, color: C.accent, fontWeight: 600, fontStyle: 'italic', fontFamily: 'Montserrat,sans-serif' }}>has notes</span>
+              )}
+            </button>
+            {!collapsedNotes.has(dayIdx) && (
+              <textarea
+                value={day.dayNotes || ''}
+                onChange={e => updateDayNotes(dayIdx, e.target.value)}
+                rows={2}
+                placeholder="How did this session go? Swaps, modifications, client feedback..."
+                style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', color: C.text, background: '#fff', resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.5 }}
+              />
+            )}
           </div>
 
           {/* Save Day button */}
