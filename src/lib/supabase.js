@@ -52,46 +52,68 @@ export async function getAssessmentsForClient(clientId) {
     .order('completed_at', { ascending: false })
   if (error) throw error
   // Convert to { [assessmentType]: { ...answers, _summary, _completedAt } }
+  // Uses the most recent save as the "current" one
   const result = {}
   for (const row of data || []) {
-    result[row.assessment_type] = {
-      ...row.answers,
-      _summary: row.summary || '',
-      _completedAt: row.completed_at
+    if (!result[row.assessment_type]) {
+      result[row.assessment_type] = {
+        ...row.answers,
+        _summary: row.summary || '',
+        _completedAt: row.completed_at
+      }
     }
   }
   return result
 }
 
-export async function saveAssessment(clientId, assessmentType, answers, summary) {
-  // Check if one already exists for this client+type
-  const { data: existing } = await supabase
+// Get all saved versions of assessments for a client (grouped by type)
+export async function getAssessmentHistoryForClient(clientId, assessmentType) {
+  const { data, error } = await supabase
     .from('assessments')
-    .select('id')
+    .select('*')
     .eq('client_id', clientId)
     .eq('assessment_type', assessmentType)
-    .single()
+    .order('completed_at', { ascending: false })
+  if (error) throw error
+  return (data || []).map(row => ({
+    id: row.id,
+    answers: row.answers,
+    completedAt: row.completed_at,
+    saveLabel: row.summary || 'Assessment 1'
+  }))
+}
 
+export async function saveAssessment(clientId, assessmentType, answers, saveLabel) {
   const payload = {
     client_id: clientId,
     assessment_type: assessmentType,
     answers: answers,
-    summary: summary || '',
+    summary: saveLabel || 'Assessment 1',
     completed_at: new Date().toISOString()
   }
 
-  if (existing) {
-    const { error } = await supabase
-      .from('assessments')
-      .update(payload)
-      .eq('id', existing.id)
-    if (error) throw error
-  } else {
-    const { error } = await supabase
-      .from('assessments')
-      .insert(payload)
-    if (error) throw error
-  }
+  // Always insert a new row — each save is a numbered version
+  const { error } = await supabase
+    .from('assessments')
+    .insert(payload)
+  if (error) throw error
+}
+
+export async function deleteAssessment(assessmentId) {
+  const { error } = await supabase
+    .from('assessments')
+    .delete()
+    .eq('id', assessmentId)
+  if (error) throw error
+}
+
+export async function deleteAllAssessmentsForType(clientId, assessmentType) {
+  const { error } = await supabase
+    .from('assessments')
+    .delete()
+    .eq('client_id', clientId)
+    .eq('assessment_type', assessmentType)
+  if (error) throw error
 }
 
 // ── PROGRAMS ─────────────────────────────────────────────────────────────────

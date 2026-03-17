@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog } from '../lib/supabase'
+import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getAssessmentHistoryForClient, deleteAssessment, deleteAllAssessmentsForType, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
 import { FIELD_MODIFIERS } from '../lib/modifiers'
 import { QRCodeCanvas } from 'qrcode.react'
@@ -48,6 +48,10 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [hasUnsaved, setHasUnsaved] = useState(false)
+  const [clearStep, setClearStep] = useState(0) // 0=idle, 1=first confirm, 2=second, 3=final
+  const [history, setHistory] = useState([])
+  const [showHistory, setShowHistory] = useState(false)
+  const [loadingHistory, setLoadingHistory] = useState(false)
 
   useEffect(() => {
     if (client.assessments?.[assessment.id]) {
@@ -55,6 +59,17 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
       setSaved(true)
     }
   }, [assessment.id, client.assessments])
+
+  // Load saved history
+  const loadHistory = async () => {
+    setLoadingHistory(true)
+    try {
+      const h = await getAssessmentHistoryForClient(client.id, assessment.id)
+      setHistory(h)
+    } catch (e) { console.error(e) }
+    setLoadingHistory(false)
+  }
+  useEffect(() => { loadHistory() }, [assessment.id, client.id])
 
   const allFields = assessment.sections.flatMap(s => s.fields)
   const answered = allFields.filter(f => answers[f.id]?.toString().trim()).length
@@ -113,15 +128,51 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
   const saveAssessmentData = async () => {
     setSaving(true)
     try {
-      const completed = { ...answers, _completedAt: new Date().toISOString() }
-      await saveAssessment(client.id, assessment.id, answers, '')
+      const now = new Date()
+      const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      const timeStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+      const nextNum = history.length + 1
+      const saveLabel = `Assessment ${nextNum} — ${dateStr} ${timeStr}`
+      const completed = { ...answers, _completedAt: now.toISOString() }
+      await saveAssessment(client.id, assessment.id, answers, saveLabel)
       onComplete(assessment.id, completed)
       setSaved(true)
       setHasUnsaved(false)
+      await loadHistory()
     } catch (e) {
       alert('Error saving: ' + e.message)
     }
     setSaving(false)
+  }
+
+  const clearAll = () => {
+    if (clearStep < 3) {
+      setClearStep(s => s + 1)
+      return
+    }
+    // 3rd confirmation reached — clear everything
+    setAnswers({})
+    setSaved(false)
+    setHasUnsaved(false)
+    setClearStep(0)
+  }
+
+  const loadSavedVersion = (entry) => {
+    setAnswers(entry.answers || {})
+    setSaved(true)
+    setHasUnsaved(false)
+    setShowHistory(false)
+  }
+
+  const deleteSavedVersion = async (entry) => {
+    if (!confirm(`Delete "${entry.saveLabel}"? This cannot be undone.`)) return
+    try {
+      await deleteAssessment(entry.id)
+      await loadHistory()
+      // If this was the only save left, check if current answers match
+    } catch (e) {
+      alert('Error deleting: ' + e.message)
+    }
   }
 
   const renderField = (f) => {
@@ -1195,9 +1246,73 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
         </div>
       ))}
 
-      <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 8 }}>
-        <Btn onClick={saveAssessmentData} disabled={saving} color={hasUnsaved ? C.orange : C.accent}>{saving ? 'Saving...' : hasUnsaved ? '⚠️ Unsaved Changes — Tap to Save' : saved ? '✓ Saved' : '💾 Save Assessment'}</Btn>
+      {/* ── Action Buttons ─────────────────────────────────────── */}
+      <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Clear All — 3-step confirmation */}
+          {clearStep === 0 && (
+            <Btn onClick={() => setClearStep(1)} small outline color={C.red}>Clear All</Btn>
+          )}
+          {clearStep === 1 && (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: C.red }}>Clear all answers?</span>
+              <Btn onClick={() => setClearStep(2)} small color={C.red}>Yes, Clear</Btn>
+              <Btn onClick={() => setClearStep(0)} small outline color={C.sub}>Cancel</Btn>
+            </div>
+          )}
+          {clearStep === 2 && (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: C.red }}>Are you really sure?</span>
+              <Btn onClick={() => setClearStep(3)} small color={C.red}>Yes, I'm Sure</Btn>
+              <Btn onClick={() => setClearStep(0)} small outline color={C.sub}>Cancel</Btn>
+            </div>
+          )}
+          {clearStep === 3 && (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <span style={{ fontSize: 11, fontWeight: 800, color: C.red }}>FINAL WARNING — This cannot be undone!</span>
+              <Btn onClick={clearAll} small color={C.red}>CLEAR EVERYTHING</Btn>
+              <Btn onClick={() => setClearStep(0)} small outline color={C.sub}>Cancel</Btn>
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {history.length > 0 && (
+            <Btn onClick={() => setShowHistory(!showHistory)} small outline color={C.sky}>
+              {showHistory ? 'Hide History' : `Saved (${history.length})`}
+            </Btn>
+          )}
+          <Btn onClick={saveAssessmentData} disabled={saving} color={hasUnsaved ? C.orange : C.accent}>
+            {saving ? 'Saving...' : hasUnsaved ? '⚠️ Unsaved — Tap to Save' : '💾 Save Assessment'}
+          </Btn>
+        </div>
       </div>
+
+      {/* ── Saved History Panel ───────────────────────────────── */}
+      {showHistory && (
+        <div style={{ marginTop: 14, border: `1.5px solid ${C.sky}33`, borderRadius: 12, background: C.sky + '06', padding: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: C.sky, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 }}>Saved Versions</div>
+          {loadingHistory ? <Spinner /> : history.length === 0 ? (
+            <div style={{ fontSize: 12, color: C.sub, textAlign: 'center', padding: 16 }}>No saved versions yet</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {history.map((entry, i) => (
+                <div key={entry.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: C.card, borderRadius: 10, border: `1px solid ${C.border}` }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{entry.saveLabel}</div>
+                    <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>
+                      {new Date(entry.completedAt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })} at {new Date(entry.completedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <Btn onClick={() => loadSavedVersion(entry)} small outline color={C.accent}>Load</Btn>
+                    <Btn onClick={() => deleteSavedVersion(entry)} small outline color={C.red}>Delete</Btn>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
