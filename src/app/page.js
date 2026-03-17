@@ -427,11 +427,90 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
         </div>
       )
     }
+    if (f.type === 'abductedHumerus') {
+      const fingers = parseInt(val) || 0
+      const isFail = fingers >= 3
+      const isPass = fingers >= 1 && fingers <= 2
+      const hipSwingKey = `${f.id}_hip_swing`
+      const hipSwingArmsKey = `${f.id}_hip_swing_arms`
+      const feetWideKey = `${f.id}_feet_wide`
+      const feetWideLBKey = `${f.id}_feet_wide_lb`
+      const hipSwing = parseInt(answers[hipSwingKey]) || 0
+      const hipSwingArms = parseInt(answers[hipSwingArmsKey]) || 0
+      const feetWide = parseInt(answers[feetWideKey]) || 0
+      const feetWideLB = parseInt(answers[feetWideLBKey]) || 0
+      const ratingBtns = (key, label, currentVal) => (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>{label}</div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {[1,2,3,4,5,6,7,8,9,10].map(n => {
+              const isSelected = currentVal === n
+              const btnFail = n <= 7
+              return (
+                <button key={n} onClick={() => set(key, n.toString())} style={{
+                  width: 32, height: 32, borderRadius: 7,
+                  border: `1.5px solid ${isSelected ? (btnFail ? C.red : C.green) : C.border}`,
+                  background: isSelected ? (btnFail ? C.red : C.green) : 'white',
+                  color: isSelected ? 'white' : btnFail ? C.red : C.green,
+                  fontFamily: 'Montserrat,sans-serif', fontWeight: 800, fontSize: 12,
+                  cursor: 'pointer'
+                }}>{n}</button>
+              )
+            })}
+          </div>
+          {currentVal >= 8 && <div style={{ marginTop: 6, fontSize: 11, color: C.green, fontWeight: 700 }}>✓ {currentVal}/10 — Pass</div>}
+          {currentVal >= 1 && currentVal <= 7 && <div style={{ marginTop: 6, fontSize: 11, color: C.red, fontWeight: 700 }}>✗ {currentVal}/10 — Fail</div>}
+        </div>
+      )
+      return (
+        <div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {[1,2,3,4,5].map(n => {
+              const isSelected = fingers === n
+              const btnPass = n <= 2
+              return (
+                <button key={n} onClick={() => set(f.id, n.toString())} style={{
+                  width: 42, height: 36, borderRadius: 7, cursor: 'pointer',
+                  border: `2px solid ${isSelected ? (btnPass ? C.green : C.red) : C.border}`,
+                  background: isSelected ? (btnPass ? C.green : C.red) : 'white',
+                  color: isSelected ? 'white' : btnPass ? C.green : C.red,
+                  fontFamily: 'Montserrat,sans-serif', fontWeight: 800, fontSize: 14
+                }}>{n}</button>
+              )
+            })}
+          </div>
+          {isPass && <div style={{ marginTop: 8, fontSize: 11, color: C.green, fontWeight: 700 }}>✓ PASS — {fingers} finger{fingers > 1 ? 's' : ''}</div>}
+          {isFail && (
+            <div style={{ marginTop: 10, background: C.faint, borderRadius: 10, padding: '12px 14px', border: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 11, color: C.red, fontWeight: 700, marginBottom: 8 }}>✗ FAIL — {fingers} fingers. Proceed with follow-up tests:</div>
+              {ratingBtns(hipSwingKey, 'Hip Swing Test (1–10)', hipSwing)}
+              {ratingBtns(hipSwingArmsKey, 'Press Arms to Side → Re-test Hip Swing (1–10)', hipSwingArms)}
+              {ratingBtns(feetWideKey, 'Feet Wide Apart, Arms by Side (1–10)', feetWide)}
+              {feetWide >= 1 && feetWide <= 7 && (
+                <div style={{ marginTop: 10 }}>
+                  {ratingBtns(feetWideLBKey, 'Press on Lower Back → Re-test Feet Wide Apart (1–10)', feetWideLB)}
+                </div>
+              )}
+              {feetWide >= 8 && (
+                <div style={{ marginTop: 10, padding: '10px 14px', background: C.green + '12', borderRadius: 8, border: `1px solid ${C.green}44`, fontSize: 12, color: C.green, fontWeight: 700 }}>
+                  ✓ Feet Wide Apart passed — suggest Sigmund Deltoid Protocol
+                </div>
+              )}
+              {feetWideLB >= 8 && (
+                <div style={{ marginTop: 10, padding: '10px 14px', background: C.green + '12', borderRadius: 8, border: `1px solid ${C.green}44`, fontSize: 12, color: C.green, fontWeight: 700 }}>
+                  ✓ Lower Back modifier passed — suggest Sigmund Deltoid Protocol
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )
+    }
     return <input type="text" value={val} onChange={e => set(f.id, e.target.value)} placeholder={f.placeholder || ''} style={base} />
   }
 
   const renderRatingAndModifier = (f) => {
-    if (f.type === 'textarea' || f.type === 'scale' || f.type === 'dualRating' || f.type === 'neckConclusion' || f.type === 'info') return null
+    if (f.type === 'textarea' || f.type === 'scale' || f.type === 'dualRating' || f.type === 'neckConclusion' || f.type === 'info' || f.type === 'abductedHumerus' || f.type === 'select') return null
     const isPrime8 = assessment.id === 'prime8'
     // Only show rating system for fields that have modifiers (Prime 8 inline or FIELD_MODIFIERS)
     const hasModifiers = !!(f.modifiers || FIELD_MODIFIERS[f.id])

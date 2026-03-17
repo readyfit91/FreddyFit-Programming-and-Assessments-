@@ -584,6 +584,10 @@ export const ALL_ASSESSMENTS = {
         { id:"sp_ac_side", label:"AC Joint — which side", type:"text" },
         { id:"sp_carrying_angle", label:"Humeral Carrying Angle — normal/increased", type:"text" },
       ]},
+      { id:"sp_abd", title:"Abducted Humerus (Invisible Luggage)", fields:[
+        { id:"sp_abd_right", label:"Right Arm — Fingers between rib and elbow pit", type:"abductedHumerus" },
+        { id:"sp_abd_left", label:"Left Arm — Fingers between rib and elbow pit", type:"abductedHumerus" },
+      ]},
       { id:"sp2", title:"Scapula", fields:[
         { id:"sp_scapula_position", label:"Scapula Position — protracted / retracted / elevated / depressed", type:"text" },
         { id:"sp_winging_right", label:"Scapula Winging — Right", type:"passfail", options:["None","Present"] },
