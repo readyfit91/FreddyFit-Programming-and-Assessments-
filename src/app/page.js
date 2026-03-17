@@ -99,6 +99,17 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
     }
   }, [assessment.id, answers.bms_gender, answers.bms_age_range, answers.bms_total_score])
 
+  // Auto-calculate Hypermobility score from fail count
+  useEffect(() => {
+    if (assessment.id !== 'hypermobility' || !assessment.hmFields) return
+    const failCount = assessment.hmFields.filter(id => answers[id] === 'Fail').length
+    const answeredCount = assessment.hmFields.filter(id => answers[id]).length
+    if (answeredCount === 0) return
+    if (answers.hm_score !== failCount.toString()) {
+      setAnswers(a => ({ ...a, hm_score: failCount.toString() }))
+    }
+  }, [assessment.id, ...((assessment.hmFields || []).map(id => answers[id]))])
+
   const saveAssessmentData = async () => {
     setSaving(true)
     try {
@@ -122,6 +133,32 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
       </div>
     )
     if (f.type === 'textarea') return <textarea value={val} onChange={e => set(f.id, e.target.value)} rows={3} style={{ ...base, resize: 'vertical' }} placeholder={f.placeholder || ''} />
+    if (f.type === 'hypermobilityScore') {
+      const score = parseInt(val) || 0
+      const answeredCount = (assessment.hmFields || []).filter(id => answers[id]).length
+      const totalFields = (assessment.hmFields || []).length
+      const allAnswered = answeredCount === totalFields
+      const category = (assessment.hmCategories || []).find(c => score >= c.range[0] && score <= c.range[1])
+      const colorMap = { green: C.green, orange: C.orange, red: C.red }
+      const catColor = category ? (colorMap[category.color] || C.sub) : C.sub
+      return (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+            <div style={{ fontSize: 28, fontWeight: 900, color: allAnswered ? catColor : C.sub, fontFamily: 'Montserrat,sans-serif' }}>{score}</div>
+            <div style={{ fontSize: 13, color: C.sub, fontWeight: 600 }}>/ 9 fails</div>
+            {!allAnswered && <div style={{ fontSize: 11, color: C.sub, fontStyle: 'italic' }}>({answeredCount}/{totalFields} tests completed)</div>}
+          </div>
+          {allAnswered && category && (
+            <div style={{ padding: '14px 18px', background: catColor + '10', border: `1.5px solid ${catColor}33`, borderRadius: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: catColor, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1 }}>
+                {score >= 5 ? '⚠' : score >= 3 ? '⚡' : '✓'} {category.title} — Score: {score}/9
+              </div>
+              <pre style={{ fontSize: 12, lineHeight: 1.8, color: C.text, whiteSpace: 'pre-wrap', fontFamily: 'Montserrat,sans-serif', margin: 0 }}>{category.notes}</pre>
+            </div>
+          )}
+        </div>
+      )
+    }
     if (f.type === 'passfail') {
       // Prime 8 and fields with inline modifiers use the rating system instead
       if (assessment.id === 'prime8' || f.modifiers) return null

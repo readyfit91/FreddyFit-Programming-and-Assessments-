@@ -10,6 +10,15 @@ export const ALL_ASSESSMENTS = {
   hypermobility: {
     id:"hypermobility", name:"Hypermobility Assessment", icon:"🤸",
     color:C.indigo, colorDim:C.indigo+"12",
+    hmFields: ["hm_little_right","hm_little_left","hm_thumb_right","hm_thumb_left","hm_elbow_right","hm_elbow_left","hm_knee_right","hm_knee_left","hm_palms"],
+    hmCategories: [
+      { range:[0,2], title:"Normal Ligament Mobility", color:"green",
+        notes:"• This is the most common category for the general population.\n• These individuals typically have a stable joint framework, providing resilience for more intense exercise routines.\n• When injuries occur, they're more likely to involve muscles rather than joints.\n• Adding stretching and/or massage may enhance recovery and mobility." },
+      { range:[3,4], title:"Mild Hypermobility", color:"orange",
+        notes:"• These individuals benefit from a balance of light flexibility work combined with stability-focused resistance training to reinforce joint support.\n• Stretch with intention: If a muscle isn't short and tight, don't stretch it. Overstretching can create instability.\n• Hormonal changes, such as during menstruation and pregnancy, can increase ligament laxity — especially in women. During these times, it's important to follow hypermobility precautions more closely in training." },
+      { range:[5,9], title:"Hypermobile", color:"red",
+        notes:"• These individuals excel at flexibility focused activities, even with minimal effort on stretching and flexibility. Tight muscles may be your body's way of creating temporary stability — don't automatically stretch them.\n• Aches, pains, and weakness can move around — a sign of instability.\n• Be cautious with contact sport, and high impact activity, as your joints are not as resilient to higher impact forces.\n• LIMIT OR AVOID STRETCHING. According to Dr. George Roth, the joints and tissues around the muscles may be more flexible, and tend to \"give more\" with the application of stretching, which means that stretching may cause or contribute to joint aches and pains. Avoid banded distractions — they can pull joints apart and worsen instability — leading to ongoing aches and pains. Beware that stretching to extreme ranges like in yoga or gymnastics, can not only destabilize joints but even lead to serious injury like spinal fractures (Dr. Stuart McGill). Use massage, foam rolling, or percussion tools instead of stretching.\n• FOCUS ON STABILITY: Those with hypermobility may lose a postural correction more easily, or have a misalignment switch sides. Injuries tend to be joint-related, not muscular, so joint stability is key. Corrective priority should prioritize creating stability (or \"stiffness\"), to prevent unwanted micro-shifting of the joints. For exercise routines, cables and dumbbells generally tend to be better for hypermobile people than exercise machines.\n• Support ligament health with good nutrition and proper mineral absorption. Work with a naturopath if needed.\n• Postural corrections may not hold well — use warmups like the Pelvis Presley and Shoulder Savior Protocols regularly to maintain stability." },
+    ],
     sections:[
       { id:"hm1", title:"Beighton Score Tests", fields:[
         { id:"hm_little_right", label:"Little finger hyperextension — Right (>90°)", type:"passfail", options:["Pass","Fail"] },
@@ -21,7 +30,7 @@ export const ALL_ASSESSMENTS = {
         { id:"hm_knee_right", label:"Hyperextended knees — Right (>10°)", type:"passfail", options:["Pass","Fail"] },
         { id:"hm_knee_left", label:"Hyperextended knees — Left (>10°)", type:"passfail", options:["Pass","Fail"] },
         { id:"hm_palms", label:"Palms flat to floor (knees straight)", type:"passfail", options:["Pass","Fail"] },
-        { id:"hm_score", label:"Beighton Score (0–9)", type:"scale", min:0, max:9 },
+        { id:"hm_score", label:"Total Hypermobility Score", type:"hypermobilityScore" },
         { id:"hm_notes", label:"Notes", type:"textarea" },
       ]}
     ]
