@@ -135,3 +135,37 @@ export async function saveWorkout(clientId, content, prompt) {
     .insert({ client_id: clientId, content, prompt, generated_at: new Date().toISOString() })
   if (error) throw error
 }
+
+// ── WEIGHT LOGS ─────────────────────────────────────────────────────────────
+
+export async function getWeightLogsForClient(clientId) {
+  const { data, error } = await supabase
+    .from('weight_logs')
+    .select('*')
+    .eq('client_id', clientId)
+    .order('logged_at', { ascending: true })
+  if (error) throw error
+  return data || []
+}
+
+export async function saveWeightLog(clientId, { weight, bodyFat, rating, behaviorNotes, loggedAt }) {
+  const { error } = await supabase
+    .from('weight_logs')
+    .insert({
+      client_id: clientId,
+      weight: weight || null,
+      body_fat: bodyFat || null,
+      rating: rating || null,
+      behavior_notes: behaviorNotes || '',
+      logged_at: loggedAt || new Date().toISOString()
+    })
+  if (error) throw error
+}
+
+export async function deleteWeightLog(logId) {
+  const { error } = await supabase
+    .from('weight_logs')
+    .delete()
+    .eq('id', logId)
+  if (error) throw error
+}

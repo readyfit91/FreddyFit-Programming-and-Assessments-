@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient } from '../lib/supabase'
+import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
 import { FIELD_MODIFIERS } from '../lib/modifiers'
 import { QRCodeCanvas } from 'qrcode.react'
@@ -3674,7 +3674,303 @@ function ProgramUploads({ client, onUpdate }) {
 }
 
 // ── CLIENT PROFILE ────────────────────────────────────────────────────────────
-function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onSignInSheet, onBack, allClients = [], onSwitchClient }) {
+// ── WEIGHT & BODY FAT TRACKER ────────────────────────────────────────────────
+function WeightTracker({ client, onBack }) {
+  const [logs, setLogs] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [weight, setWeight] = useState('')
+  const [bodyFat, setBodyFat] = useState('')
+  const [rating, setRating] = useState('')
+  const [behaviorNotes, setBehaviorNotes] = useState('')
+  const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0])
+  const [showHistory, setShowHistory] = useState(false)
+  const chartRef = useRef(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await getWeightLogsForClient(client.id)
+      setLogs(data)
+    } catch (e) { console.error(e) }
+    setLoading(false)
+  }, [client.id])
+
+  useEffect(() => { load() }, [load])
+
+  const handleSave = async () => {
+    if (!weight && !bodyFat) return alert('Enter at least weight or body fat %.')
+    setSaving(true)
+    try {
+      await saveWeightLog(client.id, {
+        weight: weight ? parseFloat(weight) : null,
+        bodyFat: bodyFat ? parseFloat(bodyFat) : null,
+        rating: rating || null,
+        behaviorNotes,
+        loggedAt: new Date(logDate + 'T12:00:00').toISOString()
+      })
+      setWeight(''); setBodyFat(''); setRating(''); setBehaviorNotes(''); setLogDate(new Date().toISOString().split('T')[0])
+      await load()
+    } catch (e) { alert('Error saving: ' + e.message) }
+    setSaving(false)
+  }
+
+  const handleDelete = async (id) => {
+    if (!confirm('Delete this weigh-in?')) return
+    try { await deleteWeightLog(id); await load() } catch (e) { alert('Error: ' + e.message) }
+  }
+
+  // Chart drawing
+  useEffect(() => {
+    const canvas = chartRef.current
+    if (!canvas || logs.length < 2) return
+    const ctx = canvas.getContext('2d')
+    const dpr = window.devicePixelRatio || 1
+    const rect = canvas.getBoundingClientRect()
+    canvas.width = rect.width * dpr
+    canvas.height = rect.height * dpr
+    ctx.scale(dpr, dpr)
+    const W = rect.width, H = rect.height
+    const pad = { top: 30, right: 20, bottom: 50, left: 50 }
+    const cW = W - pad.left - pad.right, cH = H - pad.top - pad.bottom
+
+    ctx.clearRect(0, 0, W, H)
+
+    const weightLogs = logs.filter(l => l.weight != null)
+    const fatLogs = logs.filter(l => l.body_fat != null)
+    const hasWeight = weightLogs.length >= 2
+    const hasFat = fatLogs.length >= 2
+
+    if (!hasWeight && !hasFat) return
+
+    // Time range
+    const allDates = logs.map(l => new Date(l.logged_at).getTime())
+    const minT = Math.min(...allDates), maxT = Math.max(...allDates)
+    const tRange = maxT - minT || 1
+
+    const xFor = (t) => pad.left + ((t - minT) / tRange) * cW
+
+    // Grid lines
+    ctx.strokeStyle = '#E2E8F0'
+    ctx.lineWidth = 1
+    for (let i = 0; i <= 4; i++) {
+      const y = pad.top + (cH / 4) * i
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke()
+    }
+
+    // X-axis date labels
+    ctx.fillStyle = '#718096'
+    ctx.font = '10px Montserrat, sans-serif'
+    ctx.textAlign = 'center'
+    const labelCount = Math.min(logs.length, 6)
+    const step = Math.max(1, Math.floor(logs.length / labelCount))
+    for (let i = 0; i < logs.length; i += step) {
+      const d = new Date(logs[i].logged_at)
+      const label = `${d.getMonth() + 1}/${d.getDate()}`
+      const x = xFor(d.getTime())
+      ctx.fillText(label, x, H - pad.bottom + 18)
+    }
+
+    const drawLine = (data, getVal, color, label, yAxis) => {
+      const vals = data.map(l => getVal(l))
+      const minV = Math.min(...vals), maxV = Math.max(...vals)
+      const vRange = maxV - minV || 1
+      const yFor = (v) => pad.top + cH - ((v - minV) / vRange) * cH
+
+      // Y-axis labels
+      ctx.fillStyle = color
+      ctx.font = '10px Montserrat, sans-serif'
+      ctx.textAlign = yAxis === 'left' ? 'right' : 'left'
+      for (let i = 0; i <= 4; i++) {
+        const v = minV + (vRange / 4) * i
+        const y = yFor(v)
+        const x = yAxis === 'left' ? pad.left - 6 : W - pad.right + 6
+        ctx.fillText(v.toFixed(1), x, y + 3)
+      }
+
+      // Label
+      ctx.font = 'bold 11px Montserrat, sans-serif'
+      const labelX = yAxis === 'left' ? pad.left : W - pad.right
+      ctx.textAlign = yAxis === 'left' ? 'right' : 'left'
+      ctx.fillText(label, labelX, pad.top - 10)
+
+      // Line
+      ctx.strokeStyle = color
+      ctx.lineWidth = 2.5
+      ctx.lineJoin = 'round'
+      ctx.lineCap = 'round'
+      ctx.beginPath()
+      data.forEach((l, i) => {
+        const x = xFor(new Date(l.logged_at).getTime())
+        const y = yFor(getVal(l))
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y)
+      })
+      ctx.stroke()
+
+      // Dots with good/bad coloring
+      data.forEach(l => {
+        const x = xFor(new Date(l.logged_at).getTime())
+        const y = yFor(getVal(l))
+        const dotColor = l.rating === 'good' ? C.green : l.rating === 'bad' ? C.red : color
+        ctx.beginPath()
+        ctx.arc(x, y, 5, 0, Math.PI * 2)
+        ctx.fillStyle = dotColor
+        ctx.fill()
+        ctx.strokeStyle = '#fff'
+        ctx.lineWidth = 2
+        ctx.stroke()
+      })
+    }
+
+    if (hasWeight) drawLine(weightLogs, l => l.weight, C.accent, 'Weight (lbs)', 'left')
+    if (hasFat) drawLine(fatLogs, l => l.body_fat, C.orange, 'Body Fat %', hasWeight ? 'right' : 'left')
+  }, [logs])
+
+  const input = { width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 13, color: C.text, outline: 'none', background: C.faint, boxSizing: 'border-box' }
+
+  const latestWeight = [...logs].reverse().find(l => l.weight != null)
+  const latestFat = [...logs].reverse().find(l => l.body_fat != null)
+  const firstWeight = logs.find(l => l.weight != null)
+  const firstFat = logs.find(l => l.body_fat != null)
+  const weightChange = latestWeight && firstWeight && latestWeight !== firstWeight ? (latestWeight.weight - firstWeight.weight).toFixed(1) : null
+  const fatChange = latestFat && firstFat && latestFat !== firstFat ? (latestFat.body_fat - firstFat.body_fat).toFixed(1) : null
+
+  return (
+    <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 24px 32px' }}>
+      <LogoHeader />
+      <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 24 }}>← Back to {client.name}</button>
+
+      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 4 }}>WEIGHT & BODY FAT TRACKER</div>
+      <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 3, color: C.text, marginBottom: 24 }}>{client.name}</div>
+
+      {/* Summary cards */}
+      {(latestWeight || latestFat) && (
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 24 }}>
+          {latestWeight && (
+            <div style={{ flex: '1 1 160px', background: C.accent + '10', border: `1.5px solid ${C.accent}33`, borderRadius: 12, padding: '14px 18px' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.accent, letterSpacing: 1.5, textTransform: 'uppercase' }}>Current Weight</div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: C.text, marginTop: 2 }}>{latestWeight.weight}<span style={{ fontSize: 13, color: C.sub }}> lbs</span></div>
+              {weightChange && <div style={{ fontSize: 12, fontWeight: 700, color: parseFloat(weightChange) <= 0 ? C.green : C.red, marginTop: 2 }}>{parseFloat(weightChange) > 0 ? '+' : ''}{weightChange} lbs total</div>}
+            </div>
+          )}
+          {latestFat && (
+            <div style={{ flex: '1 1 160px', background: C.orange + '10', border: `1.5px solid ${C.orange}33`, borderRadius: 12, padding: '14px 18px' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.orange, letterSpacing: 1.5, textTransform: 'uppercase' }}>Body Fat</div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: C.text, marginTop: 2 }}>{latestFat.body_fat}<span style={{ fontSize: 13, color: C.sub }}>%</span></div>
+              {fatChange && <div style={{ fontSize: 12, fontWeight: 700, color: parseFloat(fatChange) <= 0 ? C.green : C.red, marginTop: 2 }}>{parseFloat(fatChange) > 0 ? '+' : ''}{fatChange}% total</div>}
+            </div>
+          )}
+          <div style={{ flex: '1 1 160px', background: C.faint, border: `1.5px solid ${C.border}`, borderRadius: 12, padding: '14px 18px' }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1.5, textTransform: 'uppercase' }}>Weigh-Ins</div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: C.text, marginTop: 2 }}>{logs.length}</div>
+            <div style={{ fontSize: 12, color: C.sub }}>logged</div>
+          </div>
+        </div>
+      )}
+
+      {/* Chart */}
+      {loading ? <Spinner /> : logs.length >= 2 ? (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 16px 8px', marginBottom: 24 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>PROGRESS OVER TIME</div>
+          <canvas ref={chartRef} style={{ width: '100%', height: 280, display: 'block' }} />
+          <div style={{ display: 'flex', gap: 16, justifyContent: 'center', padding: '8px 0 4px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
+              <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.green }} /> Good
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
+              <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.red }} /> Needs Work
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
+              <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.accent }} /> Weight
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
+              <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.orange }} /> Body Fat
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div style={{ background: C.faint, border: `1px dashed ${C.border}`, borderRadius: 14, padding: '24px 20px', marginBottom: 24, textAlign: 'center' }}>
+          <div style={{ fontSize: 13, color: C.sub, fontWeight: 600 }}>{logs.length === 0 ? 'No weigh-ins yet — log the first one below!' : 'Log one more weigh-in to see the chart.'}</div>
+        </div>
+      )}
+
+      {/* Input Form */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 20px', marginBottom: 24 }}>
+        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 16 }}>LOG WEIGH-IN</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 14 }}>
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Date</label>
+            <input type="date" value={logDate} onChange={e => setLogDate(e.target.value)} style={input} />
+          </div>
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Weight (lbs)</label>
+            <input type="number" step="0.1" value={weight} onChange={e => setWeight(e.target.value)} placeholder="185.0" style={input} />
+          </div>
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Body Fat %</label>
+            <input type="number" step="0.1" value={bodyFat} onChange={e => setBodyFat(e.target.value)} placeholder="22.5" style={input} />
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>How was this weigh-in?</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setRating(rating === 'good' ? '' : 'good')} style={{ flex: 1, padding: '10px 16px', borderRadius: 10, border: `2px solid ${rating === 'good' ? C.green : C.border}`, background: rating === 'good' ? C.green + '15' : 'white', color: rating === 'good' ? C.green : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+              Good
+            </button>
+            <button onClick={() => setRating(rating === 'bad' ? '' : 'bad')} style={{ flex: 1, padding: '10px 16px', borderRadius: 10, border: `2px solid ${rating === 'bad' ? C.red : C.border}`, background: rating === 'bad' ? C.red + '15' : 'white', color: rating === 'bad' ? C.red : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+              Needs Work
+            </button>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Behavior Notes / What to Address</label>
+          <textarea value={behaviorNotes} onChange={e => setBehaviorNotes(e.target.value)} rows={3} placeholder="e.g. Missed meals on weekends, hydration low, stress eating..." style={{ ...input, resize: 'vertical' }} />
+        </div>
+
+        <Btn onClick={handleSave} disabled={saving || (!weight && !bodyFat)}>
+          {saving ? 'Saving...' : 'Log Weigh-In'}
+        </Btn>
+      </div>
+
+      {/* History */}
+      {logs.length > 0 && (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setShowHistory(!showHistory)}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>WEIGH-IN HISTORY ({logs.length})</div>
+            <span style={{ fontSize: 11, color: C.sub }}>{showHistory ? '▲ Hide' : '▼ View All'}</span>
+          </div>
+          {showHistory && (
+            <div style={{ marginTop: 12 }}>
+              {[...logs].reverse().map(l => {
+                const d = new Date(l.logged_at)
+                const dateStr = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`
+                return (
+                  <div key={l.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 0', borderBottom: `1px solid ${C.border}22` }}>
+                    <div style={{ minWidth: 8, height: 8, borderRadius: '50%', marginTop: 5, background: l.rating === 'good' ? C.green : l.rating === 'bad' ? C.red : C.border }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{dateStr}</span>
+                        {l.weight != null && <span style={{ fontSize: 12, color: C.accent, fontWeight: 700 }}>{l.weight} lbs</span>}
+                        {l.body_fat != null && <span style={{ fontSize: 12, color: C.orange, fontWeight: 700 }}>{l.body_fat}%</span>}
+                        {l.rating && <span style={{ fontSize: 10, fontWeight: 700, borderRadius: 8, padding: '1px 8px', background: l.rating === 'good' ? C.green + '15' : C.red + '15', color: l.rating === 'good' ? C.green : C.red }}>{l.rating === 'good' ? 'Good' : 'Needs Work'}</span>}
+                      </div>
+                      {l.behavior_notes && <div style={{ fontSize: 11, color: C.sub, marginTop: 3, lineHeight: 1.5 }}>{l.behavior_notes}</div>}
+                    </div>
+                    <button onClick={() => handleDelete(l.id)} style={{ background: 'none', border: 'none', color: C.red + '66', fontSize: 14, cursor: 'pointer', padding: '0 4px' }} title="Delete">×</button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onSignInSheet, onWeightTracker, onBack, allClients = [], onSwitchClient }) {
   const assessmentsDone = Object.keys(client.assessments || {})
   const [showIntake, setShowIntake] = useState(false)
   const [showLinkMenu, setShowLinkMenu] = useState(false)
@@ -3790,6 +4086,7 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
           {client.goal && <div style={{ fontSize: 13, color: C.sub, marginTop: 4 }}>Goal: {client.goal}</div>}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Btn onClick={() => onWeightTracker(client)} small color={C.teal}>⚖️ Weight</Btn>
           <Btn onClick={() => onSignInSheet(client)} small color={C.green}>📋 Sign-In Sheet</Btn>
           <Btn onClick={() => onProtocolAdvisor(client)} small color={C.orange}>🩺 Protocols</Btn>
           <Btn onClick={() => onGenerateWorkout(client)} small>💪 Workout</Btn>
@@ -4181,7 +4478,7 @@ export default function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {view !== 'roster' && (
             <div style={{ fontSize: 12, color: C.sub }}>
-              {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : view === 'signin' ? 'Sign-In Sheet' : view === 'editClient' ? 'Edit Client' : client?.name}
+              {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : view === 'signin' ? 'Sign-In Sheet' : view === 'weightTracker' ? 'Weight Tracker' : view === 'editClient' ? 'Edit Client' : client?.name}
             </div>
           )}
           <button onClick={async () => { await fetch('/api/auth', { method: 'DELETE' }); setAuthed(false) }} style={{ padding: '4px 10px', borderRadius: 6, border: `1px solid ${C.border}`, background: 'transparent', color: C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
@@ -4202,6 +4499,7 @@ export default function App() {
             onGenerateWorkout={c => { setClient(c); setView('workout') }}
             onProtocolAdvisor={c => { setClient(c); setView('protocols') }}
             onSignInSheet={c => { setClient(c); setView('signin') }}
+            onWeightTracker={c => { setClient(c); setView('weightTracker') }}
             onEditClient={openEditClient}
             onBack={() => setView('roster')}
             allClients={allClients}
@@ -4231,6 +4529,12 @@ export default function App() {
         )}
         {view === 'protocols' && client && (
           <ProtocolAdvisor
+            client={client}
+            onBack={() => setView('client')}
+          />
+        )}
+        {view === 'weightTracker' && client && (
+          <WeightTracker
             client={client}
             onBack={() => setView('client')}
           />

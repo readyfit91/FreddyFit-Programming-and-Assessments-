@@ -35,6 +35,16 @@ create table if not exists workouts (
   generated_at timestamptz default now()
 );
 
+create table if not exists weight_logs (
+  id uuid primary key default gen_random_uuid(),
+  client_id text references clients(id) on delete cascade,
+  logged_at timestamptz not null default now(),
+  weight numeric,
+  body_fat numeric,
+  rating text check (rating in ('good', 'bad')),
+  behavior_notes text
+);
+
 -- Allow all operations (single user app, no auth needed)
 alter table clients enable row level security;
 alter table assessments enable row level security;
@@ -45,3 +55,6 @@ create policy "allow all" on clients for all using (true) with check (true);
 create policy "allow all" on assessments for all using (true) with check (true);
 create policy "allow all" on programs for all using (true) with check (true);
 create policy "allow all" on workouts for all using (true) with check (true);
+
+alter table weight_logs enable row level security;
+create policy "allow all" on weight_logs for all using (true) with check (true);
