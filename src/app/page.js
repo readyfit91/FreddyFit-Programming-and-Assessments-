@@ -407,6 +407,26 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
         </div>
       )
     }
+    if (f.type === 'select') {
+      return (
+        <div style={{ display: 'flex', gap: 8 }}>
+          {f.options.map(opt => {
+            const isSelected = val === opt
+            const isNeutral = opt === 'Neutral'
+            const btnColor = isNeutral ? C.green : C.accent
+            return (
+              <button key={opt} onClick={() => set(f.id, opt)} style={{
+                flex: 1, padding: '10px 16px', borderRadius: 8, cursor: 'pointer',
+                border: `2px solid ${isSelected ? btnColor : C.border}`,
+                background: isSelected ? btnColor : 'white',
+                color: isSelected ? 'white' : C.text,
+                fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 13
+              }}>{opt}{isNeutral && isSelected ? ' ✓ Pass' : ''}</button>
+            )
+          })}
+        </div>
+      )
+    }
     return <input type="text" value={val} onChange={e => set(f.id, e.target.value)} placeholder={f.placeholder || ''} style={base} />
   }
 
