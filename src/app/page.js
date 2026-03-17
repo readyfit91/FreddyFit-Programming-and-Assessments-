@@ -3685,7 +3685,9 @@ function WeightTracker({ client, onBack }) {
   const [behaviorNotes, setBehaviorNotes] = useState('')
   const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0])
   const [showHistory, setShowHistory] = useState(false)
+  const [showJourneyModal, setShowJourneyModal] = useState(false)
   const chartRef = useRef(null)
+  const modalChartRef = useRef(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -3720,9 +3722,8 @@ function WeightTracker({ client, onBack }) {
     try { await deleteWeightLog(id); await load() } catch (e) { alert('Error: ' + e.message) }
   }
 
-  // Chart drawing
-  useEffect(() => {
-    const canvas = chartRef.current
+  // Shared chart drawing function
+  const drawChart = useCallback((canvas, showBehavior) => {
     if (!canvas || logs.length < 2) return
     const ctx = canvas.getContext('2d')
     const dpr = window.devicePixelRatio || 1
@@ -3731,7 +3732,7 @@ function WeightTracker({ client, onBack }) {
     canvas.height = rect.height * dpr
     ctx.scale(dpr, dpr)
     const W = rect.width, H = rect.height
-    const pad = { top: 30, right: 20, bottom: 50, left: 50 }
+    const pad = { top: 30, right: showBehavior ? 50 : 20, bottom: 50, left: 50 }
     const cW = W - pad.left - pad.right, cH = H - pad.top - pad.bottom
 
     ctx.clearRect(0, 0, W, H)
@@ -3747,7 +3748,6 @@ function WeightTracker({ client, onBack }) {
     const allDates = logs.map(l => new Date(l.logged_at).getTime())
     const minT = Math.min(...allDates), maxT = Math.max(...allDates)
     const tRange = maxT - minT || 1
-
     const xFor = (t) => pad.left + ((t - minT) / tRange) * cW
 
     // Grid lines
@@ -3758,11 +3758,57 @@ function WeightTracker({ client, onBack }) {
       ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke()
     }
 
+    // Behavioral change markers — vertical dashed lines where rating shifts
+    if (showBehavior) {
+      const sorted = [...logs].sort((a, b) => new Date(a.logged_at) - new Date(b.logged_at))
+      for (let i = 1; i < sorted.length; i++) {
+        const prev = sorted[i - 1], curr = sorted[i]
+        if (curr.rating && prev.rating && curr.rating !== prev.rating) {
+          const x = xFor(new Date(curr.logged_at).getTime())
+          ctx.save()
+          ctx.setLineDash([4, 4])
+          ctx.strokeStyle = curr.rating === 'good' ? C.green + 'AA' : C.red + 'AA'
+          ctx.lineWidth = 1.5
+          ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, pad.top + cH); ctx.stroke()
+          ctx.setLineDash([])
+          // Arrow marker at top
+          const markerColor = curr.rating === 'good' ? C.green : C.red
+          const arrowLabel = curr.rating === 'good' ? '▲' : '▼'
+          ctx.fillStyle = markerColor
+          ctx.font = 'bold 14px Montserrat, sans-serif'
+          ctx.textAlign = 'center'
+          ctx.fillText(arrowLabel, x, pad.top - 2)
+          // Date label at bottom
+          const d = new Date(curr.logged_at)
+          ctx.fillStyle = markerColor
+          ctx.font = 'bold 9px Montserrat, sans-serif'
+          ctx.fillText(`${d.getMonth() + 1}/${d.getDate()}`, x, pad.top + cH + 14)
+          ctx.restore()
+        }
+      }
+      // Highlight zones — light background color bands between behavioral shifts
+      const shifts = [{ idx: 0, rating: sorted[0].rating || 'neutral' }]
+      for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i].rating && sorted[i].rating !== shifts[shifts.length - 1].rating) {
+          shifts.push({ idx: i, rating: sorted[i].rating })
+        }
+      }
+      for (let s = 0; s < shifts.length; s++) {
+        const startX = xFor(new Date(sorted[shifts[s].idx].logged_at).getTime())
+        const endX = s + 1 < shifts.length ? xFor(new Date(sorted[shifts[s + 1].idx].logged_at).getTime()) : pad.left + cW
+        const zoneColor = shifts[s].rating === 'good' ? C.green + '08' : shifts[s].rating === 'bad' ? C.red + '08' : 'transparent'
+        if (zoneColor !== 'transparent') {
+          ctx.fillStyle = zoneColor
+          ctx.fillRect(startX, pad.top, endX - startX, cH)
+        }
+      }
+    }
+
     // X-axis date labels
     ctx.fillStyle = '#718096'
     ctx.font = '10px Montserrat, sans-serif'
     ctx.textAlign = 'center'
-    const labelCount = Math.min(logs.length, 6)
+    const labelCount = Math.min(logs.length, showBehavior ? 10 : 6)
     const step = Math.max(1, Math.floor(logs.length / labelCount))
     for (let i = 0; i < logs.length; i += step) {
       const d = new Date(logs[i].logged_at)
@@ -3777,7 +3823,6 @@ function WeightTracker({ client, onBack }) {
       const vRange = maxV - minV || 1
       const yFor = (v) => pad.top + cH - ((v - minV) / vRange) * cH
 
-      // Y-axis labels
       ctx.fillStyle = color
       ctx.font = '10px Montserrat, sans-serif'
       ctx.textAlign = yAxis === 'left' ? 'right' : 'left'
@@ -3788,13 +3833,11 @@ function WeightTracker({ client, onBack }) {
         ctx.fillText(v.toFixed(1), x, y + 3)
       }
 
-      // Label
       ctx.font = 'bold 11px Montserrat, sans-serif'
       const labelX = yAxis === 'left' ? pad.left : W - pad.right
       ctx.textAlign = yAxis === 'left' ? 'right' : 'left'
       ctx.fillText(label, labelX, pad.top - 10)
 
-      // Line
       ctx.strokeStyle = color
       ctx.lineWidth = 2.5
       ctx.lineJoin = 'round'
@@ -3808,23 +3851,49 @@ function WeightTracker({ client, onBack }) {
       ctx.stroke()
 
       // Dots with good/bad coloring
+      const dotSize = showBehavior ? 6 : 5
       data.forEach(l => {
         const x = xFor(new Date(l.logged_at).getTime())
         const y = yFor(getVal(l))
         const dotColor = l.rating === 'good' ? C.green : l.rating === 'bad' ? C.red : color
         ctx.beginPath()
-        ctx.arc(x, y, 5, 0, Math.PI * 2)
+        ctx.arc(x, y, dotSize, 0, Math.PI * 2)
         ctx.fillStyle = dotColor
         ctx.fill()
         ctx.strokeStyle = '#fff'
         ctx.lineWidth = 2
         ctx.stroke()
       })
+
+      // In modal: show behavior notes as tooltips near the dots
+      if (showBehavior) {
+        data.forEach(l => {
+          if (l.behavior_notes) {
+            const x = xFor(new Date(l.logged_at).getTime())
+            const y = yFor(getVal(l))
+            ctx.fillStyle = C.text + '99'
+            ctx.font = '8px Montserrat, sans-serif'
+            ctx.textAlign = 'center'
+            const note = l.behavior_notes.length > 20 ? l.behavior_notes.slice(0, 20) + '...' : l.behavior_notes
+            ctx.fillText(note, x, y - 12)
+          }
+        })
+      }
     }
 
     if (hasWeight) drawLine(weightLogs, l => l.weight, C.accent, 'Weight (lbs)', 'left')
     if (hasFat) drawLine(fatLogs, l => l.body_fat, C.orange, 'Body Fat %', hasWeight ? 'right' : 'left')
   }, [logs])
+
+  // Inline chart
+  useEffect(() => { drawChart(chartRef.current, false) }, [drawChart])
+
+  // Modal chart
+  useEffect(() => {
+    if (showJourneyModal) {
+      setTimeout(() => drawChart(modalChartRef.current, true), 50)
+    }
+  }, [showJourneyModal, drawChart])
 
   const input = { width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 13, color: C.text, outline: 'none', background: C.faint, boxSizing: 'border-box' }
 
@@ -3871,7 +3940,12 @@ function WeightTracker({ client, onBack }) {
       {/* Chart */}
       {loading ? <Spinner /> : logs.length >= 2 ? (
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 16px 8px', marginBottom: 24 }}>
-          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>PROGRESS OVER TIME</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>PROGRESS OVER TIME</div>
+            <button onClick={() => setShowJourneyModal(true)} style={{ background: C.accent + '12', border: `1.5px solid ${C.accent}44`, color: C.accent, borderRadius: 8, padding: '5px 14px', fontSize: 10, fontWeight: 800, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', letterSpacing: 1, textTransform: 'uppercase' }}>
+              View Journey
+            </button>
+          </div>
           <canvas ref={chartRef} style={{ width: '100%', height: 280, display: 'block' }} />
           <div style={{ display: 'flex', gap: 16, justifyContent: 'center', padding: '8px 0 4px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
@@ -3964,6 +4038,141 @@ function WeightTracker({ client, onBack }) {
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Journey Modal */}
+      {showJourneyModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 16 }} onClick={() => setShowJourneyModal(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: C.card, borderRadius: 20, padding: '28px 24px', width: '95%', maxWidth: 960, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 4 }}>CLIENT JOURNEY</div>
+                <div style={{ fontWeight: 800, fontSize: 22, letterSpacing: 2, color: C.text }}>{client.name}</div>
+              </div>
+              <button onClick={() => setShowJourneyModal(false)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '6px 12px', fontSize: 16, color: C.sub, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>×</button>
+            </div>
+
+            {/* Summary Row */}
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
+              {latestWeight && (
+                <div style={{ flex: '1 1 120px', background: C.accent + '10', borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: C.accent, letterSpacing: 1, textTransform: 'uppercase' }}>Current</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: C.text }}>{latestWeight.weight}<span style={{ fontSize: 11, color: C.sub }}> lbs</span></div>
+                  {weightChange && <div style={{ fontSize: 11, fontWeight: 700, color: parseFloat(weightChange) <= 0 ? C.green : C.red }}>{parseFloat(weightChange) > 0 ? '+' : ''}{weightChange} lbs</div>}
+                </div>
+              )}
+              {latestFat && (
+                <div style={{ flex: '1 1 120px', background: C.orange + '10', borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: C.orange, letterSpacing: 1, textTransform: 'uppercase' }}>Body Fat</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: C.text }}>{latestFat.body_fat}<span style={{ fontSize: 11, color: C.sub }}>%</span></div>
+                  {fatChange && <div style={{ fontSize: 11, fontWeight: 700, color: parseFloat(fatChange) <= 0 ? C.green : C.red }}>{parseFloat(fatChange) > 0 ? '+' : ''}{fatChange}%</div>}
+                </div>
+              )}
+              <div style={{ flex: '1 1 120px', background: C.faint, borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Total Check-Ins</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: C.text }}>{logs.length}</div>
+              </div>
+              {(() => {
+                const goodCount = logs.filter(l => l.rating === 'good').length
+                const badCount = logs.filter(l => l.rating === 'bad').length
+                const total = goodCount + badCount
+                const pct = total > 0 ? Math.round((goodCount / total) * 100) : 0
+                return (
+                  <div style={{ flex: '1 1 120px', background: pct >= 50 ? C.green + '10' : C.red + '10', borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: pct >= 50 ? C.green : C.red, letterSpacing: 1, textTransform: 'uppercase' }}>Adherence</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: C.text }}>{pct}%</div>
+                    <div style={{ fontSize: 10, color: C.sub }}>{goodCount} good / {badCount} needs work</div>
+                  </div>
+                )
+              })()}
+            </div>
+
+            {/* Large Chart with Behavioral Markers */}
+            <div style={{ background: C.faint, borderRadius: 14, padding: '16px 12px 8px', marginBottom: 20 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>PROGRESS WITH BEHAVIORAL CHANGES</div>
+              <canvas ref={modalChartRef} style={{ width: '100%', height: 360, display: 'block' }} />
+              <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap', padding: '10px 0 4px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.accent }} /> Weight
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.orange }} /> Body Fat
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.green }} /> Good
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.red }} /> Needs Work
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
+                  <div style={{ width: 16, height: 0, borderTop: `2px dashed ${C.green}` }} /> Positive Shift
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
+                  <div style={{ width: 16, height: 0, borderTop: `2px dashed ${C.red}` }} /> Negative Shift
+                </div>
+              </div>
+            </div>
+
+            {/* Behavioral Change Timeline */}
+            {(() => {
+              const sorted = [...logs].sort((a, b) => new Date(a.logged_at) - new Date(b.logged_at))
+              const shifts = []
+              for (let i = 1; i < sorted.length; i++) {
+                const prev = sorted[i - 1], curr = sorted[i]
+                if (curr.rating && prev.rating && curr.rating !== prev.rating) {
+                  shifts.push(curr)
+                }
+              }
+              const notesEntries = sorted.filter(l => l.behavior_notes)
+              if (shifts.length === 0 && notesEntries.length === 0) return null
+              return (
+                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 18px' }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 12 }}>BEHAVIORAL CHANGE TIMELINE</div>
+                  {shifts.length > 0 && shifts.map((s, i) => {
+                    const d = new Date(s.logged_at)
+                    const dateStr = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`
+                    const isGood = s.rating === 'good'
+                    return (
+                      <div key={`shift-${i}`} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '10px 0', borderBottom: `1px solid ${C.border}22` }}>
+                        <div style={{ minWidth: 28, height: 28, borderRadius: '50%', background: isGood ? C.green + '18' : C.red + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, marginTop: 2 }}>
+                          {isGood ? '▲' : '▼'}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: isGood ? C.green : C.red }}>
+                            {isGood ? 'Positive Shift' : 'Regression Noted'} — {dateStr}
+                          </div>
+                          {s.behavior_notes && <div style={{ fontSize: 11, color: C.sub, marginTop: 3, lineHeight: 1.5 }}>{s.behavior_notes}</div>}
+                          {s.weight != null && <span style={{ fontSize: 11, color: C.accent, fontWeight: 600 }}>{s.weight} lbs</span>}
+                          {s.weight != null && s.body_fat != null && <span style={{ color: C.sub }}> · </span>}
+                          {s.body_fat != null && <span style={{ fontSize: 11, color: C.orange, fontWeight: 600 }}>{s.body_fat}%</span>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {notesEntries.length > 0 && (
+                    <>
+                      <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginTop: 16, marginBottom: 8 }}>TRAINER NOTES LOG</div>
+                      {notesEntries.map((l, i) => {
+                        const d = new Date(l.logged_at)
+                        const dateStr = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`
+                        return (
+                          <div key={`note-${i}`} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '8px 0', borderBottom: `1px solid ${C.border}11` }}>
+                            <div style={{ minWidth: 8, height: 8, borderRadius: '50%', marginTop: 5, background: l.rating === 'good' ? C.green : l.rating === 'bad' ? C.red : C.border }} />
+                            <div>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: C.text }}>{dateStr}</span>
+                              <div style={{ fontSize: 11, color: C.sub, marginTop: 2, lineHeight: 1.5 }}>{l.behavior_notes}</div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </>
+                  )}
+                </div>
+              )
+            })()}
+          </div>
         </div>
       )}
     </div>
