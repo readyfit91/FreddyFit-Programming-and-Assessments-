@@ -6,64 +6,6 @@
 export const FIELD_MODIFIERS = {
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // HYPERMOBILITY ASSESSMENT
-  // ═══════════════════════════════════════════════════════════════════════════
-  hm_little_right: [
-    'Grip strengthening (squeeze ball 10s hold)',
-    'Buddy-tape 4th & 5th fingers during load',
-    'Wrist neutral brace during pressing',
-    'No modifier worked',
-  ],
-  hm_little_left: [
-    'Grip strengthening (squeeze ball 10s hold)',
-    'Buddy-tape 4th & 5th fingers during load',
-    'Wrist neutral brace during pressing',
-    'No modifier worked',
-  ],
-  hm_thumb_right: [
-    'Thumb stabiliser tape (spica wrap)',
-    'Avoid thumb-over grip on bars',
-    'Grip cue: knuckles forward, thumb beside index',
-    'No modifier worked',
-  ],
-  hm_thumb_left: [
-    'Thumb stabiliser tape (spica wrap)',
-    'Avoid thumb-over grip on bars',
-    'Grip cue: knuckles forward, thumb beside index',
-    'No modifier worked',
-  ],
-  hm_elbow_right: [
-    'Cue: soft elbow lock — stop 5° before full extension',
-    'Reduce push-up depth / lock-out range',
-    'Elbow sleeve for proprioception',
-    'No modifier worked',
-  ],
-  hm_elbow_left: [
-    'Cue: soft elbow lock — stop 5° before full extension',
-    'Reduce push-up depth / lock-out range',
-    'Elbow sleeve for proprioception',
-    'No modifier worked',
-  ],
-  hm_knee_right: [
-    'Cue: micro-bend — never lock knees fully',
-    'Posterior chain activation (glute bridge before squats)',
-    'Knee sleeve for joint awareness',
-    'No modifier worked',
-  ],
-  hm_knee_left: [
-    'Cue: micro-bend — never lock knees fully',
-    'Posterior chain activation (glute bridge before squats)',
-    'Knee sleeve for joint awareness',
-    'No modifier worked',
-  ],
-  hm_palms: [
-    'Hamstring eccentric loading (Romanian deadlift)',
-    'Neural flossing (sciatic glide)',
-    'Posterior chain warm-up before hinging',
-    'No modifier worked',
-  ],
-
-  // ═══════════════════════════════════════════════════════════════════════════
   // PRIME 8 FULL BODY
   // ═══════════════════════════════════════════════════════════════════════════
   p8_duck_right: [
