@@ -215,12 +215,6 @@ export const FIELD_MODIFIERS = {
     'Thoracic extension then retest',
     'No modifier worked',
   ],
-  np_shoulder_abduction: [
-    'Cervical retraction then retest abduction',
-    'Deltoid isometric activation warm-up',
-    'Scapular depression cue then retest',
-    'No modifier worked',
-  ],
   np_trex_extensor: [
     'Radial nerve glide then retest',
     'Cervical retraction (chin tuck) then retest',
