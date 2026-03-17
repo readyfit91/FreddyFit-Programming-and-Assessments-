@@ -588,6 +588,9 @@ export const ALL_ASSESSMENTS = {
         { id:"sp_abd_right", label:"Right Arm — Fingers between rib and elbow pit", type:"abductedHumerus" },
         { id:"sp_abd_left", label:"Left Arm — Fingers between rib and elbow pit", type:"abductedHumerus" },
       ]},
+      { id:"sp_arm_len", title:"Arm Length Test", fields:[
+        { id:"sp_arm_length", label:"Arm Length Comparison", type:"armLength" },
+      ]},
       { id:"sp2", title:"Scapula", fields:[
         { id:"sp_scapula_position", label:"Scapula Position — protracted / retracted / elevated / depressed", type:"text" },
         { id:"sp_winging_right", label:"Scapula Winging — Right", type:"passfail", options:["None","Present"] },

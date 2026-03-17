@@ -506,11 +506,196 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
         </div>
       )
     }
+    if (f.type === 'armLength') {
+      // Keys for all sub-answers
+      const scolKey = `${f.id}_scoliosis`
+      const dysfKey = `${f.id}_dysfunction`
+      const shortECKey = `${f.id}_short_ec`
+      const shortECModKey = `${f.id}_short_ec_mod`
+      const shortAbdKey = `${f.id}_short_abd`
+      const shortAbdECKey = `${f.id}_short_abd_ec`
+      const longECKey = `${f.id}_long_ec`
+      const longECModKey = `${f.id}_long_ec_mod`
+      const bothNotesKey = `${f.id}_both_notes`
+
+      const result = val // 'Right Arm Lower', 'Left Arm Lower', 'Pass'
+      const scoliosis = answers[scolKey]
+      const dysfunction = answers[dysfKey] // 'Short Arm', 'Long Arm', 'Both'
+      const shortEC = parseInt(answers[shortECKey]) || 0
+      const shortECMod = parseInt(answers[shortECModKey]) || 0
+      const shortAbd = parseInt(answers[shortAbdKey]) || 0
+      const shortAbdEC = parseInt(answers[shortAbdECKey]) || 0
+      const longEC = parseInt(answers[longECKey]) || 0
+      const longECMod = parseInt(answers[longECModKey]) || 0
+
+      const ratingBtns = (key, label, currentVal) => (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>{label}</div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {[1,2,3,4,5,6,7,8,9,10].map(n => {
+              const isSelected = currentVal === n
+              const btnFail = n <= 7
+              return (
+                <button key={n} onClick={() => set(key, n.toString())} style={{
+                  width: 32, height: 32, borderRadius: 7,
+                  border: `1.5px solid ${isSelected ? (btnFail ? C.red : C.green) : C.border}`,
+                  background: isSelected ? (btnFail ? C.red : C.green) : 'white',
+                  color: isSelected ? 'white' : btnFail ? C.red : C.green,
+                  fontFamily: 'Montserrat,sans-serif', fontWeight: 800, fontSize: 12,
+                  cursor: 'pointer'
+                }}>{n}</button>
+              )
+            })}
+          </div>
+          {currentVal >= 8 && <div style={{ marginTop: 6, fontSize: 11, color: C.green, fontWeight: 700 }}>✓ {currentVal}/10 — Pass</div>}
+          {currentVal >= 1 && currentVal <= 7 && <div style={{ marginTop: 6, fontSize: 11, color: C.red, fontWeight: 700 }}>✗ {currentVal}/10 — Fail</div>}
+        </div>
+      )
+
+      const infoBox = (color, text) => (
+        <div style={{ marginTop: 10, padding: '10px 14px', background: color + '12', borderRadius: 8, border: `1px solid ${color}44`, fontSize: 12, color: color, fontWeight: 700, lineHeight: 1.6 }}>
+          {text}
+        </div>
+      )
+
+      const shortArm = result === 'Right Arm Lower' ? 'Left' : result === 'Left Arm Lower' ? 'Right' : ''
+      const longArm = result === 'Right Arm Lower' ? 'Right' : result === 'Left Arm Lower' ? 'Left' : ''
+
+      return (
+        <div>
+          {/* Step 1: Arm Length Result */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {['Right Arm Lower','Left Arm Lower','Pass'].map(opt => {
+              const isSelected = val === opt
+              const isPassOpt = opt === 'Pass'
+              const btnColor = isPassOpt ? C.green : C.accent
+              return (
+                <button key={opt} onClick={() => set(f.id, opt)} style={{
+                  flex: 1, minWidth: 120, padding: '10px 16px', borderRadius: 8, cursor: 'pointer',
+                  border: `2px solid ${isSelected ? btnColor : C.border}`,
+                  background: isSelected ? btnColor : 'white',
+                  color: isSelected ? 'white' : C.text,
+                  fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 13
+                }}>{opt}</button>
+              )
+            })}
+          </div>
+
+          {/* Step 2: Pass → Scoliosis check */}
+          {result === 'Pass' && (
+            <div style={{ marginTop: 12, background: C.faint, borderRadius: 10, padding: '12px 14px', border: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 11, color: C.green, fontWeight: 700, marginBottom: 10 }}>✓ Arms even — check for Scoliosis</div>
+              <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Scoliosis Check</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {['Pass','Fail'].map(opt => {
+                  const isSelected = scoliosis === opt
+                  const color = opt === 'Pass' ? C.green : C.red
+                  return (
+                    <button key={opt} onClick={() => set(scolKey, opt)} style={{
+                      flex: 1, padding: '8px 16px', borderRadius: 7, cursor: 'pointer',
+                      border: `2px solid ${isSelected ? color : C.border}`,
+                      background: isSelected ? color : 'white',
+                      color: isSelected ? 'white' : color,
+                      fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 13
+                    }}>{opt}</button>
+                  )
+                })}
+              </div>
+              {scoliosis === 'Pass' && <div style={{ marginTop: 8, fontSize: 11, color: C.green, fontWeight: 700 }}>✓ No scoliosis detected — Arm Length test complete</div>}
+              {scoliosis === 'Fail' && <div style={{ marginTop: 8, fontSize: 11, color: C.red, fontWeight: 700 }}>✗ Scoliosis detected — note for further evaluation</div>}
+            </div>
+          )}
+
+          {/* Step 3: Fail → Which arm has dysfunction? */}
+          {(result === 'Right Arm Lower' || result === 'Left Arm Lower') && (
+            <div style={{ marginTop: 12, background: C.faint, borderRadius: 10, padding: '12px 14px', border: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 11, color: C.accent, fontWeight: 700, marginBottom: 4 }}>
+                {result} — Short arm: {shortArm}, Long arm: {longArm}
+              </div>
+              <div style={{ fontSize: 10, color: C.sub, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6, marginTop: 10 }}>Which arm has the dysfunction?</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {[`Short Arm (${shortArm})`,`Long Arm (${longArm})`,'Both'].map(opt => {
+                  const key = opt.startsWith('Short') ? 'Short Arm' : opt.startsWith('Long') ? 'Long Arm' : 'Both'
+                  const isSelected = dysfunction === key
+                  return (
+                    <button key={opt} onClick={() => set(dysfKey, key)} style={{
+                      flex: 1, padding: '8px 12px', borderRadius: 7, cursor: 'pointer',
+                      border: `2px solid ${isSelected ? C.accent : C.border}`,
+                      background: isSelected ? C.accent : 'white',
+                      color: isSelected ? 'white' : C.text,
+                      fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12
+                    }}>{opt}</button>
+                  )
+                })}
+              </div>
+
+              {/* SHORT ARM dysfunction — high shoulder */}
+              {(dysfunction === 'Short Arm' || dysfunction === 'Both') && (
+                <div style={{ marginTop: 14, background: C.orange + '08', border: `1px solid ${C.orange}22`, borderRadius: 10, padding: '12px 16px' }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: C.orange, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Short Arm ({shortArm}) — High Shoulder</div>
+                  <div style={{ fontSize: 12, color: C.text, lineHeight: 1.6, marginBottom: 8 }}>
+                    High shoulder can cause tension on the suprascapular nerve. A tight deltoid can pull the upper arm bone up and out to the side, making the arm shorter on that side.
+                  </div>
+                  {ratingBtns(shortECKey, `Empty Can Test — ${shortArm} Arm (1–10)`, shortEC)}
+                  {shortEC >= 1 && shortEC <= 7 && (
+                    <div>
+                      {ratingBtns(shortECModKey, `Push Down on Shoulder → Re-test Empty Can (1–10)`, shortECMod)}
+                      {shortECMod >= 8 && infoBox(C.green, `✓ Push Down Shoulder modifier passed at ${shortECMod}/10`)}
+                    </div>
+                  )}
+                  {shortEC >= 8 && infoBox(C.green, `✓ Empty Can passed at ${shortEC}/10`)}
+                  {infoBox(C.accent, `Consider: Do the Abducted Humerus test (above) — consider Sigmund Deltoid Protocol`)}
+                  {ratingBtns(shortAbdKey, `Abducted Humerus Re-check — ${shortArm} Arm (1–10)`, shortAbd)}
+                  {shortAbd >= 8 && (
+                    <div>
+                      <div style={{ marginTop: 6, fontSize: 11, color: C.green, fontWeight: 700 }}>✓ Abducted test passed — now do Empty Can</div>
+                      {ratingBtns(shortAbdECKey, `Empty Can After Abducted Test (1–10)`, shortAbdEC)}
+                      {shortAbdEC >= 8 && infoBox(C.green, `✓ Empty Can passed at ${shortAbdEC}/10 — suggest Shoulder Story or Rotator Cuff Protocol`)}
+                      {shortAbdEC >= 1 && shortAbdEC <= 7 && infoBox(C.red, `✗ Still failing at ${shortAbdEC}/10 — suggest Shoulder Story or Rotator Cuff Protocol for strengthening`)}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* LONG ARM dysfunction — low shoulder */}
+              {(dysfunction === 'Long Arm' || dysfunction === 'Both') && (
+                <div style={{ marginTop: 14, background: C.sky + '08', border: `1px solid ${C.sky}22`, borderRadius: 10, padding: '12px 16px' }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: C.sky, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Long Arm ({longArm}) — Low Shoulder</div>
+                  <div style={{ fontSize: 12, color: C.text, lineHeight: 1.6, marginBottom: 8 }}>
+                    Low shoulder can compress the brachial plexus. Need to improve glenohumeral joint. Normal capsular ligaments should wind down around the joint and tighten to squeeze it together. Common causes of loosening these ligaments: wearing wrist straps, bouncing out of the bottom of a chin-up, heavy gardening, carrying luggage — makes the joint looser so the arm hangs lower.
+                  </div>
+                  {ratingBtns(longECKey, `Empty Can Test — ${longArm} Arm (1–10)`, longEC)}
+                  {longEC >= 8 && infoBox(C.green, `✓ Empty Can passed at ${longEC}/10`)}
+                  {longEC >= 1 && longEC <= 7 && (
+                    <div>
+                      {ratingBtns(longECModKey, `Shrug Shoulder → Re-test Empty Can (1–10)`, longECMod)}
+                      {longECMod >= 8 && infoBox(C.green, `✓ Shrug modifier passed at ${longECMod}/10 — suggest Rotator Cuff Protocol or Shoulder Superior`)}
+                      {longECMod >= 1 && longECMod <= 7 && infoBox(C.red, `✗ Still failing at ${longECMod}/10 — suggest Rotator Cuff Protocol or Shoulder Superior for strengthening`)}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* BOTH sides */}
+              {dysfunction === 'Both' && (
+                <div style={{ marginTop: 14, background: C.red + '08', border: `1px solid ${C.red}22`, borderRadius: 10, padding: '12px 16px' }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: C.red, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Both Sides Dysfunctional</div>
+                  <div style={{ fontSize: 12, color: C.text, lineHeight: 1.6 }}>
+                    Check for: leg length discrepancy, hemi-pelvis, scoliosis, or other anomalies.
+                  </div>
+                  <textarea value={answers[bothNotesKey] || ''} onChange={e => set(bothNotesKey, e.target.value)} rows={2} placeholder="Notes on findings..." style={{ width: '100%', marginTop: 8, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 12, resize: 'vertical', outline: 'none' }} />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )
+    }
     return <input type="text" value={val} onChange={e => set(f.id, e.target.value)} placeholder={f.placeholder || ''} style={base} />
   }
 
   const renderRatingAndModifier = (f) => {
-    if (f.type === 'textarea' || f.type === 'scale' || f.type === 'dualRating' || f.type === 'neckConclusion' || f.type === 'info' || f.type === 'abductedHumerus' || f.type === 'select') return null
+    if (f.type === 'textarea' || f.type === 'scale' || f.type === 'dualRating' || f.type === 'neckConclusion' || f.type === 'info' || f.type === 'abductedHumerus' || f.type === 'select' || f.type === 'armLength') return null
     const isPrime8 = assessment.id === 'prime8'
     // Only show rating system for fields that have modifiers (Prime 8 inline or FIELD_MODIFIERS)
     const hasModifiers = !!(f.modifiers || FIELD_MODIFIERS[f.id])
