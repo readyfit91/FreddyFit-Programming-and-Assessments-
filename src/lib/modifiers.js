@@ -248,18 +248,6 @@ export const FIELD_MODIFIERS = {
   // ═══════════════════════════════════════════════════════════════════════════
   // NECK POSTURE & FUNCTION
   // ═══════════════════════════════════════════════════════════════════════════
-  np_curve: [
-    'Chin tuck drill (deep cervical flexor activation)',
-    'Thoracic extension foam roll',
-    'Cervical retraction + hold (10s × 5)',
-    'No modifier worked',
-  ],
-  np_thoracic: [
-    'Thoracic extension over foam roller',
-    'Cat-cow thoracic focus',
-    'Pec stretch (doorway) + thoracic rotation',
-    'No modifier worked',
-  ],
   np_fhp: [
     'Chin tuck (cervical retraction) × 10',
     'Deep cervical flexor endurance hold',

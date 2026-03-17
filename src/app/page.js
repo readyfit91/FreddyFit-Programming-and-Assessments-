@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient } from '../lib/supabase'
+import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
 import { FIELD_MODIFIERS } from '../lib/modifiers'
 import { QRCodeCanvas } from 'qrcode.react'
@@ -2544,8 +2544,14 @@ const PACKAGE_OPTIONS = [
 ]
 
 function SignInSheet({ client, onBack, onUpdate }) {
-  // Load existing sign-in data from trainerNotes
+  const localKey = `ff_signin_${client.id}`
+
+  // Load from localStorage first (offline safety), then fall back to trainerNotes
   const initialData = (() => {
+    try {
+      const local = localStorage.getItem(localKey)
+      if (local) return JSON.parse(local)
+    } catch {}
     if (!client.trainerNotes) return {}
     try { return JSON.parse(client.trainerNotes) } catch { return {} }
   })()
@@ -2558,26 +2564,71 @@ function SignInSheet({ client, onBack, onUpdate }) {
   const [saving, setSaving] = useState(false)
   const [editingOffset, setEditingOffset] = useState(false)
   const [tempOffset, setTempOffset] = useState(String(initialData.sign_in_offset || 0))
+  const [selected, setSelected] = useState(new Set()) // indices of selected entries
+  const [deleteConfirm, setDeleteConfirm] = useState(0) // 0=none, 1=first, 2=second, 3=third (executes)
+  const [pendingSync, setPendingSync] = useState(!!localStorage.getItem(localKey + '_pending'))
+  const [online, setOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
 
   const totalSessions = PACKAGE_OPTIONS.find(p => p.label === packageType)?.sessions || 0
   const sessionsUsed = entries.length + sessionOffset
   const sessionsRemaining = Math.max(0, totalSessions - sessionsUsed)
 
-  const saveData = async (pkg, ents, offset) => {
-    setSaving(true)
+  // Save locally first, then try Supabase
+  const saveLocal = (pkg, ents, offset) => {
+    const data = { sign_in_package: pkg, sign_in_entries: ents, sign_in_offset: offset }
+    try { localStorage.setItem(localKey, JSON.stringify(data)) } catch {}
+  }
+
+  const syncToSupabase = async (pkg, ents, offset) => {
     try {
-      // Re-read current trainerNotes to avoid overwriting other fields
       let base = {}
       try { base = JSON.parse(client.trainerNotes || '{}') } catch {}
       const updatedNotes = { ...base, sign_in_package: pkg, sign_in_entries: ents, sign_in_offset: offset }
       const updatedClient = { ...client, trainerNotes: JSON.stringify(updatedNotes) }
       await saveClient(updatedClient)
       onUpdate(updatedClient)
-    } catch (e) {
-      alert('Error saving: ' + e.message)
+      // Clear pending flag and local cache on successful sync
+      localStorage.removeItem(localKey + '_pending')
+      localStorage.removeItem(localKey)
+      setPendingSync(false)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  const saveData = async (pkg, ents, offset) => {
+    setSaving(true)
+    // Always save locally first — data is never lost
+    saveLocal(pkg, ents, offset)
+    // Try to sync to Supabase
+    const ok = await syncToSupabase(pkg, ents, offset)
+    if (!ok) {
+      // Mark as pending so we know to retry later
+      localStorage.setItem(localKey + '_pending', '1')
+      setPendingSync(true)
     }
     setSaving(false)
   }
+
+  // Auto-sync when coming back online
+  useEffect(() => {
+    const goOnline = () => {
+      setOnline(true)
+      // If there's pending data, try to sync it
+      const pending = localStorage.getItem(localKey + '_pending')
+      if (pending) {
+        const data = (() => { try { return JSON.parse(localStorage.getItem(localKey)) } catch { return null } })()
+        if (data) syncToSupabase(data.sign_in_package, data.sign_in_entries, data.sign_in_offset)
+      }
+    }
+    const goOffline = () => setOnline(false)
+    window.addEventListener('online', goOnline)
+    window.addEventListener('offline', goOffline)
+    // Try syncing on mount if pending
+    goOnline()
+    return () => { window.removeEventListener('online', goOnline); window.removeEventListener('offline', goOffline) }
+  }, [])
 
   const handlePackageChange = (val) => {
     setPackageType(val)
@@ -2600,6 +2651,38 @@ function SignInSheet({ client, onBack, onUpdate }) {
   const handleDeleteEntry = (idx) => {
     const newEntries = entries.filter((_, i) => i !== idx).map((e, i) => ({ ...e, session: i + sessionOffset + 1 }))
     setEntries(newEntries)
+    setSelected(new Set())
+    saveData(packageType, newEntries, sessionOffset)
+  }
+
+  const toggleSelect = (idx) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(idx) ? next.delete(idx) : next.add(idx)
+      return next
+    })
+    setDeleteConfirm(0)
+  }
+
+  const toggleSelectAll = () => {
+    if (selected.size === entries.length) {
+      setSelected(new Set())
+    } else {
+      setSelected(new Set(entries.map((_, i) => i)))
+    }
+    setDeleteConfirm(0)
+  }
+
+  const handleBulkDelete = () => {
+    if (deleteConfirm < 3) {
+      setDeleteConfirm(deleteConfirm + 1)
+      return
+    }
+    // 3rd confirmation reached — delete
+    const newEntries = entries.filter((_, i) => !selected.has(i)).map((e, i) => ({ ...e, session: i + sessionOffset + 1 }))
+    setEntries(newEntries)
+    setSelected(new Set())
+    setDeleteConfirm(0)
     saveData(packageType, newEntries, sessionOffset)
   }
 
@@ -2619,7 +2702,18 @@ function SignInSheet({ client, onBack, onUpdate }) {
       <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 24 }}>← Back to Profile</button>
 
       <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 3, color: C.text, marginBottom: 4 }}>Sign-In Sheet</div>
-      <div style={{ fontSize: 14, color: C.sub, marginBottom: 24 }}>{client.name}</div>
+      <div style={{ fontSize: 14, color: C.sub, marginBottom: pendingSync || !online ? 12 : 24 }}>{client.name}</div>
+
+      {/* Offline / Pending Sync Indicator */}
+      {(!online || pendingSync) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', marginBottom: 16, borderRadius: 10, fontSize: 12, fontWeight: 700, fontFamily: 'Montserrat,sans-serif', background: !online ? C.orange + '12' : C.sky + '12', border: `1.5px solid ${!online ? C.orange + '44' : C.sky + '44'}`, color: !online ? C.orange : C.sky }}>
+          <span style={{ fontSize: 16 }}>{!online ? '⚡' : '↻'}</span>
+          {!online
+            ? 'You\'re offline — signatures are saved locally and will sync when you reconnect'
+            : 'Syncing saved data to cloud...'
+          }
+        </div>
+      )}
 
       {/* Package Selection */}
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 20 }}>
@@ -2700,23 +2794,45 @@ function SignInSheet({ client, onBack, onUpdate }) {
           {/* Sign-In History */}
           {entries.length > 0 && (
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px' }}>
-              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 14 }}>Sign-In History</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '40px 1fr 70px 70px 32px', gap: '0', fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', padding: '0 0 8px', borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>Sign-In History</div>
+                {selected.size > 0 && (
+                  <button onClick={handleBulkDelete} style={{
+                    background: deleteConfirm === 0 ? C.red : deleteConfirm === 1 ? C.red : deleteConfirm === 2 ? '#b91c1c' : '#7f1d1d',
+                    color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif',
+                    animation: deleteConfirm > 0 ? 'none' : undefined
+                  }}>
+                    {deleteConfirm === 0 && `Delete ${selected.size} Selected`}
+                    {deleteConfirm === 1 && `Are you sure? (1/3)`}
+                    {deleteConfirm === 2 && `Really delete? (2/3)`}
+                    {deleteConfirm === 3 && `FINAL confirm — delete forever (3/3)`}
+                  </button>
+                )}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '30px 40px 1fr 70px 70px', gap: '0', fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', padding: '0 0 8px', borderBottom: `1px solid ${C.border}`, alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <input type="checkbox" checked={selected.size === entries.length && entries.length > 0} onChange={toggleSelectAll} style={{ width: 16, height: 16, cursor: 'pointer', accentColor: C.accent }} title="Select All" />
+                </div>
                 <div>#</div>
                 <div>Date</div>
                 <div>Time</div>
                 <div>Signature</div>
-                <div />
               </div>
-              {[...entries].reverse().map((entry, i) => (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: '40px 1fr 70px 70px 32px', gap: '0', alignItems: 'center', padding: '10px 0', borderBottom: `1px solid ${C.border}11` }}>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: C.accent }}>{entry.session}</div>
-                  <div style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>{entry.date}</div>
-                  <div style={{ fontSize: 12, color: C.sub, fontWeight: 600 }}>{entry.time || '—'}</div>
-                  <div>{entry.signature && <img src={entry.signature} alt="sig" style={{ height: 28, borderRadius: 4, border: `1px solid ${C.border}` }} />}</div>
-                  <button onClick={() => handleDeleteEntry(entries.length - 1 - i)} style={{ background: 'none', border: 'none', color: C.sub, fontSize: 14, cursor: 'pointer', padding: 0 }} title="Remove">×</button>
-                </div>
-              ))}
+              {[...entries].reverse().map((entry, i) => {
+                const realIdx = entries.length - 1 - i
+                const isSelected = selected.has(realIdx)
+                return (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '30px 40px 1fr 70px 70px', gap: '0', alignItems: 'center', padding: '10px 0', borderBottom: `1px solid ${C.border}11`, background: isSelected ? C.red + '08' : 'transparent' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(realIdx)} style={{ width: 16, height: 16, cursor: 'pointer', accentColor: C.accent }} />
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: C.accent }}>{entry.session}</div>
+                    <div style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>{entry.date}</div>
+                    <div style={{ fontSize: 12, color: C.sub, fontWeight: 600 }}>{entry.time || '—'}</div>
+                    <div>{entry.signature && <img src={entry.signature} alt="sig" style={{ height: 28, borderRadius: 4, border: `1px solid ${C.border}` }} />}</div>
+                  </div>
+                )
+              })}
             </div>
           )}
         </>
@@ -2888,16 +3004,1236 @@ function SignInPad({ onSign, saving }) {
   )
 }
 
+// ── PDF VIEWER (renders all pages for iPad compatibility) ────────────────────
+function PdfViewer({ dataUrl, name }) {
+  const containerRef = useRef(null)
+  const [pages, setPages] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    setPages([])
+
+    const loadPdf = async () => {
+      try {
+        // Load pdf.js from CDN
+        if (!window.pdfjsLib) {
+          await new Promise((resolve, reject) => {
+            const s = document.createElement('script')
+            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'
+            s.onload = resolve
+            s.onerror = () => reject(new Error('Failed to load PDF viewer'))
+            document.head.appendChild(s)
+          })
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+        }
+
+        const pdf = await window.pdfjsLib.getDocument(dataUrl).promise
+        if (cancelled) return
+
+        const rendered = []
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i)
+          const scale = containerRef.current ? (containerRef.current.clientWidth / page.getViewport({ scale: 1 }).width) : 1.5
+          const viewport = page.getViewport({ scale })
+          const canvas = document.createElement('canvas')
+          canvas.width = viewport.width
+          canvas.height = viewport.height
+          await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise
+          rendered.push(canvas.toDataURL())
+          if (cancelled) return
+        }
+        setPages(rendered)
+      } catch (err) {
+        if (!cancelled) setError(err.message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    loadPdf()
+    return () => { cancelled = true }
+  }, [dataUrl])
+
+  if (error) return (
+    <div style={{ padding: 16, textAlign: 'center' }}>
+      <div style={{ fontSize: 12, color: C.red, marginBottom: 8 }}>Could not render PDF</div>
+      <a href={dataUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: C.accent, fontWeight: 700, textDecoration: 'none' }}>Open PDF in new tab</a>
+    </div>
+  )
+
+  return (
+    <div ref={containerRef}>
+      {loading && <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: C.sub }}>Loading PDF...</div>}
+      <div style={{ maxHeight: 600, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+        {pages.map((src, i) => (
+          <img key={i} src={src} alt={`${name} page ${i + 1}`} style={{ width: '100%', display: 'block', borderBottom: i < pages.length - 1 ? `2px solid ${C.border}` : 'none' }} />
+        ))}
+      </div>
+      {pages.length > 0 && (
+        <div style={{ padding: '6px 12px', textAlign: 'center', background: C.faint, fontSize: 10, color: C.sub }}>
+          {pages.length} page{pages.length !== 1 ? 's' : ''} — <a href={dataUrl} target="_blank" rel="noopener noreferrer" style={{ color: C.accent, fontWeight: 700, textDecoration: 'none' }}>Open in new tab</a>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── PROGRAM JOURNAL ──────────────────────────────────────────────────────────
+const PHASES = [
+  { id: 'p1', name: 'Phase 1 — The Base', sub: 'Building movement patterns and capacity', color: C.teal },
+  { id: 'p2', name: 'Phase 2 — The Forge', sub: 'Developing raw strength', color: C.accent },
+  { id: 'p3', name: 'Phase 3 — The Engine', sub: 'VO2 and work capacity', color: C.indigo },
+  { id: 'p4', name: 'Phase 4 — The Peak', sub: 'Max strength and PRs', color: C.orange },
+]
+const YEARS = [1, 2, 3, 4, 5]
+// Default week order — deloads can be inserted between any weeks
+const DEFAULT_WEEK_ORDER = ['Week 1','Week 2','Week 3','Week 4','Week 5','Week 6','Week 7','Week 8','Week 9','Week 10','Week 11','Week 12','Deload']
+
+const emptyExercise = () => ({ id: makeId(), exercise: '', sets: '', setsType: 'sets', reps: '', repsType: 'reps', weight: '', tempo: '', rpe: '', notes: '', circuit: '', setLogs: [] })
+const emptyDay = (num) => ({ id: makeId(), dayNum: num, exercises: [emptyExercise()], dayNotes: '', date: '' })
+
+function ProgramUploads({ client, onUpdate }) {
+  const parseNotes = () => { try { return JSON.parse(client.trainerNotes || '{}') } catch { return {} } }
+  const stored = parseNotes()
+
+  // program_journal: { "y1_p1_Week 1": { days: [...] }, ... }
+  const [journal, setJournal] = useState(stored.program_journal || {})
+  const [selYear, setSelYear] = useState(1)
+  const [selPhase, setSelPhase] = useState('p1')
+  const [selWeek, setSelWeek] = useState('Week 1')
+  // Week order per phase — allows custom deload placement
+  const weekOrderKey = `y${selYear}_${selPhase}_weekorder`
+  const weekOrder = journal[weekOrderKey] || DEFAULT_WEEK_ORDER
+  const [saving, setSaving] = useState(false)
+  const [programFile, setProgramFile] = useState(stored.program_file || null)
+  const [showProgram, setShowProgram] = useState(false)
+
+  const journalKey = `y${selYear}_${selPhase}_${selWeek}`
+  const weekData = journal[journalKey] || { days: [emptyDay(1), emptyDay(2)] }
+
+  const persist = async (updates) => {
+    setSaving(true)
+    try {
+      const base = parseNotes()
+      const merged = { ...base, ...updates }
+      const updatedClient = { ...client, trainerNotes: JSON.stringify(merged) }
+      await saveClient(updatedClient)
+      onUpdate(updatedClient)
+    } catch (e) { alert('Error saving: ' + e.message) }
+    setSaving(false)
+  }
+
+  const [unsavedDays, setUnsavedDays] = useState(new Set())
+  const [savedDays, setSavedDays] = useState(new Set())
+  const [collapsedNotes, setCollapsedNotes] = useState(new Set())
+  const [collapsedDays, setCollapsedDays] = useState(new Set())
+  const [expandedSetLogs, setExpandedSetLogs] = useState(new Set())
+
+  // Update locally only — no persist
+  const updateWeekDataLocal = (newDays, changedDayIdx) => {
+    const updated = { ...journal, [journalKey]: { days: newDays } }
+    setJournal(updated)
+    if (changedDayIdx !== undefined) {
+      setUnsavedDays(prev => new Set(prev).add(changedDayIdx))
+      setSavedDays(prev => { const n = new Set(prev); n.delete(changedDayIdx); return n })
+    }
+  }
+
+  // Persist entire week to database
+  const updateWeekData = (newDays) => {
+    const updated = { ...journal, [journalKey]: { days: newDays } }
+    setJournal(updated)
+    persist({ program_journal: updated })
+  }
+
+  // Save a specific day (persists the whole week since that's the storage unit)
+  const saveDay = (dayIdx) => {
+    const updated = { ...journal, [journalKey]: { days: weekData.days } }
+    persist({ program_journal: updated })
+    setUnsavedDays(prev => { const n = new Set(prev); n.delete(dayIdx); return n })
+    setSavedDays(prev => new Set(prev).add(dayIdx))
+    setTimeout(() => setSavedDays(prev => { const n = new Set(prev); n.delete(dayIdx); return n }), 2000)
+  }
+
+  const updateExercise = (dayIdx, exIdx, field, value) => {
+    const days = weekData.days.map((d, di) => {
+      if (di !== dayIdx) return d
+      const exercises = d.exercises.map((ex, ei) => ei === exIdx ? { ...ex, [field]: value } : ex)
+      return { ...d, exercises }
+    })
+    updateWeekDataLocal(days, dayIdx)
+  }
+
+  const addExercise = (dayIdx) => {
+    const days = weekData.days.map((d, di) => di === dayIdx ? { ...d, exercises: [...d.exercises, emptyExercise()] } : d)
+    updateWeekDataLocal(days, dayIdx)
+  }
+
+  const removeExercise = (dayIdx, exIdx) => {
+    const days = weekData.days.map((d, di) => {
+      if (di !== dayIdx) return d
+      if (d.exercises.length <= 1) return d
+      return { ...d, exercises: d.exercises.filter((_, ei) => ei !== exIdx) }
+    })
+    updateWeekDataLocal(days, dayIdx)
+  }
+
+  const duplicateExercise = (dayIdx, exIdx) => {
+    const days = weekData.days.map((d, di) => {
+      if (di !== dayIdx) return d
+      const exercises = d.exercises.map((ex, ei) => {
+        if (ei !== exIdx) return ex
+        const currentSets = parseInt(ex.sets) || 1
+        const newSets = currentSets + 1
+        const setLogs = [...(ex.setLogs || [])]
+        while (setLogs.length < newSets) setLogs.push({ rpe: '', notes: '' })
+        return { ...ex, sets: String(newSets), setLogs }
+      })
+      return { ...d, exercises }
+    })
+    updateWeekDataLocal(days, dayIdx)
+  }
+
+  const toggleCollapsedNotes = (dayIdx) => {
+    setCollapsedNotes(prev => {
+      const n = new Set(prev)
+      n.has(dayIdx) ? n.delete(dayIdx) : n.add(dayIdx)
+      return n
+    })
+  }
+
+  const toggleCollapsedDay = (dayIdx) => {
+    setCollapsedDays(prev => {
+      const n = new Set(prev)
+      n.has(dayIdx) ? n.delete(dayIdx) : n.add(dayIdx)
+      return n
+    })
+  }
+
+  const toggleSetLogs = (dayIdx, exIdx) => {
+    const key = `${dayIdx}-${exIdx}`
+    setExpandedSetLogs(prev => {
+      const n = new Set(prev)
+      n.has(key) ? n.delete(key) : n.add(key)
+      return n
+    })
+  }
+
+  const updateSetLog = (dayIdx, exIdx, setIdx, field, value) => {
+    const days = weekData.days.map((d, di) => {
+      if (di !== dayIdx) return d
+      const exercises = d.exercises.map((ex, ei) => {
+        if (ei !== exIdx) return ex
+        const setLogs = [...(ex.setLogs || [])]
+        setLogs[setIdx] = { ...(setLogs[setIdx] || {}), [field]: value }
+        return { ...ex, setLogs }
+      })
+      return { ...d, exercises }
+    })
+    updateWeekDataLocal(days, dayIdx)
+  }
+
+  const updateDayNotes = (dayIdx, value) => {
+    const days = weekData.days.map((d, di) => di === dayIdx ? { ...d, dayNotes: value } : d)
+    updateWeekDataLocal(days, dayIdx)
+  }
+
+  const addDay = () => {
+    const nextNum = weekData.days.length + 1
+    updateWeekData([...weekData.days, emptyDay(nextNum)])
+  }
+
+  const removeDay = (dayIdx) => {
+    if (weekData.days.length <= 1) return
+    if (!confirm(`Remove Day ${dayIdx + 1}?`)) return
+    const days = weekData.days.filter((_, i) => i !== dayIdx).map((d, i) => ({ ...d, dayNum: i + 1 }))
+    updateWeekData(days)
+    setUnsavedDays(new Set())
+  }
+
+  const handleUpload = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    if (file.size > 2 * 1024 * 1024) { alert('File too large — max 2 MB.'); return }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const pf = { data: reader.result, name: file.name, uploadedAt: new Date().toISOString() }
+      setProgramFile(pf)
+      setShowProgram(true)
+      persist({ program_file: pf })
+    }
+    reader.readAsDataURL(file)
+    e.target.value = ''
+  }
+
+  const removeProgram = () => {
+    if (!confirm('Remove the uploaded program?')) return
+    setProgramFile(null)
+    setShowProgram(false)
+    persist({ program_file: null })
+  }
+
+  // Check if a week has data
+  const weekHasData = (yr, ph, wk) => {
+    const k = `y${yr}_${ph}_${wk}`
+    const d = journal[k]
+    if (!d) return false
+    return d.days.some(day => day.exercises.some(ex => ex.exercise.trim()) || day.dayNotes.trim())
+  }
+
+  // Update date on a day
+  const updateDayDate = (dayIdx, value) => {
+    const days = weekData.days.map((d, di) => di === dayIdx ? { ...d, date: value } : d)
+    updateWeekDataLocal(days, dayIdx)
+  }
+
+  // Toggle circuit label on an exercise
+  const toggleCircuit = (dayIdx, exIdx) => {
+    const day = weekData.days[dayIdx]
+    const ex = day.exercises[exIdx]
+    // Cycle: '' -> 'A' -> 'B' -> 'C' -> ''
+    const labels = ['', 'A', 'B', 'C', 'D']
+    const nextIdx = (labels.indexOf(ex.circuit || '') + 1) % labels.length
+    updateExercise(dayIdx, exIdx, 'circuit', labels[nextIdx])
+  }
+
+  const currentPhase = PHASES.find(p => p.id === selPhase)
+  const [copied, setCopied] = useState('')
+  const [showCopyModal, setShowCopyModal] = useState(false)
+  const [copySelYears, setCopySelYears] = useState([])
+  const [copySelPhases, setCopySelPhases] = useState([])
+  const [copySelWeeks, setCopySelWeeks] = useState([])
+  const [editingWeekIdx, setEditingWeekIdx] = useState(-1)
+  const [editingWeekName, setEditingWeekName] = useState('')
+
+  // Rename a week in the order
+  const renameWeek = (idx, newName) => {
+    if (!newName.trim()) return
+    const oldName = weekOrder[idx]
+    const newOrder = weekOrder.map((w, i) => i === idx ? newName.trim() : w)
+    // Update journal: rename old key to new key
+    const updated = { ...journal }
+    const oldKey = `y${selYear}_${selPhase}_${oldName}`
+    const newKey = `y${selYear}_${selPhase}_${newName.trim()}`
+    if (updated[oldKey] && oldName !== newName.trim()) {
+      updated[newKey] = updated[oldKey]
+      delete updated[oldKey]
+    }
+    updated[weekOrderKey] = newOrder
+    setJournal(updated)
+    if (selWeek === oldName) setSelWeek(newName.trim())
+    persist({ program_journal: updated })
+    setEditingWeekIdx(-1)
+  }
+
+  // Format a single week's data as text
+  const formatWeekText = (yr, ph, wk) => {
+    const k = `y${yr}_${ph}_${wk}`
+    const d = journal[k]
+    if (!d) return ''
+    const phaseName = PHASES.find(p => p.id === ph)?.name || ph
+    let lines = [`=== Year ${yr} | ${phaseName} | ${wk} ===\n`]
+    d.days.forEach((day, i) => {
+      lines.push(`--- Day ${i + 1}${day.date ? ` (${new Date(day.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })})` : ''} ---`)
+      day.exercises.forEach(ex => {
+        if (!ex.exercise.trim()) return
+        const parts = [ex.circuit ? `[Circuit ${ex.circuit}]` : '', ex.exercise]
+        if (ex.sets) parts.push(`${ex.sets} ${ex.setsType === 'rounds' ? 'rounds' : 'sets'}`)
+        if (ex.reps) parts.push(`x ${ex.reps} ${ex.repsType === 'time' ? 'sec' : 'reps'}`)
+        if (ex.tempo) parts.push(`@ ${ex.tempo}`)
+        if (ex.rpe) parts.push(`RPE ${ex.rpe}`)
+        if (ex.notes) parts.push(`— ${ex.notes}`)
+        lines.push(parts.filter(Boolean).join(' '))
+      })
+      if (day.dayNotes?.trim()) lines.push(`Notes: ${day.dayNotes.trim()}`)
+      lines.push('')
+    })
+    return lines.join('\n')
+  }
+
+  const copyToClipboard = (text, label) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(label)
+      setTimeout(() => setCopied(''), 2000)
+    })
+  }
+
+  // Copy selected combination
+  const copySelected = () => {
+    const years = copySelYears.length ? copySelYears : [selYear]
+    const phases = copySelPhases.length ? copySelPhases : [selPhase]
+    const texts = years.flatMap(yr =>
+      phases.flatMap(ph => {
+        const order = journal[`y${yr}_${ph}_weekorder`] || DEFAULT_WEEK_ORDER
+        const weeks = copySelWeeks.length ? order.filter(w => copySelWeeks.includes(w)) : order
+        return weeks.map(wk => formatWeekText(yr, ph, wk))
+      })
+    ).filter(t => t.trim())
+    if (texts.length === 0) { alert('No data found for the selected combination.'); return }
+    copyToClipboard(texts.join('\n'), 'custom')
+    setShowCopyModal(false)
+  }
+
+  // Toggle helpers for multi-select
+  const toggleCopyYear = (y) => setCopySelYears(prev => prev.includes(y) ? prev.filter(v => v !== y) : [...prev, y])
+  const toggleCopyPhase = (p) => setCopySelPhases(prev => prev.includes(p) ? prev.filter(v => v !== p) : [...prev, p])
+  const toggleCopyWeek = (w) => setCopySelWeeks(prev => prev.includes(w) ? prev.filter(v => v !== w) : [...prev, w])
+
+  const selectStyle = { padding: '7px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 12, fontWeight: 700, fontFamily: 'Montserrat,sans-serif', color: C.text, background: '#fff', cursor: 'pointer', outline: 'none' }
+  const inputCell = { padding: '6px 8px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', color: C.text, outline: 'none', background: '#fff', boxSizing: 'border-box', width: '100%', minWidth: 0 }
+  const copyBtnStyle = (active) => ({ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${active ? C.accent : C.border}`, background: active ? C.accent + '15' : 'transparent', color: active ? C.accent : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', letterSpacing: 0.5 })
+  const chipStyle = (active) => ({ padding: '4px 10px', borderRadius: 6, border: `1.5px solid ${active ? C.accent : C.border}`, background: active ? C.accent + '15' : '#fff', color: active ? C.accent : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' })
+
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 20 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>Program Journal</div>
+          {saving && <span style={{ fontSize: 10, color: C.accent }}>Saving...</span>}
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {programFile && (
+            <button onClick={() => setShowProgram(!showProgram)} style={{ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${showProgram ? C.accent : C.border}`, background: showProgram ? C.accent + '12' : 'transparent', color: showProgram ? C.accent : C.sub, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+              {showProgram ? 'Hide Program' : 'View Program'}
+            </button>
+          )}
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.sub, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+            {programFile ? 'Replace' : 'Upload'} Program
+            <input type="file" accept="image/*,.pdf" onChange={handleUpload} style={{ display: 'none' }} />
+          </label>
+        </div>
+      </div>
+
+      {/* Program viewer */}
+      {showProgram && programFile && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
+            {programFile.data?.startsWith('data:image') && (
+              <img src={programFile.data} alt={programFile.name} style={{ width: '100%', maxHeight: 500, objectFit: 'contain', display: 'block' }} />
+            )}
+            {programFile.data?.startsWith('data:application/pdf') && (
+              <PdfViewer dataUrl={programFile.data} name={programFile.name} />
+            )}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+            <div style={{ fontSize: 10, color: C.sub }}>{programFile.name}</div>
+            <button onClick={removeProgram} style={{ padding: '3px 10px', borderRadius: 6, border: `1px solid ${C.red}44`, background: 'transparent', color: C.red, fontSize: 9, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Remove</button>
+          </div>
+        </div>
+      )}
+
+      {/* Year / Phase / Week dropdowns */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
+        <select value={selYear} onChange={e => setSelYear(Number(e.target.value))} style={selectStyle}>
+          {YEARS.map(y => <option key={y} value={y}>Year {y}</option>)}
+        </select>
+        <select value={selPhase} onChange={e => setSelPhase(e.target.value)} style={{ ...selectStyle, borderColor: currentPhase.color, color: currentPhase.color }}>
+          {PHASES.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <select value={selWeek} onChange={e => setSelWeek(e.target.value)} style={{ ...selectStyle, ...(selWeek.startsWith('Deload') ? { borderColor: C.orange, color: C.orange } : {}) }}>
+          {weekOrder.map(w => (
+            <option key={w} value={w}>{w}{weekHasData(selYear, selPhase, w) ? ' ✓' : ''}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Copy & week tools */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
+        <button onClick={() => { setCopySelYears([]); setCopySelPhases([]); setCopySelWeeks([]); setShowCopyModal(!showCopyModal) }} style={copyBtnStyle(showCopyModal)}>
+          {copied === 'custom' ? '✓ Copied!' : 'Copy & Export'}
+        </button>
+        <button onClick={() => { if (editingWeekIdx >= 0) { setEditingWeekIdx(-1) } else { setEditingWeekIdx(weekOrder.indexOf(selWeek)); setEditingWeekName(selWeek) } }} style={copyBtnStyle(editingWeekIdx >= 0)}>
+          {editingWeekIdx >= 0 ? 'Cancel Rename' : 'Rename Week'}
+        </button>
+      </div>
+
+      {/* Rename week inline */}
+      {editingWeekIdx >= 0 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center' }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: C.sub }}>Rename:</span>
+          <input value={editingWeekName} onChange={e => setEditingWeekName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') renameWeek(editingWeekIdx, editingWeekName) }} style={{ ...inputCell, flex: 1, maxWidth: 200 }} autoFocus />
+          <button onClick={() => renameWeek(editingWeekIdx, editingWeekName)} style={{ padding: '5px 14px', borderRadius: 7, border: 'none', background: C.accent, color: '#000', fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Save</button>
+        </div>
+      )}
+
+      {/* Copy modal */}
+      {showCopyModal && (
+        <div style={{ background: '#fff', border: `1.5px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, color: C.text, marginBottom: 10, letterSpacing: 1 }}>SELECT WHAT TO COPY</div>
+          {/* Years */}
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, marginBottom: 6, letterSpacing: 1 }}>YEARS <span style={{ fontWeight: 500, letterSpacing: 0 }}>(none = current year)</span></div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {YEARS.map(y => <button key={y} onClick={() => toggleCopyYear(y)} style={chipStyle(copySelYears.includes(y))}>Year {y}</button>)}
+            </div>
+          </div>
+          {/* Phases */}
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, marginBottom: 6, letterSpacing: 1 }}>PHASES <span style={{ fontWeight: 500, letterSpacing: 0 }}>(none = current phase)</span></div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {PHASES.map(p => <button key={p.id} onClick={() => toggleCopyPhase(p.id)} style={chipStyle(copySelPhases.includes(p.id))}>{p.name.split('—')[0].trim()}</button>)}
+            </div>
+          </div>
+          {/* Weeks */}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, marginBottom: 6, letterSpacing: 1 }}>WEEKS <span style={{ fontWeight: 500, letterSpacing: 0 }}>(none = all weeks)</span></div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {weekOrder.map(w => <button key={w} onClick={() => toggleCopyWeek(w)} style={chipStyle(copySelWeeks.includes(w))}>{w}</button>)}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={copySelected} style={{ padding: '7px 20px', borderRadius: 8, border: 'none', background: C.accent, color: '#000', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Copy to Clipboard</button>
+            <button onClick={() => setShowCopyModal(false)} style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${C.border}`, background: 'transparent', color: C.sub, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Close</button>
+          </div>
+        </div>
+      )}
+
+      {/* Phase subtitle */}
+      <div style={{ fontSize: 11, color: currentPhase.color, fontWeight: 700, marginBottom: 14, padding: '6px 12px', background: currentPhase.color + '10', borderRadius: 8, borderLeft: `3px solid ${currentPhase.color}` }}>
+        {currentPhase.sub}
+      </div>
+
+      {/* Deload banner */}
+      {selWeek.startsWith('Deload') && (
+        <div style={{ fontSize: 12, fontWeight: 800, color: C.orange, textAlign: 'center', padding: '8px 12px', background: C.orange + '10', borderRadius: 8, border: `1.5px solid ${C.orange}33`, marginBottom: 14, letterSpacing: 1 }}>
+          DELOAD WEEK — Reduced volume &amp; intensity
+        </div>
+      )}
+
+      {/* Days */}
+      {weekData.days.map((day, dayIdx) => (
+        <div key={day.id || dayIdx} style={{ border: `1.5px solid ${C.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 14, background: C.faint }}>
+          {/* Day header with date */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: collapsedDays.has(dayIdx) ? 0 : 10, flexWrap: 'wrap', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <button onClick={() => toggleCollapsedDay(dayIdx)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 10, color: C.sub, fontWeight: 700, transition: 'transform .2s', display: 'inline-block', transform: collapsedDays.has(dayIdx) ? 'rotate(-90deg)' : 'rotate(0deg)' }}>▼</span>
+                <span style={{ fontSize: 12, fontWeight: 800, color: currentPhase.color, letterSpacing: 1 }}>DAY {dayIdx + 1}</span>
+              </button>
+              <input
+                type="date"
+                value={day.date || ''}
+                onChange={e => updateDayDate(dayIdx, e.target.value)}
+                style={{ padding: '3px 8px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 11, fontFamily: 'Montserrat,sans-serif', color: day.date ? C.text : C.sub, background: '#fff', outline: 'none' }}
+              />
+              {day.date && (
+                <span style={{ fontSize: 10, color: C.sub, fontWeight: 600 }}>
+                  {new Date(day.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                </span>
+              )}
+              {collapsedDays.has(dayIdx) && (
+                <span style={{ fontSize: 10, color: C.sub, fontWeight: 600, fontStyle: 'italic' }}>
+                  {day.exercises.filter(e => e.exercise).length} exercise{day.exercises.filter(e => e.exercise).length !== 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+            {weekData.days.length > 1 && (
+              <button onClick={() => removeDay(dayIdx)} style={{ background: 'none', border: 'none', color: C.red + '88', fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', fontWeight: 700 }}>Remove Day</button>
+            )}
+          </div>
+
+          {!collapsedDays.has(dayIdx) && <>
+          <div style={{ overflowX: 'auto' }}>
+          {/* Exercise header row */}
+          <div style={{ display: 'grid', gridTemplateColumns: '22px 32px 1fr 50px 50px 56px 70px 50px 1fr 28px 28px', gap: 4, marginBottom: 4, alignItems: 'center', minWidth: 580 }}>
+            <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>#</div>
+            <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>CIR</div>
+            <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', paddingLeft: 4 }}>Exercise</div>
+            <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>Sets</div>
+            <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>Reps</div>
+            <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>Weight</div>
+            <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>Tempo</div>
+            <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>RPE</div>
+            <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', paddingLeft: 4 }}>Notes</div>
+            <div />
+            <div />
+          </div>
+
+          {/* Exercise rows */}
+          {day.exercises.map((ex, exIdx) => {
+            const circuitColor = ex.circuit === 'A' ? C.accent : ex.circuit === 'B' ? C.indigo : ex.circuit === 'C' ? C.green : ex.circuit === 'D' ? C.orange : null
+            const sameCircuitAbove = exIdx > 0 && day.exercises[exIdx - 1].circuit && day.exercises[exIdx - 1].circuit === ex.circuit
+            const sameCircuitBelow = exIdx < day.exercises.length - 1 && day.exercises[exIdx + 1]?.circuit && day.exercises[exIdx + 1].circuit === ex.circuit
+            const showCircuitBar = !!ex.circuit && (sameCircuitAbove || sameCircuitBelow)
+            const setLogKey = `${dayIdx}-${exIdx}`
+            const setsNum = parseInt(ex.sets) || 0
+            const hasSetLogs = ex.setLogs && ex.setLogs.some(s => s && (s.rpe || s.notes))
+            return (
+              <div key={ex.id || exIdx} style={{ marginBottom: 4, ...(showCircuitBar ? { boxShadow: `inset 3px 0 0 ${circuitColor}` } : {}) }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '22px 32px 1fr 50px 50px 56px 70px 50px 1fr 28px 28px', gap: 4, alignItems: 'center', minWidth: 580 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, textAlign: 'center', padding: '7px 0', lineHeight: 1 }}>{exIdx + 1}</div>
+                <button onClick={() => toggleCircuit(dayIdx, exIdx)} style={{ background: ex.circuit ? (circuitColor + '20') : 'transparent', border: `1.5px solid ${ex.circuit ? circuitColor : C.border}`, borderRadius: 6, fontSize: 10, fontWeight: 800, color: ex.circuit ? circuitColor : C.sub, cursor: 'pointer', padding: '4px 0', fontFamily: 'Montserrat,sans-serif', lineHeight: 1 }} title="Toggle circuit group (A/B/C/D)">
+                  {ex.circuit || '—'}
+                </button>
+                <input value={ex.exercise} onChange={e => updateExercise(dayIdx, exIdx, 'exercise', e.target.value)} placeholder="e.g. Back Squat" style={inputCell} />
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                  <input value={ex.sets} onChange={e => updateExercise(dayIdx, exIdx, 'sets', e.target.value)} placeholder="3" style={{ ...inputCell, textAlign: 'center', cursor: setsNum >= 2 ? 'pointer' : undefined, ...(setsNum >= 2 ? { borderColor: expandedSetLogs.has(setLogKey) ? C.accent : hasSetLogs ? C.accent + '66' : C.border } : {}) }} onClick={() => { if (setsNum >= 2) toggleSetLogs(dayIdx, exIdx) }} readOnly={setsNum >= 2} title={setsNum >= 2 ? 'Click to view per-set RPE & Notes' : ''} />
+                  <span onClick={() => updateExercise(dayIdx, exIdx, 'setsType', ex.setsType === 'rounds' ? 'sets' : 'rounds')} style={{ fontSize: 7, fontWeight: 700, color: ex.setsType === 'rounds' ? C.accent : C.sub, cursor: 'pointer', letterSpacing: 0.3, textTransform: 'uppercase', userSelect: 'none', lineHeight: 1 }} title="Click to toggle sets/rounds">{ex.setsType === 'rounds' ? 'rounds' : 'sets'}</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                  <input value={ex.reps} onChange={e => updateExercise(dayIdx, exIdx, 'reps', e.target.value)} placeholder="10" style={{ ...inputCell, textAlign: 'center' }} />
+                  <span onClick={() => updateExercise(dayIdx, exIdx, 'repsType', ex.repsType === 'time' ? 'reps' : 'time')} style={{ fontSize: 7, fontWeight: 700, color: ex.repsType === 'time' ? C.accent : C.sub, cursor: 'pointer', letterSpacing: 0.3, textTransform: 'uppercase', userSelect: 'none', lineHeight: 1 }} title="Click to toggle reps/seconds">{ex.repsType === 'time' ? 'sec' : 'reps'}</span>
+                </div>
+                <input value={ex.weight || ''} onChange={e => updateExercise(dayIdx, exIdx, 'weight', e.target.value)} placeholder="lbs" style={{ ...inputCell, textAlign: 'center' }} />
+                <input value={ex.tempo || ''} onChange={e => { const digits = e.target.value.replace(/[^0-9]/g, '').slice(0, 4); const formatted = digits.split('').join('-'); updateExercise(dayIdx, exIdx, 'tempo', formatted); }} placeholder="3-1-2-0" style={{ ...inputCell, textAlign: 'center' }} maxLength={7} />
+                <select value={ex.rpe} onChange={e => updateExercise(dayIdx, exIdx, 'rpe', e.target.value)} style={{ ...inputCell, textAlign: 'center', padding: '6px 2px' }}>
+                  <option value="">—</option>
+                  {[1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8,8.5,9,9.5,10].map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+                <input value={ex.notes} onChange={e => updateExercise(dayIdx, exIdx, 'notes', e.target.value)} placeholder="Cues..." style={inputCell} />
+                <button onClick={() => duplicateExercise(dayIdx, exIdx)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 5, color: C.accent, fontSize: 11, cursor: 'pointer', padding: 0, lineHeight: 1, fontWeight: 700, fontFamily: 'Montserrat,sans-serif' }} title="Add set">+</button>
+                <button onClick={() => removeExercise(dayIdx, exIdx)} disabled={day.exercises.length <= 1} style={{ background: 'none', border: 'none', color: day.exercises.length > 1 ? C.red + '88' : C.border, fontSize: 16, cursor: day.exercises.length > 1 ? 'pointer' : 'default', padding: 0, lineHeight: 1 }} title="Remove exercise">×</button>
+                </div>
+                {/* Per-set RPE & Notes breakdown */}
+                {expandedSetLogs.has(setLogKey) && setsNum >= 2 && (
+                  <div style={{ marginLeft: 56, marginTop: 4, marginBottom: 6, padding: '8px 10px', background: '#fff', borderRadius: 8, border: `1px solid ${C.accent}33` }}>
+                    <div style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Per-Set Breakdown</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '40px 60px 1fr', gap: 4, marginBottom: 4, alignItems: 'end' }}>
+                      <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>Set</div>
+                      <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>RPE</div>
+                      <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>Notes</div>
+                    </div>
+                    {Array.from({ length: setsNum }, (_, si) => {
+                      const log = (ex.setLogs || [])[si] || {}
+                      return (
+                        <div key={si} style={{ display: 'grid', gridTemplateColumns: '40px 60px 1fr', gap: 4, marginBottom: 3, alignItems: 'center' }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, paddingLeft: 4 }}>#{si + 1}</div>
+                          <select value={log.rpe || ''} onChange={e => updateSetLog(dayIdx, exIdx, si, 'rpe', e.target.value)} style={{ ...inputCell, textAlign: 'center', padding: '4px 2px', fontSize: 11 }}>
+                            <option value="">—</option>
+                            {[1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8,8.5,9,9.5,10].map(n => <option key={n} value={n}>{n}</option>)}
+                          </select>
+                          <input value={log.notes || ''} onChange={e => updateSetLog(dayIdx, exIdx, si, 'notes', e.target.value)} placeholder="Set notes..." style={{ ...inputCell, fontSize: 11, padding: '4px 6px' }} />
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+          </div>
+
+          {/* Add exercise button */}
+          <button onClick={() => addExercise(dayIdx)} style={{ background: 'none', border: `1px dashed ${C.border}`, borderRadius: 6, padding: '5px 14px', fontSize: 11, color: C.accent, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', marginTop: 4 }}>
+            + Add Exercise
+          </button>
+
+          {/* Day notes with collapse toggle */}
+          <div style={{ marginTop: 10 }}>
+            <button
+              onClick={() => toggleCollapsedNotes(dayIdx)}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: '2px 2px', marginBottom: collapsedNotes.has(dayIdx) ? 0 : 4 }}
+            >
+              <span style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Day Notes</span>
+              <span style={{ fontSize: 10, color: C.sub, fontWeight: 700, transition: 'transform .2s', display: 'inline-block', transform: collapsedNotes.has(dayIdx) ? 'rotate(-90deg)' : 'rotate(0deg)' }}>▼</span>
+              {collapsedNotes.has(dayIdx) && day.dayNotes && (
+                <span style={{ fontSize: 10, color: C.accent, fontWeight: 600, fontStyle: 'italic', fontFamily: 'Montserrat,sans-serif' }}>has notes</span>
+              )}
+            </button>
+            {!collapsedNotes.has(dayIdx) && (
+              <textarea
+                value={day.dayNotes || ''}
+                onChange={e => updateDayNotes(dayIdx, e.target.value)}
+                rows={2}
+                placeholder="How did this session go? Swaps, modifications, client feedback..."
+                style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', color: C.text, background: '#fff', resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.5 }}
+              />
+            )}
+          </div>
+
+          {/* Save Day button */}
+          <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+            <button
+              onClick={() => saveDay(dayIdx)}
+              disabled={saving || (!unsavedDays.has(dayIdx) && !savedDays.has(dayIdx))}
+              style={{
+                padding: '6px 20px', borderRadius: 7, border: 'none',
+                background: savedDays.has(dayIdx) ? C.green : unsavedDays.has(dayIdx) ? C.accent : C.border,
+                color: savedDays.has(dayIdx) ? '#fff' : unsavedDays.has(dayIdx) ? '#000' : C.sub,
+                fontSize: 11, fontWeight: 700, cursor: unsavedDays.has(dayIdx) ? 'pointer' : 'default',
+                fontFamily: 'Montserrat,sans-serif', letterSpacing: 0.5, transition: 'all .2s'
+              }}
+            >
+              {saving ? 'Saving...' : savedDays.has(dayIdx) ? '✓ Saved!' : unsavedDays.has(dayIdx) ? 'Save Day' : 'Saved'}
+            </button>
+          </div>
+          </>}
+        </div>
+      ))}
+
+      {/* Add day button */}
+      <button onClick={addDay} style={{ background: 'none', border: `1.5px dashed ${C.accent}44`, borderRadius: 10, padding: '10px 20px', fontSize: 12, color: C.accent, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', width: '100%' }}>
+        + Add Another Day
+      </button>
+    </div>
+  )
+}
+
 // ── CLIENT PROFILE ────────────────────────────────────────────────────────────
-function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onSignInSheet, onBack }) {
+// ── WEIGHT & BODY FAT TRACKER ────────────────────────────────────────────────
+function WeightTracker({ client, onBack }) {
+  const [logs, setLogs] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [weight, setWeight] = useState('')
+  const [bodyFat, setBodyFat] = useState('')
+  const [rating, setRating] = useState('')
+  const [behaviorNotes, setBehaviorNotes] = useState('')
+  const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0])
+  const [showHistory, setShowHistory] = useState(false)
+  const [showJourneyModal, setShowJourneyModal] = useState(false)
+  const chartRef = useRef(null)
+  const modalChartRef = useRef(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await getWeightLogsForClient(client.id)
+      setLogs(data)
+    } catch (e) { console.error(e) }
+    setLoading(false)
+  }, [client.id])
+
+  useEffect(() => { load() }, [load])
+
+  const handleSave = async () => {
+    if (!weight && !bodyFat) return alert('Enter at least weight or body fat %.')
+    setSaving(true)
+    try {
+      await saveWeightLog(client.id, {
+        weight: weight ? parseFloat(weight) : null,
+        bodyFat: bodyFat ? parseFloat(bodyFat) : null,
+        rating: rating || null,
+        behaviorNotes,
+        loggedAt: new Date(logDate + 'T12:00:00').toISOString()
+      })
+      setWeight(''); setBodyFat(''); setRating(''); setBehaviorNotes(''); setLogDate(new Date().toISOString().split('T')[0])
+      await load()
+    } catch (e) { alert('Error saving: ' + e.message) }
+    setSaving(false)
+  }
+
+  const handleDelete = async (id) => {
+    if (!confirm('Delete this weigh-in?')) return
+    try { await deleteWeightLog(id); await load() } catch (e) { alert('Error: ' + e.message) }
+  }
+
+  // Shared chart drawing function
+  const drawChart = useCallback((canvas, showBehavior) => {
+    if (!canvas || logs.length < 2) return
+    const ctx = canvas.getContext('2d')
+    const dpr = window.devicePixelRatio || 1
+    const rect = canvas.getBoundingClientRect()
+    canvas.width = rect.width * dpr
+    canvas.height = rect.height * dpr
+    ctx.scale(dpr, dpr)
+    const W = rect.width, H = rect.height
+    const pad = { top: 30, right: showBehavior ? 50 : 20, bottom: 50, left: 50 }
+    const cW = W - pad.left - pad.right, cH = H - pad.top - pad.bottom
+
+    ctx.clearRect(0, 0, W, H)
+
+    const weightLogs = logs.filter(l => l.weight != null)
+    const fatLogs = logs.filter(l => l.body_fat != null)
+    const hasWeight = weightLogs.length >= 2
+    const hasFat = fatLogs.length >= 2
+
+    if (!hasWeight && !hasFat) return
+
+    // Time range
+    const allDates = logs.map(l => new Date(l.logged_at).getTime())
+    const minT = Math.min(...allDates), maxT = Math.max(...allDates)
+    const tRange = maxT - minT || 1
+    const xFor = (t) => pad.left + ((t - minT) / tRange) * cW
+
+    // Grid lines
+    ctx.strokeStyle = '#E2E8F0'
+    ctx.lineWidth = 1
+    for (let i = 0; i <= 4; i++) {
+      const y = pad.top + (cH / 4) * i
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke()
+    }
+
+    // Behavioral change markers — vertical dashed lines where rating shifts
+    if (showBehavior) {
+      const sorted = [...logs].sort((a, b) => new Date(a.logged_at) - new Date(b.logged_at))
+      for (let i = 1; i < sorted.length; i++) {
+        const prev = sorted[i - 1], curr = sorted[i]
+        if (curr.rating && prev.rating && curr.rating !== prev.rating) {
+          const x = xFor(new Date(curr.logged_at).getTime())
+          ctx.save()
+          ctx.setLineDash([4, 4])
+          ctx.strokeStyle = curr.rating === 'good' ? C.green + 'AA' : C.red + 'AA'
+          ctx.lineWidth = 1.5
+          ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, pad.top + cH); ctx.stroke()
+          ctx.setLineDash([])
+          // Arrow marker at top
+          const markerColor = curr.rating === 'good' ? C.green : C.red
+          const arrowLabel = curr.rating === 'good' ? '▲' : '▼'
+          ctx.fillStyle = markerColor
+          ctx.font = 'bold 14px Montserrat, sans-serif'
+          ctx.textAlign = 'center'
+          ctx.fillText(arrowLabel, x, pad.top - 2)
+          // Date label at bottom
+          const d = new Date(curr.logged_at)
+          ctx.fillStyle = markerColor
+          ctx.font = 'bold 9px Montserrat, sans-serif'
+          ctx.fillText(`${d.getMonth() + 1}/${d.getDate()}`, x, pad.top + cH + 14)
+          ctx.restore()
+        }
+      }
+      // Highlight zones — light background color bands between behavioral shifts
+      const shifts = [{ idx: 0, rating: sorted[0].rating || 'neutral' }]
+      for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i].rating && sorted[i].rating !== shifts[shifts.length - 1].rating) {
+          shifts.push({ idx: i, rating: sorted[i].rating })
+        }
+      }
+      for (let s = 0; s < shifts.length; s++) {
+        const startX = xFor(new Date(sorted[shifts[s].idx].logged_at).getTime())
+        const endX = s + 1 < shifts.length ? xFor(new Date(sorted[shifts[s + 1].idx].logged_at).getTime()) : pad.left + cW
+        const zoneColor = shifts[s].rating === 'good' ? C.green + '08' : shifts[s].rating === 'bad' ? C.red + '08' : 'transparent'
+        if (zoneColor !== 'transparent') {
+          ctx.fillStyle = zoneColor
+          ctx.fillRect(startX, pad.top, endX - startX, cH)
+        }
+      }
+    }
+
+    // X-axis date labels
+    ctx.fillStyle = '#718096'
+    ctx.font = '10px Montserrat, sans-serif'
+    ctx.textAlign = 'center'
+    const labelCount = Math.min(logs.length, showBehavior ? 10 : 6)
+    const step = Math.max(1, Math.floor(logs.length / labelCount))
+    for (let i = 0; i < logs.length; i += step) {
+      const d = new Date(logs[i].logged_at)
+      const label = `${d.getMonth() + 1}/${d.getDate()}`
+      const x = xFor(d.getTime())
+      ctx.fillText(label, x, H - pad.bottom + 18)
+    }
+
+    const drawLine = (data, getVal, color, label, yAxis) => {
+      const vals = data.map(l => getVal(l))
+      const minV = Math.min(...vals), maxV = Math.max(...vals)
+      const vRange = maxV - minV || 1
+      const yFor = (v) => pad.top + cH - ((v - minV) / vRange) * cH
+
+      ctx.fillStyle = color
+      ctx.font = '10px Montserrat, sans-serif'
+      ctx.textAlign = yAxis === 'left' ? 'right' : 'left'
+      for (let i = 0; i <= 4; i++) {
+        const v = minV + (vRange / 4) * i
+        const y = yFor(v)
+        const x = yAxis === 'left' ? pad.left - 6 : W - pad.right + 6
+        ctx.fillText(v.toFixed(1), x, y + 3)
+      }
+
+      ctx.font = 'bold 11px Montserrat, sans-serif'
+      const labelX = yAxis === 'left' ? pad.left : W - pad.right
+      ctx.textAlign = yAxis === 'left' ? 'right' : 'left'
+      ctx.fillText(label, labelX, pad.top - 10)
+
+      ctx.strokeStyle = color
+      ctx.lineWidth = 2.5
+      ctx.lineJoin = 'round'
+      ctx.lineCap = 'round'
+      ctx.beginPath()
+      data.forEach((l, i) => {
+        const x = xFor(new Date(l.logged_at).getTime())
+        const y = yFor(getVal(l))
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y)
+      })
+      ctx.stroke()
+
+      // Dots with good/bad coloring
+      const dotSize = showBehavior ? 6 : 5
+      data.forEach(l => {
+        const x = xFor(new Date(l.logged_at).getTime())
+        const y = yFor(getVal(l))
+        const dotColor = l.rating === 'good' ? C.green : l.rating === 'bad' ? C.red : color
+        ctx.beginPath()
+        ctx.arc(x, y, dotSize, 0, Math.PI * 2)
+        ctx.fillStyle = dotColor
+        ctx.fill()
+        ctx.strokeStyle = '#fff'
+        ctx.lineWidth = 2
+        ctx.stroke()
+      })
+
+      // In modal: show behavior notes as tooltips near the dots
+      if (showBehavior) {
+        data.forEach(l => {
+          if (l.behavior_notes) {
+            const x = xFor(new Date(l.logged_at).getTime())
+            const y = yFor(getVal(l))
+            ctx.fillStyle = C.text + '99'
+            ctx.font = '8px Montserrat, sans-serif'
+            ctx.textAlign = 'center'
+            const note = l.behavior_notes.length > 20 ? l.behavior_notes.slice(0, 20) + '...' : l.behavior_notes
+            ctx.fillText(note, x, y - 12)
+          }
+        })
+      }
+    }
+
+    if (hasWeight) drawLine(weightLogs, l => l.weight, C.accent, 'Weight (lbs)', 'left')
+    if (hasFat) drawLine(fatLogs, l => l.body_fat, C.orange, 'Body Fat %', hasWeight ? 'right' : 'left')
+  }, [logs])
+
+  // Inline chart
+  useEffect(() => { drawChart(chartRef.current, false) }, [drawChart])
+
+  // Modal chart
+  useEffect(() => {
+    if (showJourneyModal) {
+      setTimeout(() => drawChart(modalChartRef.current, true), 50)
+    }
+  }, [showJourneyModal, drawChart])
+
+  const input = { width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 13, color: C.text, outline: 'none', background: C.faint, boxSizing: 'border-box' }
+
+  const latestWeight = [...logs].reverse().find(l => l.weight != null)
+  const latestFat = [...logs].reverse().find(l => l.body_fat != null)
+  const firstWeight = logs.find(l => l.weight != null)
+  const firstFat = logs.find(l => l.body_fat != null)
+  const weightChange = latestWeight && firstWeight && latestWeight !== firstWeight ? (latestWeight.weight - firstWeight.weight).toFixed(1) : null
+  const fatChange = latestFat && firstFat && latestFat !== firstFat ? (latestFat.body_fat - firstFat.body_fat).toFixed(1) : null
+
+  return (
+    <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 24px 32px' }}>
+      <LogoHeader />
+      <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 24 }}>← Back to {client.name}</button>
+
+      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 4 }}>WEIGHT & BODY FAT TRACKER</div>
+      <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 3, color: C.text, marginBottom: 24 }}>{client.name}</div>
+
+      {/* Summary cards */}
+      {(latestWeight || latestFat) && (
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 24 }}>
+          {latestWeight && (
+            <div style={{ flex: '1 1 160px', background: C.accent + '10', border: `1.5px solid ${C.accent}33`, borderRadius: 12, padding: '14px 18px' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.accent, letterSpacing: 1.5, textTransform: 'uppercase' }}>Current Weight</div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: C.text, marginTop: 2 }}>{latestWeight.weight}<span style={{ fontSize: 13, color: C.sub }}> lbs</span></div>
+              {weightChange && <div style={{ fontSize: 12, fontWeight: 700, color: parseFloat(weightChange) <= 0 ? C.green : C.red, marginTop: 2 }}>{parseFloat(weightChange) > 0 ? '+' : ''}{weightChange} lbs total</div>}
+            </div>
+          )}
+          {latestFat && (
+            <div style={{ flex: '1 1 160px', background: C.orange + '10', border: `1.5px solid ${C.orange}33`, borderRadius: 12, padding: '14px 18px' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.orange, letterSpacing: 1.5, textTransform: 'uppercase' }}>Body Fat</div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: C.text, marginTop: 2 }}>{latestFat.body_fat}<span style={{ fontSize: 13, color: C.sub }}>%</span></div>
+              {fatChange && <div style={{ fontSize: 12, fontWeight: 700, color: parseFloat(fatChange) <= 0 ? C.green : C.red, marginTop: 2 }}>{parseFloat(fatChange) > 0 ? '+' : ''}{fatChange}% total</div>}
+            </div>
+          )}
+          <div style={{ flex: '1 1 160px', background: C.faint, border: `1.5px solid ${C.border}`, borderRadius: 12, padding: '14px 18px' }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1.5, textTransform: 'uppercase' }}>Weigh-Ins</div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: C.text, marginTop: 2 }}>{logs.length}</div>
+            <div style={{ fontSize: 12, color: C.sub }}>logged</div>
+          </div>
+        </div>
+      )}
+
+      {/* Chart */}
+      {loading ? <Spinner /> : logs.length >= 2 ? (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 16px 8px', marginBottom: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>PROGRESS OVER TIME</div>
+            <button onClick={() => setShowJourneyModal(true)} style={{ background: C.accent + '12', border: `1.5px solid ${C.accent}44`, color: C.accent, borderRadius: 8, padding: '5px 14px', fontSize: 10, fontWeight: 800, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', letterSpacing: 1, textTransform: 'uppercase' }}>
+              View Journey
+            </button>
+          </div>
+          <canvas ref={chartRef} style={{ width: '100%', height: 280, display: 'block' }} />
+          <div style={{ display: 'flex', gap: 16, justifyContent: 'center', padding: '8px 0 4px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
+              <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.green }} /> Good
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
+              <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.red }} /> Needs Work
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
+              <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.accent }} /> Weight
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
+              <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.orange }} /> Body Fat
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div style={{ background: C.faint, border: `1px dashed ${C.border}`, borderRadius: 14, padding: '24px 20px', marginBottom: 24, textAlign: 'center' }}>
+          <div style={{ fontSize: 13, color: C.sub, fontWeight: 600 }}>{logs.length === 0 ? 'No weigh-ins yet — log the first one below!' : 'Log one more weigh-in to see the chart.'}</div>
+        </div>
+      )}
+
+      {/* Input Form */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 20px', marginBottom: 24 }}>
+        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 16 }}>LOG WEIGH-IN</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 14 }}>
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Date</label>
+            <input type="date" value={logDate} onChange={e => setLogDate(e.target.value)} style={input} />
+          </div>
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Weight (lbs)</label>
+            <input type="number" step="0.1" value={weight} onChange={e => setWeight(e.target.value)} placeholder="185.0" style={input} />
+          </div>
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Body Fat %</label>
+            <input type="number" step="0.1" value={bodyFat} onChange={e => setBodyFat(e.target.value)} placeholder="22.5" style={input} />
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>How was this weigh-in?</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setRating(rating === 'good' ? '' : 'good')} style={{ flex: 1, padding: '10px 16px', borderRadius: 10, border: `2px solid ${rating === 'good' ? C.green : C.border}`, background: rating === 'good' ? C.green + '15' : 'white', color: rating === 'good' ? C.green : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+              Good
+            </button>
+            <button onClick={() => setRating(rating === 'bad' ? '' : 'bad')} style={{ flex: 1, padding: '10px 16px', borderRadius: 10, border: `2px solid ${rating === 'bad' ? C.red : C.border}`, background: rating === 'bad' ? C.red + '15' : 'white', color: rating === 'bad' ? C.red : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+              Needs Work
+            </button>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Behavior Notes / What to Address</label>
+          <textarea value={behaviorNotes} onChange={e => setBehaviorNotes(e.target.value)} rows={3} placeholder="e.g. Missed meals on weekends, hydration low, stress eating..." style={{ ...input, resize: 'vertical' }} />
+        </div>
+
+        <Btn onClick={handleSave} disabled={saving || (!weight && !bodyFat)}>
+          {saving ? 'Saving...' : 'Log Weigh-In'}
+        </Btn>
+      </div>
+
+      {/* History */}
+      {logs.length > 0 && (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setShowHistory(!showHistory)}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>WEIGH-IN HISTORY ({logs.length})</div>
+            <span style={{ fontSize: 11, color: C.sub }}>{showHistory ? '▲ Hide' : '▼ View All'}</span>
+          </div>
+          {showHistory && (
+            <div style={{ marginTop: 12 }}>
+              {[...logs].reverse().map(l => {
+                const d = new Date(l.logged_at)
+                const dateStr = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`
+                return (
+                  <div key={l.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 0', borderBottom: `1px solid ${C.border}22` }}>
+                    <div style={{ minWidth: 8, height: 8, borderRadius: '50%', marginTop: 5, background: l.rating === 'good' ? C.green : l.rating === 'bad' ? C.red : C.border }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{dateStr}</span>
+                        {l.weight != null && <span style={{ fontSize: 12, color: C.accent, fontWeight: 700 }}>{l.weight} lbs</span>}
+                        {l.body_fat != null && <span style={{ fontSize: 12, color: C.orange, fontWeight: 700 }}>{l.body_fat}%</span>}
+                        {l.rating && <span style={{ fontSize: 10, fontWeight: 700, borderRadius: 8, padding: '1px 8px', background: l.rating === 'good' ? C.green + '15' : C.red + '15', color: l.rating === 'good' ? C.green : C.red }}>{l.rating === 'good' ? 'Good' : 'Needs Work'}</span>}
+                      </div>
+                      {l.behavior_notes && <div style={{ fontSize: 11, color: C.sub, marginTop: 3, lineHeight: 1.5 }}>{l.behavior_notes}</div>}
+                    </div>
+                    <button onClick={() => handleDelete(l.id)} style={{ background: 'none', border: 'none', color: C.red + '66', fontSize: 14, cursor: 'pointer', padding: '0 4px' }} title="Delete">×</button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Journey Modal */}
+      {showJourneyModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 16 }} onClick={() => setShowJourneyModal(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: C.card, borderRadius: 20, padding: '28px 24px', width: '95%', maxWidth: 960, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 4 }}>CLIENT JOURNEY</div>
+                <div style={{ fontWeight: 800, fontSize: 22, letterSpacing: 2, color: C.text }}>{client.name}</div>
+              </div>
+              <button onClick={() => setShowJourneyModal(false)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '6px 12px', fontSize: 16, color: C.sub, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>×</button>
+            </div>
+
+            {/* Summary Row */}
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
+              {latestWeight && (
+                <div style={{ flex: '1 1 120px', background: C.accent + '10', borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: C.accent, letterSpacing: 1, textTransform: 'uppercase' }}>Current</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: C.text }}>{latestWeight.weight}<span style={{ fontSize: 11, color: C.sub }}> lbs</span></div>
+                  {weightChange && <div style={{ fontSize: 11, fontWeight: 700, color: parseFloat(weightChange) <= 0 ? C.green : C.red }}>{parseFloat(weightChange) > 0 ? '+' : ''}{weightChange} lbs</div>}
+                </div>
+              )}
+              {latestFat && (
+                <div style={{ flex: '1 1 120px', background: C.orange + '10', borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: C.orange, letterSpacing: 1, textTransform: 'uppercase' }}>Body Fat</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: C.text }}>{latestFat.body_fat}<span style={{ fontSize: 11, color: C.sub }}>%</span></div>
+                  {fatChange && <div style={{ fontSize: 11, fontWeight: 700, color: parseFloat(fatChange) <= 0 ? C.green : C.red }}>{parseFloat(fatChange) > 0 ? '+' : ''}{fatChange}%</div>}
+                </div>
+              )}
+              <div style={{ flex: '1 1 120px', background: C.faint, borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Total Check-Ins</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: C.text }}>{logs.length}</div>
+              </div>
+              {(() => {
+                const goodCount = logs.filter(l => l.rating === 'good').length
+                const badCount = logs.filter(l => l.rating === 'bad').length
+                const total = goodCount + badCount
+                const pct = total > 0 ? Math.round((goodCount / total) * 100) : 0
+                return (
+                  <div style={{ flex: '1 1 120px', background: pct >= 50 ? C.green + '10' : C.red + '10', borderRadius: 10, padding: '10px 14px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: pct >= 50 ? C.green : C.red, letterSpacing: 1, textTransform: 'uppercase' }}>Adherence</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: C.text }}>{pct}%</div>
+                    <div style={{ fontSize: 10, color: C.sub }}>{goodCount} good / {badCount} needs work</div>
+                  </div>
+                )
+              })()}
+            </div>
+
+            {/* Large Chart with Behavioral Markers */}
+            <div style={{ background: C.faint, borderRadius: 14, padding: '16px 12px 8px', marginBottom: 20 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>PROGRESS WITH BEHAVIORAL CHANGES</div>
+              <canvas ref={modalChartRef} style={{ width: '100%', height: 360, display: 'block' }} />
+              <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap', padding: '10px 0 4px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.accent }} /> Weight
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.orange }} /> Body Fat
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.green }} /> Good
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.red }} /> Needs Work
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
+                  <div style={{ width: 16, height: 0, borderTop: `2px dashed ${C.green}` }} /> Positive Shift
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
+                  <div style={{ width: 16, height: 0, borderTop: `2px dashed ${C.red}` }} /> Negative Shift
+                </div>
+              </div>
+            </div>
+
+            {/* Behavioral Change Timeline */}
+            {(() => {
+              const sorted = [...logs].sort((a, b) => new Date(a.logged_at) - new Date(b.logged_at))
+              const shifts = []
+              for (let i = 1; i < sorted.length; i++) {
+                const prev = sorted[i - 1], curr = sorted[i]
+                if (curr.rating && prev.rating && curr.rating !== prev.rating) {
+                  shifts.push(curr)
+                }
+              }
+              const notesEntries = sorted.filter(l => l.behavior_notes)
+              if (shifts.length === 0 && notesEntries.length === 0) return null
+              return (
+                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 18px' }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 12 }}>BEHAVIORAL CHANGE TIMELINE</div>
+                  {shifts.length > 0 && shifts.map((s, i) => {
+                    const d = new Date(s.logged_at)
+                    const dateStr = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`
+                    const isGood = s.rating === 'good'
+                    return (
+                      <div key={`shift-${i}`} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '10px 0', borderBottom: `1px solid ${C.border}22` }}>
+                        <div style={{ minWidth: 28, height: 28, borderRadius: '50%', background: isGood ? C.green + '18' : C.red + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, marginTop: 2 }}>
+                          {isGood ? '▲' : '▼'}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: isGood ? C.green : C.red }}>
+                            {isGood ? 'Positive Shift' : 'Regression Noted'} — {dateStr}
+                          </div>
+                          {s.behavior_notes && <div style={{ fontSize: 11, color: C.sub, marginTop: 3, lineHeight: 1.5 }}>{s.behavior_notes}</div>}
+                          {s.weight != null && <span style={{ fontSize: 11, color: C.accent, fontWeight: 600 }}>{s.weight} lbs</span>}
+                          {s.weight != null && s.body_fat != null && <span style={{ color: C.sub }}> · </span>}
+                          {s.body_fat != null && <span style={{ fontSize: 11, color: C.orange, fontWeight: 600 }}>{s.body_fat}%</span>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {notesEntries.length > 0 && (
+                    <>
+                      <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginTop: 16, marginBottom: 8 }}>TRAINER NOTES LOG</div>
+                      {notesEntries.map((l, i) => {
+                        const d = new Date(l.logged_at)
+                        const dateStr = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`
+                        return (
+                          <div key={`note-${i}`} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '8px 0', borderBottom: `1px solid ${C.border}11` }}>
+                            <div style={{ minWidth: 8, height: 8, borderRadius: '50%', marginTop: 5, background: l.rating === 'good' ? C.green : l.rating === 'bad' ? C.red : C.border }} />
+                            <div>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: C.text }}>{dateStr}</span>
+                              <div style={{ fontSize: 11, color: C.sub, marginTop: 2, lineHeight: 1.5 }}>{l.behavior_notes}</div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </>
+                  )}
+                </div>
+              )
+            })()}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onSignInSheet, onWeightTracker, onBack, allClients = [], onSwitchClient }) {
   const assessmentsDone = Object.keys(client.assessments || {})
   const [showIntake, setShowIntake] = useState(false)
+  const [showLinkMenu, setShowLinkMenu] = useState(false)
 
   // Parse intake data from trainerNotes JSON
   const intake = (() => {
     if (!client.trainerNotes) return null
     try { return JSON.parse(client.trainerNotes) } catch { return null }
   })()
+
+  // Linked clients
+  const linkedIds = intake?.linked_clients || []
+  const linkedClients = allClients.filter(c => linkedIds.includes(c.id))
+  const availableToLink = allClients.filter(c => c.id !== client.id && !linkedIds.includes(c.id))
+
+  const linkClient = async (targetId) => {
+    const base = intake || {}
+    const myLinked = [...(base.linked_clients || []), targetId]
+    const updatedNotes = JSON.stringify({ ...base, linked_clients: myLinked })
+    const updatedClient = { ...client, trainerNotes: updatedNotes }
+    await saveClient(updatedClient)
+    onUpdate(updatedClient)
+
+    // Also link back: add this client's id to target's linked_clients
+    const target = allClients.find(c => c.id === targetId)
+    if (target) {
+      let targetData = {}
+      try { targetData = JSON.parse(target.trainerNotes || '{}') } catch {}
+      const targetLinked = [...(targetData.linked_clients || []), client.id]
+      const targetNotes = JSON.stringify({ ...targetData, linked_clients: targetLinked })
+      await saveClient({ ...target, trainerNotes: targetNotes })
+    }
+    setShowLinkMenu(false)
+  }
+
+  const unlinkClient = async (targetId) => {
+    if (!confirm('Unlink this client?')) return
+    const base = intake || {}
+    const myLinked = (base.linked_clients || []).filter(id => id !== targetId)
+    const updatedNotes = JSON.stringify({ ...base, linked_clients: myLinked })
+    const updatedClient = { ...client, trainerNotes: updatedNotes }
+    await saveClient(updatedClient)
+    onUpdate(updatedClient)
+
+    // Remove back-link
+    const target = allClients.find(c => c.id === targetId)
+    if (target) {
+      let targetData = {}
+      try { targetData = JSON.parse(target.trainerNotes || '{}') } catch {}
+      const targetLinked = (targetData.linked_clients || []).filter(id => id !== client.id)
+      const targetNotes = JSON.stringify({ ...targetData, linked_clients: targetLinked })
+      await saveClient({ ...target, trainerNotes: targetNotes })
+    }
+  }
 
   const FLOW = [
     { phase: 'Phase 1 — Always First', color: C.teal, items: [ALL_ASSESSMENTS.hypermobility] },
@@ -2917,12 +4253,49 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
       <LogoHeader />
       <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 24 }}>← All Clients</button>
 
+      {/* Linked client switcher */}
+      {(linkedClients.length > 0 || availableToLink.length > 0) && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16, padding: '10px 14px', background: C.faint, borderRadius: 10, border: `1px solid ${C.border}` }}>
+          <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.5, color: C.sub, textTransform: 'uppercase' }}>Switch:</span>
+          <div style={{ padding: '5px 12px', borderRadius: 8, background: C.accent + '15', border: `1.5px solid ${C.accent}`, fontSize: 12, fontWeight: 700, color: C.accent, fontFamily: 'Montserrat,sans-serif' }}>
+            {client.name}
+          </div>
+          {linkedClients.map(lc => (
+            <div key={lc.id} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <button onClick={() => onSwitchClient(lc)} style={{ padding: '5px 12px', borderRadius: 8, background: 'transparent', border: `1.5px solid ${C.border}`, fontSize: 12, fontWeight: 700, color: C.text, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', transition: 'border-color .15s' }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
+                onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
+                {lc.name}
+              </button>
+              <button onClick={() => unlinkClient(lc.id)} style={{ background: 'none', border: 'none', color: C.red + '88', fontSize: 13, cursor: 'pointer', padding: '0 2px', lineHeight: 1 }} title="Unlink">×</button>
+            </div>
+          ))}
+          <div style={{ position: 'relative' }}>
+            <button onClick={() => setShowLinkMenu(!showLinkMenu)} style={{ padding: '4px 10px', borderRadius: 7, border: `1.5px dashed ${C.accent}44`, background: 'transparent', color: C.accent, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+              + Link Client
+            </button>
+            {showLinkMenu && availableToLink.length > 0 && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, background: '#fff', border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: '0 4px 16px rgba(0,0,0,0.1)', zIndex: 100, minWidth: 180, maxHeight: 200, overflowY: 'auto' }}>
+                {availableToLink.map(ac => (
+                  <button key={ac.id} onClick={() => linkClient(ac.id)} style={{ display: 'block', width: '100%', padding: '10px 14px', background: 'transparent', border: 'none', borderBottom: `1px solid ${C.border}22`, fontSize: 12, fontWeight: 600, color: C.text, cursor: 'pointer', textAlign: 'left', fontFamily: 'Montserrat,sans-serif' }}
+                    onMouseEnter={e => e.currentTarget.style.background = C.faint}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    {ac.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16, marginBottom: 24 }}>
         <div>
           <div style={{ fontWeight: 800, fontSize: 30, letterSpacing: 4, color: C.text }}>{client.name}</div>
           {client.goal && <div style={{ fontSize: 13, color: C.sub, marginTop: 4 }}>Goal: {client.goal}</div>}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Btn onClick={() => onWeightTracker(client)} small color={C.teal}>⚖️ Weight</Btn>
           <Btn onClick={() => onSignInSheet(client)} small color={C.green}>📋 Sign-In Sheet</Btn>
           <Btn onClick={() => onProtocolAdvisor(client)} small color={C.orange}>🩺 Protocols</Btn>
           <Btn onClick={() => onGenerateWorkout(client)} small>💪 Workout</Btn>
@@ -3029,6 +4402,9 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
           <Btn onClick={() => onEditClient(client)} small outline color={C.sub}>Fill Out Intake Form</Btn>
         </div>
       )}
+
+      {/* Program Uploads */}
+      <ProgramUploads key={client.id} client={client} onUpdate={onUpdate} />
 
       {FLOW.map(group => {
         const locked = group.requires && !group.requires.every(id => assessmentsDone.includes(id))
@@ -3197,7 +4573,6 @@ function LoginScreen({ onLogin }) {
       })
       const data = await res.json()
       if (data.success) {
-        sessionStorage.setItem('ff_auth', 'true')
         onLogin()
       } else {
         setError(data.error || 'Wrong password')
@@ -3210,7 +4585,7 @@ function LoginScreen({ onLogin }) {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: C.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <div style={{ minHeight: '100dvh', background: C.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <form onSubmit={handleSubmit} style={{ background: C.panel, borderRadius: 16, padding: '40px 32px', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', border: `1px solid ${C.border}`, maxWidth: 360, width: '100%', textAlign: 'center' }}>
         <img src="/logo.png" alt="FreddyFit" style={{ maxWidth: 200, width: '100%', height: 'auto', marginBottom: 24 }} />
         <div style={{ fontSize: 13, color: C.sub, marginBottom: 20, fontFamily: 'Montserrat,sans-serif' }}>Enter your password to continue</div>
@@ -3238,17 +4613,52 @@ export default function App() {
   const [view, setView] = useState('roster')
   const [client, setClient] = useState(null)
   const [assessment, setAssessment] = useState(null)
+  const [allClients, setAllClients] = useState([])
+
+  // Load all clients for linked-client switching
+  const refreshAllClients = useCallback(async () => {
+    try {
+      const all = await getAllClients()
+      const withAssessments = await Promise.all(all.map(async c => {
+        const assessments = await getAssessmentsForClient(c.id).catch(() => ({}))
+        return { ...c, trainerNotes: c.trainer_notes, assessments }
+      }))
+      setAllClients(withAssessments)
+      return withAssessments
+    } catch { return [] }
+  }, [])
 
   useEffect(() => {
-    if (sessionStorage.getItem('ff_auth') === 'true') setAuthed(true)
-    setCheckingAuth(false)
+    fetch('/api/auth').then(r => r.json()).then(d => {
+      if (d.authed) setAuthed(true)
+    }).catch(() => {}).finally(() => setCheckingAuth(false))
+  }, [])
+
+  // Prevent iPad/iOS keyboard from pushing the viewport around
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const handleResize = () => {
+      // Force scroll to top of document when keyboard causes a resize
+      window.scrollTo(0, 0)
+    }
+    // visualViewport API tracks actual visible area (shrinks when keyboard opens)
+    const vv = window.visualViewport
+    if (vv) {
+      vv.addEventListener('resize', handleResize)
+      vv.addEventListener('scroll', handleResize)
+      return () => {
+        vv.removeEventListener('resize', handleResize)
+        vv.removeEventListener('scroll', handleResize)
+      }
+    }
   }, [])
 
   if (checkingAuth) return null
   if (!authed) return <LoginScreen onLogin={() => setAuthed(true)} />
 
-  const goToClient = (c) => { setClient(c); setView('client') }
-  const updateClient = (c) => setClient(c)
+  const goToClient = (c) => { setClient(c); setView('client'); refreshAllClients() }
+  const updateClient = (c) => { setClient(c); setAllClients(prev => prev.map(p => p.id === c.id ? c : p)) }
+  const switchToClient = (c) => { setClient(c); setView('client') }
   const openIntake = () => { setClient(null); setView('intake') }
   const openEditClient = (c) => { setClient(c); setView('editClient') }
 
@@ -3263,7 +4673,7 @@ export default function App() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: C.bg, display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: '100dvh', background: C.bg, display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
       <div style={{ padding: '12px 24px', borderBottom: `1px solid ${C.border}`, background: C.panel, display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', flexShrink: 0 }} className="no-print">
         <button onClick={() => setView('roster')} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -3274,11 +4684,16 @@ export default function App() {
           <div style={{ width: 1, height: 20, background: C.border }} />
           <div style={{ fontSize: 11, color: C.sub, letterSpacing: 2, fontWeight: 600, textTransform: 'uppercase' }}>TrainDesk</div>
         </button>
-        {view !== 'roster' && (
-          <div style={{ fontSize: 12, color: C.sub }}>
-            {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : view === 'signin' ? 'Sign-In Sheet' : view === 'editClient' ? 'Edit Client' : client?.name}
-          </div>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {view !== 'roster' && (
+            <div style={{ fontSize: 12, color: C.sub }}>
+              {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : view === 'signin' ? 'Sign-In Sheet' : view === 'weightTracker' ? 'Weight Tracker' : view === 'editClient' ? 'Edit Client' : client?.name}
+            </div>
+          )}
+          <button onClick={async () => { await fetch('/api/auth', { method: 'DELETE' }); setAuthed(false) }} style={{ padding: '4px 10px', borderRadius: 6, border: `1px solid ${C.border}`, background: 'transparent', color: C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+            Log Out
+          </button>
+        </div>
       </div>
 
       {/* Content */}
@@ -3293,8 +4708,11 @@ export default function App() {
             onGenerateWorkout={c => { setClient(c); setView('workout') }}
             onProtocolAdvisor={c => { setClient(c); setView('protocols') }}
             onSignInSheet={c => { setClient(c); setView('signin') }}
+            onWeightTracker={c => { setClient(c); setView('weightTracker') }}
             onEditClient={openEditClient}
             onBack={() => setView('roster')}
+            allClients={allClients}
+            onSwitchClient={switchToClient}
           />
         )}
         {view === 'assessment' && client && assessment && (
@@ -3320,6 +4738,12 @@ export default function App() {
         )}
         {view === 'protocols' && client && (
           <ProtocolAdvisor
+            client={client}
+            onBack={() => setView('client')}
+          />
+        )}
+        {view === 'weightTracker' && client && (
+          <WeightTracker
             client={client}
             onBack={() => setView('client')}
           />
