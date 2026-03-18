@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog } from '../lib/supabase'
+import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog, syncOfflineData, getQueueLength, isOnline } from '../lib/offlineDb'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
 import { FIELD_MODIFIERS } from '../lib/modifiers'
 import { QRCodeCanvas } from 'qrcode.react'
@@ -4915,6 +4915,41 @@ export default function App() {
   const [client, setClient] = useState(null)
   const [assessment, setAssessment] = useState(null)
   const [allClients, setAllClients] = useState([])
+  const [online, setOnline] = useState(true)
+  const [syncing, setSyncing] = useState(false)
+  const [pendingCount, setPendingCount] = useState(0)
+
+  // Register service worker + online/offline listeners
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    // Service worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(e => console.warn('SW registration failed:', e))
+    }
+    // Online/offline
+    const goOnline = async () => {
+      setOnline(true)
+      // Auto-sync when back online
+      const qLen = getQueueLength()
+      if (qLen > 0) {
+        setSyncing(true)
+        try {
+          await syncOfflineData()
+          setPendingCount(getQueueLength())
+        } catch (e) { console.error('Sync failed:', e) }
+        setSyncing(false)
+      }
+    }
+    const goOffline = () => setOnline(false)
+    window.addEventListener('online', goOnline)
+    window.addEventListener('offline', goOffline)
+    setOnline(navigator.onLine)
+    setPendingCount(getQueueLength())
+    return () => {
+      window.removeEventListener('online', goOnline)
+      window.removeEventListener('offline', goOffline)
+    }
+  }, [])
 
   // Load all clients for linked-client switching
   const refreshAllClients = useCallback(async () => {
@@ -4991,6 +5026,13 @@ export default function App() {
               {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : view === 'signin' ? 'Sign-In Sheet' : view === 'weightTracker' ? 'Weight Tracker' : view === 'editClient' ? 'Edit Client' : client?.name}
             </div>
           )}
+          {/* Online/Offline Status */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '3px 8px', borderRadius: 6, background: syncing ? C.accent + '15' : !online ? C.orange + '15' : pendingCount > 0 ? C.accent + '10' : 'transparent' }}>
+            <div style={{ width: 7, height: 7, borderRadius: '50%', background: syncing ? C.accent : online ? C.green : C.orange, boxShadow: `0 0 4px ${syncing ? C.accent : online ? C.green : C.orange}` }} />
+            <span style={{ fontSize: 9, fontWeight: 700, color: syncing ? C.accent : online ? C.green : C.orange, letterSpacing: 0.3 }}>
+              {syncing ? 'Syncing...' : !online ? 'Offline' : pendingCount > 0 ? `${pendingCount} pending` : 'Online'}
+            </span>
+          </div>
           <button onClick={async () => { await fetch('/api/auth', { method: 'DELETE' }); setAuthed(false) }} style={{ padding: '4px 10px', borderRadius: 6, border: `1px solid ${C.border}`, background: 'transparent', color: C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
             Log Out
           </button>
