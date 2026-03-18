@@ -3197,6 +3197,22 @@ function ProgramUploads({ client, onUpdate }) {
     updateWeekDataLocal(days, dayIdx)
   }
 
+  const removeSet = (dayIdx, exIdx) => {
+    const days = weekData.days.map((d, di) => {
+      if (di !== dayIdx) return d
+      const exercises = d.exercises.map((ex, ei) => {
+        if (ei !== exIdx) return ex
+        const currentSets = parseInt(ex.sets) || 1
+        if (currentSets <= 1) return ex
+        const newSets = currentSets - 1
+        const setLogs = [...(ex.setLogs || [])].slice(0, newSets)
+        return { ...ex, sets: String(newSets), setLogs }
+      })
+      return { ...d, exercises }
+    })
+    updateWeekDataLocal(days, dayIdx)
+  }
+
   const toggleCollapsedNotes = (dayIdx) => {
     setCollapsedNotes(prev => {
       const n = new Set(prev)
@@ -3308,6 +3324,31 @@ function ProgramUploads({ client, onUpdate }) {
   const [copySelWeeks, setCopySelWeeks] = useState([])
   const [editingWeekIdx, setEditingWeekIdx] = useState(-1)
   const [editingWeekName, setEditingWeekName] = useState('')
+
+  // Stopwatch state
+  const [swRunning, setSwRunning] = useState(false)
+  const [swTime, setSwTime] = useState(0)
+  const [swMinimized, setSwMinimized] = useState(false)
+  const swInterval = useRef(null)
+
+  useEffect(() => {
+    if (swRunning) {
+      swInterval.current = setInterval(() => setSwTime(t => t + 10), 10)
+    } else {
+      clearInterval(swInterval.current)
+    }
+    return () => clearInterval(swInterval.current)
+  }, [swRunning])
+
+  const swStart = () => setSwRunning(true)
+  const swStop = () => setSwRunning(false)
+  const swReset = () => { setSwRunning(false); setSwTime(0) }
+  const formatSw = (ms) => {
+    const mins = Math.floor(ms / 60000)
+    const secs = Math.floor((ms % 60000) / 1000)
+    const centis = Math.floor((ms % 1000) / 10)
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(centis).padStart(2, '0')}`
+  }
 
   // Rename a week in the order
   const renameWeek = (idx, newName) => {
@@ -3539,7 +3580,7 @@ function ProgramUploads({ client, onUpdate }) {
           {!collapsedDays.has(dayIdx) && <>
           <div style={{ overflowX: 'auto' }}>
           {/* Exercise header row */}
-          <div style={{ display: 'grid', gridTemplateColumns: '22px 32px 1fr 50px 50px 56px 70px 50px 1fr 28px 28px', gap: 4, marginBottom: 4, alignItems: 'center', minWidth: 580 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '22px 32px 1fr 50px 50px 56px 70px 50px 1fr 28px 28px 28px', gap: 4, marginBottom: 4, alignItems: 'center', minWidth: 580 }}>
             <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>#</div>
             <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>CIR</div>
             <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', paddingLeft: 4 }}>Exercise</div>
@@ -3549,6 +3590,7 @@ function ProgramUploads({ client, onUpdate }) {
             <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>Tempo</div>
             <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', textAlign: 'center' }}>RPE</div>
             <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase', paddingLeft: 4 }}>Notes</div>
+            <div />
             <div />
             <div />
           </div>
@@ -3561,47 +3603,55 @@ function ProgramUploads({ client, onUpdate }) {
             const showCircuitBar = !!ex.circuit && (sameCircuitAbove || sameCircuitBelow)
             const setLogKey = `${dayIdx}-${exIdx}`
             const setsNum = parseInt(ex.sets) || 0
-            const hasSetLogs = ex.setLogs && ex.setLogs.some(s => s && (s.rpe || s.notes))
+            const hasSetLogs = ex.setLogs && ex.setLogs.some(s => s && (s.rpe || s.notes || s.weight || s.reps))
+            const isMultiSet = setsNum >= 2
             return (
               <div key={ex.id || exIdx} style={{ marginBottom: 4, ...(showCircuitBar ? { boxShadow: `inset 3px 0 0 ${circuitColor}` } : {}) }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '22px 32px 1fr 50px 50px 56px 70px 50px 1fr 28px 28px', gap: 4, alignItems: 'center', minWidth: 580 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: `22px 32px 1fr 50px 50px ${isMultiSet ? '0px' : '56px'} 70px ${isMultiSet ? '0px' : '50px'} 1fr 28px 28px 28px`, gap: 4, alignItems: 'center', minWidth: 580 }}>
                 <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, textAlign: 'center', padding: '7px 0', lineHeight: 1 }}>{exIdx + 1}</div>
                 <button onClick={() => toggleCircuit(dayIdx, exIdx)} style={{ background: ex.circuit ? (circuitColor + '20') : 'transparent', border: `1.5px solid ${ex.circuit ? circuitColor : C.border}`, borderRadius: 6, fontSize: 10, fontWeight: 800, color: ex.circuit ? circuitColor : C.sub, cursor: 'pointer', padding: '4px 0', fontFamily: 'Montserrat,sans-serif', lineHeight: 1 }} title="Toggle circuit group (A/B/C/D)">
                   {ex.circuit || '—'}
                 </button>
                 <input value={ex.exercise} onChange={e => updateExercise(dayIdx, exIdx, 'exercise', e.target.value)} placeholder="e.g. Back Squat" style={inputCell} />
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-                  <input value={ex.sets} onChange={e => updateExercise(dayIdx, exIdx, 'sets', e.target.value)} placeholder="3" style={{ ...inputCell, textAlign: 'center', cursor: setsNum >= 2 ? 'pointer' : undefined, ...(setsNum >= 2 ? { borderColor: expandedSetLogs.has(setLogKey) ? C.accent : hasSetLogs ? C.accent + '66' : C.border } : {}) }} onClick={() => { if (setsNum >= 2) toggleSetLogs(dayIdx, exIdx) }} readOnly={setsNum >= 2} title={setsNum >= 2 ? 'Click to view per-set RPE & Notes' : ''} />
+                  <input value={ex.sets} onChange={e => updateExercise(dayIdx, exIdx, 'sets', e.target.value)} placeholder="3" style={{ ...inputCell, textAlign: 'center', cursor: isMultiSet ? 'pointer' : undefined, ...(isMultiSet ? { borderColor: expandedSetLogs.has(setLogKey) ? C.accent : hasSetLogs ? C.accent + '66' : C.border } : {}) }} onClick={() => { if (isMultiSet) toggleSetLogs(dayIdx, exIdx) }} readOnly={isMultiSet} title={isMultiSet ? 'Click to view per-set breakdown' : ''} />
                   <span onClick={() => updateExercise(dayIdx, exIdx, 'setsType', ex.setsType === 'rounds' ? 'sets' : 'rounds')} style={{ fontSize: 7, fontWeight: 700, color: ex.setsType === 'rounds' ? C.accent : C.sub, cursor: 'pointer', letterSpacing: 0.3, textTransform: 'uppercase', userSelect: 'none', lineHeight: 1 }} title="Click to toggle sets/rounds">{ex.setsType === 'rounds' ? 'rounds' : 'sets'}</span>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-                  <input value={ex.reps} onChange={e => updateExercise(dayIdx, exIdx, 'reps', e.target.value)} placeholder="10" style={{ ...inputCell, textAlign: 'center' }} />
+                  <input value={ex.reps} onChange={e => updateExercise(dayIdx, exIdx, 'reps', e.target.value)} placeholder={isMultiSet ? '—' : '10'} style={{ ...inputCell, textAlign: 'center' }} />
                   <span onClick={() => updateExercise(dayIdx, exIdx, 'repsType', ex.repsType === 'time' ? 'reps' : 'time')} style={{ fontSize: 7, fontWeight: 700, color: ex.repsType === 'time' ? C.accent : C.sub, cursor: 'pointer', letterSpacing: 0.3, textTransform: 'uppercase', userSelect: 'none', lineHeight: 1 }} title="Click to toggle reps/seconds">{ex.repsType === 'time' ? 'sec' : 'reps'}</span>
                 </div>
-                <input value={ex.weight || ''} onChange={e => updateExercise(dayIdx, exIdx, 'weight', e.target.value)} placeholder="lbs" style={{ ...inputCell, textAlign: 'center' }} />
+                {!isMultiSet && <input value={ex.weight || ''} onChange={e => updateExercise(dayIdx, exIdx, 'weight', e.target.value)} placeholder="lbs" style={{ ...inputCell, textAlign: 'center' }} />}
+                {isMultiSet && <div />}
                 <input value={ex.tempo || ''} onChange={e => { const digits = e.target.value.replace(/[^0-9]/g, '').slice(0, 4); const formatted = digits.split('').join('-'); updateExercise(dayIdx, exIdx, 'tempo', formatted); }} placeholder="3-1-2-0" style={{ ...inputCell, textAlign: 'center' }} maxLength={7} />
-                <select value={ex.rpe} onChange={e => updateExercise(dayIdx, exIdx, 'rpe', e.target.value)} style={{ ...inputCell, textAlign: 'center', padding: '6px 2px' }}>
+                {!isMultiSet && <select value={ex.rpe} onChange={e => updateExercise(dayIdx, exIdx, 'rpe', e.target.value)} style={{ ...inputCell, textAlign: 'center', padding: '6px 2px' }}>
                   <option value="">—</option>
                   {[1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8,8.5,9,9.5,10].map(n => <option key={n} value={n}>{n}</option>)}
-                </select>
+                </select>}
+                {isMultiSet && <div />}
                 <input value={ex.notes} onChange={e => updateExercise(dayIdx, exIdx, 'notes', e.target.value)} placeholder="Cues..." style={inputCell} />
                 <button onClick={() => duplicateExercise(dayIdx, exIdx)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 5, color: C.accent, fontSize: 11, cursor: 'pointer', padding: 0, lineHeight: 1, fontWeight: 700, fontFamily: 'Montserrat,sans-serif' }} title="Add set">+</button>
+                <button onClick={() => removeSet(dayIdx, exIdx)} disabled={setsNum <= 1} style={{ background: 'none', border: `1px solid ${setsNum > 1 ? C.orange + '66' : C.border}`, borderRadius: 5, color: setsNum > 1 ? C.orange : C.border, fontSize: 11, cursor: setsNum > 1 ? 'pointer' : 'default', padding: 0, lineHeight: 1, fontWeight: 700, fontFamily: 'Montserrat,sans-serif' }} title="Remove set">−</button>
                 <button onClick={() => removeExercise(dayIdx, exIdx)} disabled={day.exercises.length <= 1} style={{ background: 'none', border: 'none', color: day.exercises.length > 1 ? C.red + '88' : C.border, fontSize: 16, cursor: day.exercises.length > 1 ? 'pointer' : 'default', padding: 0, lineHeight: 1 }} title="Remove exercise">×</button>
                 </div>
-                {/* Per-set RPE & Notes breakdown */}
-                {expandedSetLogs.has(setLogKey) && setsNum >= 2 && (
+                {/* Per-set breakdown with weight, reps, RPE & notes */}
+                {expandedSetLogs.has(setLogKey) && isMultiSet && (
                   <div style={{ marginLeft: 56, marginTop: 4, marginBottom: 6, padding: '8px 10px', background: '#fff', borderRadius: 8, border: `1px solid ${C.accent}33` }}>
                     <div style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Per-Set Breakdown</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '40px 60px 1fr', gap: 4, marginBottom: 4, alignItems: 'end' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '40px 60px 56px 60px 1fr', gap: 4, marginBottom: 4, alignItems: 'end' }}>
                       <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>Set</div>
+                      <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>Weight</div>
+                      <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>Reps</div>
                       <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>RPE</div>
                       <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>Notes</div>
                     </div>
                     {Array.from({ length: setsNum }, (_, si) => {
                       const log = (ex.setLogs || [])[si] || {}
                       return (
-                        <div key={si} style={{ display: 'grid', gridTemplateColumns: '40px 60px 1fr', gap: 4, marginBottom: 3, alignItems: 'center' }}>
+                        <div key={si} style={{ display: 'grid', gridTemplateColumns: '40px 60px 56px 60px 1fr', gap: 4, marginBottom: 3, alignItems: 'center' }}>
                           <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, paddingLeft: 4 }}>#{si + 1}</div>
+                          <input value={log.weight || ''} onChange={e => updateSetLog(dayIdx, exIdx, si, 'weight', e.target.value)} placeholder="lbs" style={{ ...inputCell, textAlign: 'center', fontSize: 11, padding: '4px 6px' }} />
+                          <input value={log.reps || ''} onChange={e => updateSetLog(dayIdx, exIdx, si, 'reps', e.target.value)} placeholder={ex.reps || '—'} style={{ ...inputCell, textAlign: 'center', fontSize: 11, padding: '4px 6px' }} />
                           <select value={log.rpe || ''} onChange={e => updateSetLog(dayIdx, exIdx, si, 'rpe', e.target.value)} style={{ ...inputCell, textAlign: 'center', padding: '4px 2px', fontSize: 11 }}>
                             <option value="">—</option>
                             {[1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8,8.5,9,9.5,10].map(n => <option key={n} value={n}>{n}</option>)}
@@ -3669,6 +3719,46 @@ function ProgramUploads({ client, onUpdate }) {
       <button onClick={addDay} style={{ background: 'none', border: `1.5px dashed ${C.accent}44`, borderRadius: 10, padding: '10px 20px', fontSize: 12, color: C.accent, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', width: '100%' }}>
         + Add Another Day
       </button>
+
+      {/* Sticky Stopwatch */}
+      <div className="no-print" style={{
+        position: 'fixed', bottom: 20, right: 20, zIndex: 9999,
+        background: '#1A202C', borderRadius: swMinimized ? 28 : 16,
+        boxShadow: '0 4px 20px rgba(0,0,0,0.3)', fontFamily: 'Montserrat,sans-serif',
+        transition: 'all .2s ease',
+        ...(swMinimized ? { padding: '8px 14px', cursor: 'pointer' } : { padding: '14px 20px', minWidth: 200 })
+      }}>
+        {swMinimized ? (
+          <div onClick={() => setSwMinimized(false)} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 14 }}>&#9201;</span>
+            <span style={{ fontSize: 14, fontWeight: 800, color: swRunning ? C.accent : '#fff', fontFamily: 'monospace', letterSpacing: 1 }}>{formatSw(swTime)}</span>
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <span style={{ fontSize: 10, fontWeight: 800, color: '#ffffff88', letterSpacing: 2, textTransform: 'uppercase' }}>Stopwatch</span>
+              <button onClick={() => setSwMinimized(true)} style={{ background: 'none', border: 'none', color: '#ffffff66', fontSize: 14, cursor: 'pointer', padding: '0 2px', lineHeight: 1 }} title="Minimize">&#x2013;</button>
+            </div>
+            <div style={{ textAlign: 'center', marginBottom: 12 }}>
+              <span style={{ fontSize: 32, fontWeight: 800, color: swRunning ? C.accent : '#fff', fontFamily: 'monospace', letterSpacing: 2 }}>{formatSw(swTime)}</span>
+            </div>
+            <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+              {!swRunning ? (
+                <button onClick={swStart} style={{ padding: '6px 18px', borderRadius: 8, border: 'none', background: C.accent, color: '#000', fontSize: 11, fontWeight: 800, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', letterSpacing: 0.5 }}>
+                  {swTime > 0 ? 'Resume' : 'Start'}
+                </button>
+              ) : (
+                <button onClick={swStop} style={{ padding: '6px 18px', borderRadius: 8, border: 'none', background: C.orange, color: '#000', fontSize: 11, fontWeight: 800, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', letterSpacing: 0.5 }}>
+                  Stop
+                </button>
+              )}
+              <button onClick={swReset} disabled={swTime === 0} style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${swTime > 0 ? '#ffffff44' : '#ffffff22'}`, background: 'transparent', color: swTime > 0 ? '#ffffffcc' : '#ffffff44', fontSize: 11, fontWeight: 700, cursor: swTime > 0 ? 'pointer' : 'default', fontFamily: 'Montserrat,sans-serif' }}>
+                Reset
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }
