@@ -84,9 +84,16 @@ export async function getAssessmentsForClient(clientId) {
 }
 
 export async function saveAssessment(clientId, assessmentType, answers, summary) {
-  // Cache locally
+  // Cache locally — add as new version
   const cached = getCachedData(`assessments_${clientId}`) || {}
-  cached[assessmentType] = { ...answers, _summary: summary || '', _completedAt: new Date().toISOString() }
+  const newVersion = { id: 'offline_' + Date.now(), answers, summary: summary || '', completedAt: new Date().toISOString() }
+  if (!cached[assessmentType]) {
+    cached[assessmentType] = { ...answers, _summary: summary || '', _completedAt: newVersion.completedAt, _versions: [newVersion] }
+  } else {
+    // Update latest answers and prepend new version
+    cached[assessmentType] = { ...cached[assessmentType], ...answers, _summary: summary || '', _completedAt: newVersion.completedAt }
+    cached[assessmentType]._versions = [newVersion, ...(cached[assessmentType]._versions || [])]
+  }
   cacheData(`assessments_${clientId}`, cached)
 
   if (isOnline() && supabase) {

@@ -51,27 +51,26 @@ export async function getAssessmentsForClient(clientId) {
     .eq('client_id', clientId)
     .order('completed_at', { ascending: false })
   if (error) throw error
-  // Convert to { [assessmentType]: { ...answers, _summary, _completedAt } }
+  // Return { [type]: { ...latestAnswers, _summary, _completedAt, _versions: [...all versions] } }
   const result = {}
   for (const row of data || []) {
-    result[row.assessment_type] = {
-      ...row.answers,
-      _summary: row.summary || '',
-      _completedAt: row.completed_at
+    const version = { id: row.id, answers: row.answers, summary: row.summary || '', completedAt: row.completed_at }
+    if (!result[row.assessment_type]) {
+      result[row.assessment_type] = {
+        ...row.answers,
+        _summary: row.summary || '',
+        _completedAt: row.completed_at,
+        _versions: [version]
+      }
+    } else {
+      result[row.assessment_type]._versions.push(version)
     }
   }
   return result
 }
 
 export async function saveAssessment(clientId, assessmentType, answers, summary) {
-  // Check if one already exists for this client+type
-  const { data: existing } = await supabase
-    .from('assessments')
-    .select('id')
-    .eq('client_id', clientId)
-    .eq('assessment_type', assessmentType)
-    .single()
-
+  // Always insert a new version (never overwrite)
   const payload = {
     client_id: clientId,
     assessment_type: assessmentType,
@@ -79,19 +78,10 @@ export async function saveAssessment(clientId, assessmentType, answers, summary)
     summary: summary || '',
     completed_at: new Date().toISOString()
   }
-
-  if (existing) {
-    const { error } = await supabase
-      .from('assessments')
-      .update(payload)
-      .eq('id', existing.id)
-    if (error) throw error
-  } else {
-    const { error } = await supabase
-      .from('assessments')
-      .insert(payload)
-    if (error) throw error
-  }
+  const { error } = await supabase
+    .from('assessments')
+    .insert(payload)
+  if (error) throw error
 }
 
 // ── PROGRAMS ─────────────────────────────────────────────────────────────────

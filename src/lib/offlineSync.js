@@ -96,11 +96,6 @@ async function replayAction(supabase, action) {
       break
     }
     case 'saveAssessment': {
-      const { data: existing } = await supabase
-        .from('assessments').select('id')
-        .eq('client_id', action.data.clientId)
-        .eq('assessment_type', action.data.assessmentType)
-        .single()
       const payload = {
         client_id: action.data.clientId,
         assessment_type: action.data.assessmentType,
@@ -108,13 +103,8 @@ async function replayAction(supabase, action) {
         summary: action.data.summary || '',
         completed_at: action.data.completedAt || new Date().toISOString()
       }
-      if (existing) {
-        const { error } = await supabase.from('assessments').update(payload).eq('id', existing.id)
-        if (error) throw error
-      } else {
-        const { error } = await supabase.from('assessments').insert(payload)
-        if (error) throw error
-      }
+      const { error } = await supabase.from('assessments').insert(payload)
+      if (error) throw error
       break
     }
     case 'saveWeightLog': {

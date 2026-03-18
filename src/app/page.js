@@ -4356,6 +4356,9 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
   const [showIntake, setShowIntake] = useState(false)
   const [showLinkMenu, setShowLinkMenu] = useState(false)
 
+  // Assessment history state
+  const [historyAssessment, setHistoryAssessment] = useState(null)
+
   // Legacy notes state
   const [legacyOpen, setLegacyOpen] = useState(false)
   const [legacyNotes, setLegacyNotes] = useState(() => {
@@ -4688,14 +4691,30 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             {items.map(a => {
               const done = assessmentsDone.includes(a.id)
+              const versions = client.assessments?.[a.id]?._versions || []
+              const versionCount = versions.length
+              const lastDate = client.assessments?.[a.id]?._completedAt
               return (
-                <button key={a.id} onClick={() => !locked && onRunAssessment(a, client)} style={{ padding: '12px 16px', borderRadius: 12, border: `2px solid ${done ? a.color : C.border}`, background: done ? a.color + '12' : C.card, cursor: locked ? 'not-allowed' : 'pointer', textAlign: 'left', minWidth: 160, flex: '1 1 160px', maxWidth: 220, opacity: locked ? 0.45 : 1 }}>
-                  <div style={{ fontSize: 18, marginBottom: 4 }}>{a.icon}</div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: done ? a.color : C.text, marginBottom: 2 }}>{a.name}</div>
-                  {done && <div style={{ fontSize: 10, color: a.color, fontWeight: 600 }}>✓ Completed</div>}
-                  {!done && !locked && <div style={{ fontSize: 10, color: C.sub }}>Tap to start</div>}
-                  {locked && <div style={{ fontSize: 10, color: C.sub }}>🔒 Complete Phase 1 & 2 first</div>}
-                </button>
+                <div key={a.id} style={{ minWidth: 160, flex: '1 1 160px', maxWidth: 220 }}>
+                  <button onClick={() => !locked && onRunAssessment(a, client)} style={{ width: '100%', padding: '12px 16px', borderRadius: versionCount > 1 ? '12px 12px 0 0' : 12, border: `2px solid ${done ? a.color : C.border}`, borderBottom: versionCount > 1 ? 'none' : undefined, background: done ? a.color + '12' : C.card, cursor: locked ? 'not-allowed' : 'pointer', textAlign: 'left', opacity: locked ? 0.45 : 1 }}>
+                    <div style={{ fontSize: 18, marginBottom: 4 }}>{a.icon}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: done ? a.color : C.text, marginBottom: 2 }}>{a.name}</div>
+                    {done && <div style={{ fontSize: 10, color: a.color, fontWeight: 600 }}>✓ Completed{lastDate ? ` · ${new Date(lastDate).toLocaleDateString()}` : ''}</div>}
+                    {done && versionCount > 1 && <div style={{ fontSize: 9, color: C.sub, fontWeight: 600, marginTop: 2 }}>{versionCount} versions saved</div>}
+                    {!done && !locked && <div style={{ fontSize: 10, color: C.sub }}>Tap to start</div>}
+                    {locked && <div style={{ fontSize: 10, color: C.sub }}>🔒 Complete Phase 1 & 2 first</div>}
+                  </button>
+                  {done && versionCount > 1 && (
+                    <button onClick={() => setHistoryAssessment(a)} style={{
+                      width: '100%', padding: '6px 12px', borderRadius: '0 0 12px 12px',
+                      border: `2px solid ${a.color}`, borderTop: `1px dashed ${a.color}44`,
+                      background: a.color + '08', cursor: 'pointer', textAlign: 'center',
+                      fontSize: 10, fontWeight: 700, color: a.color, fontFamily: 'Montserrat,sans-serif'
+                    }}>
+                      Compare Versions
+                    </button>
+                  )}
+                </div>
               )
             })}
           </div>
@@ -4713,6 +4732,85 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
           </div>
         )
       })}
+
+      {/* Assessment History Comparison Modal */}
+      {historyAssessment && (() => {
+        const aData = client.assessments?.[historyAssessment.id]
+        const versions = aData?._versions || []
+        if (versions.length < 2) { setHistoryAssessment(null); return null }
+        // Get all field keys across all versions
+        const allFields = new Set()
+        versions.forEach(v => Object.keys(v.answers || {}).forEach(k => { if (!k.startsWith('_')) allFields.add(k) }))
+        const fields = [...allFields].sort()
+        // Find the assessment definition for field labels
+        const assessDef = Object.values(ALL_ASSESSMENTS).find(a => a.id === historyAssessment.id)
+        const fieldLabels = {}
+        if (assessDef?.sections) {
+          assessDef.sections.forEach(sec => (sec.fields || []).forEach(f => { fieldLabels[f.id] = f.label || f.id }))
+        }
+        return (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }} onClick={() => setHistoryAssessment(null)}>
+            <div onClick={e => e.stopPropagation()} style={{ background: C.card, borderRadius: 16, maxWidth: 900, width: '100%', maxHeight: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}>
+              <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: C.text }}>{historyAssessment.icon} {historyAssessment.name} — Version History</div>
+                  <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>{versions.length} assessments for {client.name}</div>
+                </div>
+                <button onClick={() => setHistoryAssessment(null)} style={{ background: 'none', border: 'none', fontSize: 20, color: C.sub, cursor: 'pointer' }}>×</button>
+              </div>
+              <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
+                {/* Timeline header */}
+                <div style={{ display: 'grid', gridTemplateColumns: `180px repeat(${versions.length}, 1fr)`, gap: 8, marginBottom: 12, position: 'sticky', top: 0, background: C.card, paddingBottom: 8, borderBottom: `1px solid ${C.border}` }}>
+                  <div style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', paddingTop: 4 }}>Field</div>
+                  {versions.map((v, i) => (
+                    <div key={i} style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: i === 0 ? historyAssessment.color : C.sub }}>
+                        {i === 0 ? 'Latest' : `v${versions.length - i}`}
+                      </div>
+                      <div style={{ fontSize: 9, color: C.sub }}>
+                        {v.completedAt ? new Date(v.completedAt).toLocaleDateString() : '—'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {/* Field rows */}
+                {fields.map(field => {
+                  const values = versions.map(v => (v.answers || {})[field] || '')
+                  const changed = values.some(v => v !== values[0])
+                  return (
+                    <div key={field} style={{ display: 'grid', gridTemplateColumns: `180px repeat(${versions.length}, 1fr)`, gap: 8, padding: '6px 0', borderBottom: `1px solid ${C.border}22`, background: changed ? C.accent + '06' : 'transparent' }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: C.text, padding: '2px 4px', lineHeight: 1.4 }}>{fieldLabels[field] || field}</div>
+                      {values.map((val, i) => {
+                        const prev = i < values.length - 1 ? values[i + 1] : null
+                        const improved = prev && val !== prev
+                        return (
+                          <div key={i} style={{ fontSize: 11, textAlign: 'center', padding: '2px 4px', color: improved ? C.green : C.text, fontWeight: improved ? 700 : 500, borderRadius: 4, background: improved ? C.green + '10' : 'transparent' }}>
+                            {String(val) || '—'}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                })}
+                {/* Summaries */}
+                {versions.some(v => v.summary) && (
+                  <>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginTop: 16, marginBottom: 8 }}>AI Summaries</div>
+                    {versions.map((v, i) => v.summary ? (
+                      <div key={i} style={{ marginBottom: 10, padding: '10px 12px', borderRadius: 8, background: C.faint, border: `1px solid ${C.border}` }}>
+                        <div style={{ fontSize: 9, fontWeight: 700, color: i === 0 ? historyAssessment.color : C.sub, marginBottom: 4 }}>
+                          {i === 0 ? 'Latest' : `v${versions.length - i}`} · {v.completedAt ? new Date(v.completedAt).toLocaleDateString() : '—'}
+                        </div>
+                        <div style={{ fontSize: 11, color: C.text, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{v.summary}</div>
+                      </div>
+                    ) : null)}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Floating AI Chat Button & Panel */}
       <div className="no-print" style={{ position: 'fixed', bottom: 24, left: 24, zIndex: 9998 }}>
