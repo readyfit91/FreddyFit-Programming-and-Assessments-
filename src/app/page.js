@@ -49,12 +49,24 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
   const [saved, setSaved] = useState(false)
   const [hasUnsaved, setHasUnsaved] = useState(false)
 
+  const [viewingPrevious, setViewingPrevious] = useState(false)
+
   useEffect(() => {
     if (client.assessments?.[assessment.id]) {
       setAnswers(client.assessments[assessment.id])
       setSaved(true)
+      setViewingPrevious(true)
+    } else {
+      setViewingPrevious(false)
     }
   }, [assessment.id, client.assessments])
+
+  const startFresh = () => {
+    setAnswers({})
+    setSaved(false)
+    setHasUnsaved(false)
+    setViewingPrevious(false)
+  }
 
   const allFields = assessment.sections.flatMap(s => s.fields)
   const answered = allFields.filter(f => answers[f.id]?.toString().trim()).length
@@ -757,6 +769,22 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
       <div style={{ background: C.border, borderRadius: 4, height: 4, marginBottom: 28 }}>
         <div style={{ width: `${progress}%`, background: assessment.color, height: 4, borderRadius: 4, transition: 'width .3s' }} />
       </div>
+
+      {viewingPrevious && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: C.sky + '12', border: `1px solid ${C.sky}33`, borderRadius: 10, marginBottom: 20 }}>
+          <div style={{ fontSize: 12, color: C.text, fontFamily: 'Montserrat,sans-serif' }}>
+            <span style={{ fontWeight: 700 }}>Viewing previous results</span>
+            {client.assessments?.[assessment.id]?._completedAt && (
+              <span style={{ color: C.sub, marginLeft: 6 }}>
+                from {new Date(client.assessments[assessment.id]._completedAt).toLocaleDateString()}
+              </span>
+            )}
+          </div>
+          <button onClick={startFresh} style={{ padding: '6px 14px', borderRadius: 7, border: `1.5px solid ${C.accent}`, background: C.accent, color: 'white', fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            Start New Assessment
+          </button>
+        </div>
+      )}
 
       {assessment.sections.map(s => (
         <div key={s.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '20px 22px', marginBottom: 16 }}>
