@@ -164,11 +164,11 @@ function StopwatchTimer() {
   const isLow = seconds <= 5 && seconds > 0 && running
 
   return (
-    <div style={{ background: finished ? C.accent + '08' : C.card, border: `1.5px solid ${finished ? C.accent : C.border}`, borderRadius: 14, marginBottom: 20, overflow: 'hidden', transition: 'border-color .3s' }}>
+    <div style={{ position: 'fixed', bottom: 20, right: 20, zIndex: 9999, width: expanded ? 340 : 'auto', background: finished ? C.accent + '12' : C.card, border: `1.5px solid ${finished ? C.accent : C.border}`, borderRadius: 14, overflow: 'hidden', transition: 'border-color .3s, width .2s', boxShadow: '0 4px 24px rgba(0,0,0,0.15)' }}>
       {/* Header - always visible */}
       <div
         onClick={() => setExpanded(!expanded)}
-        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 20px', cursor: 'pointer', userSelect: 'none' }}
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', cursor: 'pointer', userSelect: 'none' }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase' }}>⏱ Rest Timer</span>
@@ -4518,8 +4518,6 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
         </div>
       </div>
 
-      {/* Rest Timer */}
-      <StopwatchTimer />
 
       {/* Intake Summary */}
       {intake ? (
@@ -4986,6 +4984,9 @@ export default function App() {
           />
         )}
       </div>
+
+      {/* Floating Rest Timer - visible on all pages */}
+      <StopwatchTimer />
     </div>
   )
 }
