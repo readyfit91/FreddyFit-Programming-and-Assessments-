@@ -3114,17 +3114,28 @@ function ProgramUploads({ client, onUpdate }) {
   const journalKey = `y${selYear}_${selPhase}_${selWeek}`
   const weekData = journal[journalKey] || { days: [emptyDay(1), emptyDay(2)] }
 
-  const persist = async (updates) => {
+  const persistTimer = useRef(null)
+  const pendingUpdates = useRef(null)
+
+  const persist = useCallback((updates) => {
+    // Merge with any pending updates
+    pendingUpdates.current = { ...(pendingUpdates.current || {}), ...updates }
     setSaving(true)
-    try {
-      const base = parseNotes()
-      const merged = { ...base, ...updates }
-      const updatedClient = { ...client, trainerNotes: JSON.stringify(merged) }
-      await saveClient(updatedClient)
-      onUpdate(updatedClient)
-    } catch (e) { alert('Error saving: ' + e.message) }
-    setSaving(false)
-  }
+
+    // Debounce: wait 300ms for more changes before hitting storage
+    clearTimeout(persistTimer.current)
+    persistTimer.current = setTimeout(async () => {
+      try {
+        const base = parseNotes()
+        const merged = { ...base, ...pendingUpdates.current }
+        pendingUpdates.current = null
+        const updatedClient = { ...client, trainerNotes: JSON.stringify(merged) }
+        await saveClient(updatedClient)
+        onUpdate(updatedClient)
+      } catch (e) { alert('Error saving: ' + e.message) }
+      setSaving(false)
+    }, 300)
+  }, [client, onUpdate])
 
   const [unsavedDays, setUnsavedDays] = useState(new Set())
   const [savedDays, setSavedDays] = useState(new Set())
