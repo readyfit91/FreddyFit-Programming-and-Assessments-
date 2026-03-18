@@ -4356,6 +4356,40 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
   const [showIntake, setShowIntake] = useState(false)
   const [showLinkMenu, setShowLinkMenu] = useState(false)
 
+  // AI Chat state
+  const [aiOpen, setAiOpen] = useState(false)
+  const [aiQuery, setAiQuery] = useState('')
+  const [aiMessages, setAiMessages] = useState([])
+  const [aiLoading, setAiLoading] = useState(false)
+  const aiEndRef = useRef(null)
+
+  useEffect(() => {
+    if (aiEndRef.current) aiEndRef.current.scrollIntoView({ behavior: 'smooth' })
+  }, [aiMessages, aiLoading])
+
+  const askAI = async () => {
+    const q = aiQuery.trim()
+    if (!q || aiLoading) return
+    const newMessages = [...aiMessages, { role: 'user', content: q }]
+    setAiMessages(newMessages)
+    setAiQuery('')
+    setAiLoading(true)
+    try {
+      const history = newMessages.slice(0, -1).map(m => ({ role: m.role, content: m.content }))
+      const res = await fetch('/api/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: q, clientId: client.id, history })
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setAiMessages([...newMessages, { role: 'assistant', content: data.text }])
+    } catch (e) {
+      setAiMessages([...newMessages, { role: 'assistant', content: `Error: ${e.message}` }])
+    }
+    setAiLoading(false)
+  }
+
   // Parse intake data from trainerNotes JSON
   const intake = (() => {
     if (!client.trainerNotes) return null
@@ -4609,6 +4643,101 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
           </div>
         )
       })}
+
+      {/* Floating AI Chat Button & Panel */}
+      <div className="no-print" style={{ position: 'fixed', bottom: 24, left: 24, zIndex: 9998 }}>
+        {!aiOpen && (
+          <button onClick={() => setAiOpen(true)} style={{
+            width: 52, height: 52, borderRadius: '50%', border: 'none',
+            background: 'linear-gradient(135deg, #6366F1, #8B5CF6)', color: '#fff',
+            fontSize: 22, cursor: 'pointer', boxShadow: '0 4px 16px rgba(99,102,241,0.4)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            transition: 'transform .15s', fontFamily: 'Montserrat,sans-serif'
+          }} title="Ask AI about this client">
+            <span style={{ lineHeight: 1 }}>AI</span>
+          </button>
+        )}
+        {aiOpen && (
+          <div style={{
+            width: 380, maxHeight: 520, display: 'flex', flexDirection: 'column',
+            background: '#1A202C', borderRadius: 16, boxShadow: '0 8px 32px rgba(0,0,0,0.35)',
+            fontFamily: 'Montserrat,sans-serif', overflow: 'hidden'
+          }}>
+            {/* Header */}
+            <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #ffffff15' }}>
+              <div>
+                <span style={{ fontSize: 12, fontWeight: 800, color: '#fff', letterSpacing: 0.5 }}>AI Assistant</span>
+                <span style={{ fontSize: 9, color: '#ffffff55', marginLeft: 8, fontWeight: 600 }}>{client.name}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {aiMessages.length > 0 && (
+                  <button onClick={() => setAiMessages([])} style={{ background: 'none', border: 'none', color: '#ffffff44', fontSize: 10, cursor: 'pointer', fontWeight: 700, fontFamily: 'Montserrat,sans-serif' }} title="Clear chat">Clear</button>
+                )}
+                <button onClick={() => setAiOpen(false)} style={{ background: 'none', border: 'none', color: '#ffffff66', fontSize: 18, cursor: 'pointer', padding: 0, lineHeight: 1 }}>×</button>
+              </div>
+            </div>
+            {/* Messages */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', minHeight: 200, maxHeight: 360 }}>
+              {aiMessages.length === 0 && !aiLoading && (
+                <div style={{ textAlign: 'center', padding: '30px 10px' }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>&#129302;</div>
+                  <div style={{ fontSize: 11, color: '#ffffff66', fontWeight: 600, lineHeight: 1.6 }}>
+                    Ask anything about {client.name.split(' ')[0]}...<br />
+                    <span style={{ fontSize: 10, color: '#ffffff44' }}>Heaviest squat? Assessment results?<br />Weight trends? Session notes?</span>
+                  </div>
+                </div>
+              )}
+              {aiMessages.map((msg, i) => (
+                <div key={i} style={{ marginBottom: 10, display: 'flex', flexDirection: 'column', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                  <div style={{
+                    maxWidth: '85%', padding: '8px 12px', borderRadius: 12,
+                    background: msg.role === 'user' ? '#6366F1' : '#2D3748',
+                    color: '#fff', fontSize: 12, lineHeight: 1.5, fontWeight: 500,
+                    whiteSpace: 'pre-wrap', wordBreak: 'break-word'
+                  }}>
+                    {msg.content}
+                  </div>
+                </div>
+              ))}
+              {aiLoading && (
+                <div style={{ display: 'flex', alignItems: 'flex-start', marginBottom: 10 }}>
+                  <div style={{ padding: '8px 12px', borderRadius: 12, background: '#2D3748', color: '#ffffff88', fontSize: 12 }}>
+                    Thinking...
+                  </div>
+                </div>
+              )}
+              <div ref={aiEndRef} />
+            </div>
+            {/* Input */}
+            <div style={{ padding: '10px 12px', borderTop: '1px solid #ffffff15', display: 'flex', gap: 8 }}>
+              <input
+                value={aiQuery}
+                onChange={e => setAiQuery(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); askAI() } }}
+                placeholder={`Ask about ${client.name.split(' ')[0]}...`}
+                style={{
+                  flex: 1, padding: '8px 12px', borderRadius: 10, border: '1px solid #ffffff22',
+                  background: '#ffffff0d', color: '#fff', fontSize: 12, fontFamily: 'Montserrat,sans-serif',
+                  outline: 'none'
+                }}
+              />
+              <button
+                onClick={askAI}
+                disabled={aiLoading || !aiQuery.trim()}
+                style={{
+                  padding: '8px 14px', borderRadius: 10, border: 'none',
+                  background: aiLoading || !aiQuery.trim() ? '#ffffff15' : '#6366F1',
+                  color: aiLoading || !aiQuery.trim() ? '#ffffff33' : '#fff',
+                  fontSize: 11, fontWeight: 800, cursor: aiLoading || !aiQuery.trim() ? 'default' : 'pointer',
+                  fontFamily: 'Montserrat,sans-serif', letterSpacing: 0.3
+                }}
+              >
+                Ask
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
