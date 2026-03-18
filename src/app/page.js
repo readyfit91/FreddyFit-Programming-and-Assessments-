@@ -49,7 +49,7 @@ function StopwatchTimer() {
   const [running, setRunning] = useState(false)
   const [finished, setFinished] = useState(false)
   const intervalRef = useRef(null)
-  const audioRef = useRef(null)
+  const audioCtxRef = useRef(null)
   const [expanded, setExpanded] = useState(false)
 
   // Presets in seconds
@@ -62,62 +62,93 @@ function StopwatchTimer() {
     { label: '5 min', value: 300 },
   ]
 
+  // Initialize AudioContext on first user interaction to satisfy browser autoplay policy
+  const ensureAudioCtx = () => {
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)()
+    }
+    // Resume if suspended (browsers suspend until user gesture)
+    if (audioCtxRef.current.state === 'suspended') {
+      audioCtxRef.current.resume()
+    }
+    return audioCtxRef.current
+  }
+
+  const playBeep = () => {
+    try {
+      const ctx = ensureAudioCtx()
+      const beep = (delay) => {
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.connect(gain)
+        gain.connect(ctx.destination)
+        osc.frequency.value = 880
+        gain.gain.value = 0.3
+        osc.start(ctx.currentTime + delay)
+        osc.stop(ctx.currentTime + delay + 0.4)
+      }
+      beep(0)
+      beep(0.6)
+      beep(1.2)
+    } catch {}
+  }
+
+  // Only depend on `running` — NOT on `seconds` — to avoid leaking intervals
   useEffect(() => {
-    if (running && seconds > 0) {
+    if (running) {
       intervalRef.current = setInterval(() => {
         setSeconds(s => {
           if (s <= 1) {
             clearInterval(intervalRef.current)
+            intervalRef.current = null
             setRunning(false)
             setFinished(true)
-            // Play beep sound
-            try {
-              const ctx = new (window.AudioContext || window.webkitAudioContext)()
-              const osc = ctx.createOscillator()
-              const gain = ctx.createGain()
-              osc.connect(gain)
-              gain.connect(ctx.destination)
-              osc.frequency.value = 880
-              gain.gain.value = 0.3
-              osc.start()
-              osc.stop(ctx.currentTime + 0.5)
-              // Second beep
-              setTimeout(() => {
-                const osc2 = ctx.createOscillator()
-                const gain2 = ctx.createGain()
-                osc2.connect(gain2)
-                gain2.connect(ctx.destination)
-                osc2.frequency.value = 880
-                gain2.gain.value = 0.3
-                osc2.start()
-                osc2.stop(ctx.currentTime + 0.5)
-              }, 600)
-            } catch {}
+            playBeep()
             return 0
           }
           return s - 1
         })
       }, 1000)
+    } else {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
     }
-    return () => clearInterval(intervalRef.current)
-  }, [running, seconds])
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+    }
+  }, [running])
 
   const selectPreset = (val) => {
-    clearInterval(intervalRef.current)
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current)
+      intervalRef.current = null
+    }
     setSeconds(val)
     setInitialSeconds(val)
     setRunning(false)
     setFinished(false)
+    // Warm up AudioContext on user interaction so it's ready when timer ends
+    ensureAudioCtx()
   }
 
   const toggleRunning = () => {
     if (seconds === 0 && !running) return
     setFinished(false)
+    // Warm up AudioContext on user interaction
+    ensureAudioCtx()
     setRunning(r => !r)
   }
 
   const reset = () => {
-    clearInterval(intervalRef.current)
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current)
+      intervalRef.current = null
+    }
     setSeconds(initialSeconds)
     setRunning(false)
     setFinished(false)
