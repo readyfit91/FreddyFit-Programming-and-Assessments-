@@ -17,10 +17,15 @@ async function gatherClientContext(clientId) {
       try {
         const notes = typeof clientData.trainer_notes === 'string'
           ? JSON.parse(clientData.trainer_notes) : clientData.trainer_notes
-        // Extract intake data (everything except program_journal and program_file)
-        const { program_journal, program_file, ...intake } = notes
+        // Extract intake data (everything except program_journal, program_file, legacy_notes)
+        const { program_journal, program_file, legacy_notes, ...intake } = notes
         if (Object.keys(intake).length > 0) {
           parts.push(`## Intake Form Data\n${JSON.stringify(intake, null, 1)}`)
+        }
+
+        // Legacy notes from previous software
+        if (legacy_notes) {
+          parts.push(`## Previous Software Notes (Legacy)\nThese are notes copied from the trainer's previous software. They may contain old session logs, programs, client history, medical notes, or other relevant data.\n\n${legacy_notes}`)
         }
 
         // Program journal - extract all workout data

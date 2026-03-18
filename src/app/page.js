@@ -4356,6 +4356,28 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
   const [showIntake, setShowIntake] = useState(false)
   const [showLinkMenu, setShowLinkMenu] = useState(false)
 
+  // Legacy notes state
+  const [legacyOpen, setLegacyOpen] = useState(false)
+  const [legacyNotes, setLegacyNotes] = useState(() => {
+    try { return JSON.parse(client.trainerNotes || '{}').legacy_notes || '' } catch { return '' }
+  })
+  const [legacySaving, setLegacySaving] = useState(false)
+  const [legacySaved, setLegacySaved] = useState(false)
+
+  const saveLegacyNotes = async () => {
+    setLegacySaving(true)
+    try {
+      const existing = (() => { try { return JSON.parse(client.trainerNotes || '{}') } catch { return {} } })()
+      const updated = { ...existing, legacy_notes: legacyNotes }
+      const updatedClient = { ...client, trainerNotes: JSON.stringify(updated) }
+      await saveClient(updatedClient)
+      onUpdate(updatedClient)
+      setLegacySaved(true)
+      setTimeout(() => setLegacySaved(false), 2000)
+    } catch (e) { console.error('Failed to save legacy notes:', e) }
+    setLegacySaving(false)
+  }
+
   // AI Chat state
   const [aiOpen, setAiOpen] = useState(false)
   const [aiQuery, setAiQuery] = useState('')
@@ -4608,6 +4630,54 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
           <Btn onClick={() => onEditClient(client)} small outline color={C.sub}>Fill Out Intake Form</Btn>
         </div>
       )}
+
+      {/* Previous Software Notes */}
+      <div style={{ marginBottom: 20, borderRadius: 12, border: `1px solid ${C.border}`, background: C.card, overflow: 'hidden' }}>
+        <button onClick={() => setLegacyOpen(!legacyOpen)} style={{
+          width: '100%', padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 800, color: C.text, letterSpacing: 0.5 }}>Previous Notes</span>
+            {legacyNotes && !legacyOpen && (
+              <span style={{ fontSize: 9, fontWeight: 600, color: C.accent, background: C.accent + '15', padding: '2px 8px', borderRadius: 10 }}>Has notes</span>
+            )}
+          </div>
+          <span style={{ fontSize: 12, color: C.sub, fontWeight: 700, transition: 'transform .2s', display: 'inline-block', transform: legacyOpen ? 'rotate(0deg)' : 'rotate(-90deg)' }}>&#9660;</span>
+        </button>
+        {legacyOpen && (
+          <div style={{ padding: '0 16px 14px' }}>
+            <div style={{ fontSize: 10, color: C.sub, marginBottom: 8, lineHeight: 1.5 }}>
+              Paste notes from your previous software here. The AI assistant can search through these.
+            </div>
+            <textarea
+              value={legacyNotes}
+              onChange={e => { setLegacyNotes(e.target.value); setLegacySaved(false) }}
+              rows={8}
+              placeholder="Paste client notes, history, old programs, session logs from your previous software..."
+              style={{
+                width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`,
+                fontSize: 12, fontFamily: 'Montserrat,sans-serif', color: C.text, background: '#fff',
+                resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.6, minHeight: 120
+              }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+              <button
+                onClick={saveLegacyNotes}
+                disabled={legacySaving}
+                style={{
+                  padding: '6px 18px', borderRadius: 7, border: 'none',
+                  background: legacySaved ? C.green : C.accent, color: legacySaved ? '#fff' : '#000',
+                  fontSize: 11, fontWeight: 700, cursor: legacySaving ? 'default' : 'pointer',
+                  fontFamily: 'Montserrat,sans-serif', transition: 'all .2s'
+                }}
+              >
+                {legacySaving ? 'Saving...' : legacySaved ? 'Saved!' : 'Save Notes'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Program Uploads */}
       <ProgramUploads key={client.id} client={client} onUpdate={onUpdate} />
