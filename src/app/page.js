@@ -42,6 +42,207 @@ function Btn({onClick,children,color=C.accent,outline=false,small=false,disabled
   return <button onClick={onClick} disabled={disabled} style={{padding:pad,borderRadius:8,border:`1.5px solid ${outline?color:bg}`,background:bg,color:clr,fontFamily:'Montserrat,sans-serif',fontWeight:700,fontSize:small?11:13,cursor:disabled?'not-allowed':'pointer',letterSpacing:.5,transition:'opacity .15s',opacity:disabled?.5:1}}>{children}</button>
 }
 
+// ── REST TIMER ───────────────────────────────────────────────────────────────
+function RestTimer() {
+  const [open, setOpen] = useState(false)
+  const [seconds, setSeconds] = useState(0)
+  const [running, setRunning] = useState(false)
+  const [totalSeconds, setTotalSeconds] = useState(0)
+  const intervalRef = useRef(null)
+  const audioCtxRef = useRef(null)
+
+  // Use Web Audio API for cross-device sound (no mp3 needed)
+  const playBeep = useCallback(() => {
+    try {
+      const ctx = audioCtxRef.current || new (window.AudioContext || window.webkitAudioContext)()
+      audioCtxRef.current = ctx
+      // Play 3 beeps
+      ;[0, 0.25, 0.5].forEach(delay => {
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.connect(gain)
+        gain.connect(ctx.destination)
+        osc.frequency.value = 880
+        osc.type = 'sine'
+        gain.gain.setValueAtTime(0.3, ctx.currentTime + delay)
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.2)
+        osc.start(ctx.currentTime + delay)
+        osc.stop(ctx.currentTime + delay + 0.2)
+      })
+    } catch {}
+  }, [])
+
+  // Warm up audio context on first user interaction (needed for iOS/Safari)
+  const warmAudio = useCallback(() => {
+    if (!audioCtxRef.current) {
+      try {
+        audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)()
+      } catch {}
+    }
+    if (audioCtxRef.current?.state === 'suspended') {
+      audioCtxRef.current.resume()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (running && seconds > 0) {
+      intervalRef.current = setInterval(() => {
+        setSeconds(s => {
+          if (s <= 1) {
+            clearInterval(intervalRef.current)
+            setRunning(false)
+            playBeep()
+            return 0
+          }
+          return s - 1
+        })
+      }, 1000)
+    }
+    return () => clearInterval(intervalRef.current)
+  }, [running, playBeep])
+
+  const start = (secs) => {
+    warmAudio()
+    clearInterval(intervalRef.current)
+    setSeconds(secs)
+    setTotalSeconds(secs)
+    setRunning(true)
+    setOpen(true)
+  }
+
+  const pause = () => { clearInterval(intervalRef.current); setRunning(false) }
+  const resume = () => { if (seconds > 0) setRunning(true) }
+  const reset = () => { clearInterval(intervalRef.current); setRunning(false); setSeconds(0); setTotalSeconds(0) }
+
+  const mm = String(Math.floor(seconds / 60)).padStart(2, '0')
+  const ss = String(seconds % 60).padStart(2, '0')
+  const progress = totalSeconds > 0 ? seconds / totalSeconds : 0
+  const done = totalSeconds > 0 && seconds === 0 && !running
+
+  const presets = [
+    { label: '30s', secs: 30 },
+    { label: '60s', secs: 60 },
+    { label: '90s', secs: 90 },
+    { label: '2m', secs: 120 },
+    { label: '3m', secs: 180 },
+  ]
+
+  // Minimized floating button
+  if (!open) {
+    return (
+      <button
+        onClick={() => { warmAudio(); setOpen(true) }}
+        style={{
+          position: 'fixed', top: 62, right: 16, zIndex: 10000,
+          width: running ? 52 : 44, height: running ? 52 : 44,
+          borderRadius: '50%',
+          background: running ? C.accent : done ? C.green : C.panel,
+          border: `2px solid ${running ? C.accent : done ? C.green : C.border}`,
+          color: running ? '#000' : done ? '#fff' : C.sub,
+          fontFamily: 'Montserrat,sans-serif', fontWeight: 700,
+          fontSize: running ? 11 : 16, cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
+          transition: 'all .2s',
+          animation: done ? 'timerPulse 1s ease-in-out infinite' : 'none',
+        }}
+      >
+        {running ? `${mm}:${ss}` : done ? '✓' : '⏱'}
+      </button>
+    )
+  }
+
+  // Expanded panel
+  return (
+    <>
+      <style>{`
+        @keyframes timerPulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.08)} }
+      `}</style>
+      <div style={{
+        position: 'fixed', top: 58, right: 12, zIndex: 10000,
+        background: C.panel, borderRadius: 16,
+        border: `1.5px solid ${C.border}`,
+        boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+        padding: 16, width: 200,
+        fontFamily: 'Montserrat,sans-serif',
+      }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: C.sub, letterSpacing: 1.5, textTransform: 'uppercase' }}>Rest Timer</span>
+          <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: C.sub, padding: 0, lineHeight: 1 }}>✕</button>
+        </div>
+
+        {/* Circular progress + time */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 14 }}>
+          <div style={{ position: 'relative', width: 100, height: 100 }}>
+            <svg width="100" height="100" style={{ transform: 'rotate(-90deg)' }}>
+              <circle cx="50" cy="50" r="44" fill="none" stroke={C.faint} strokeWidth="6" />
+              <circle
+                cx="50" cy="50" r="44" fill="none"
+                stroke={done ? C.green : C.accent}
+                strokeWidth="6" strokeLinecap="round"
+                strokeDasharray={2 * Math.PI * 44}
+                strokeDashoffset={2 * Math.PI * 44 * (1 - progress)}
+                style={{ transition: 'stroke-dashoffset 0.3s linear' }}
+              />
+            </svg>
+            <div style={{
+              position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <span style={{
+                fontSize: 26, fontWeight: 800, color: done ? C.green : C.text,
+                fontVariantNumeric: 'tabular-nums', letterSpacing: 1,
+                animation: done ? 'timerPulse 1s ease-in-out infinite' : 'none',
+              }}>
+                {mm}:{ss}
+              </span>
+              {done && <span style={{ fontSize: 9, fontWeight: 700, color: C.green, marginTop: 2 }}>DONE</span>}
+            </div>
+          </div>
+        </div>
+
+        {/* Presets */}
+        <div style={{ display: 'flex', gap: 6, justifyContent: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+          {presets.map(p => (
+            <button
+              key={p.secs}
+              onClick={() => start(p.secs)}
+              style={{
+                padding: '5px 10px', borderRadius: 6,
+                border: `1.5px solid ${totalSeconds === p.secs && (running || seconds > 0) ? C.accent : C.border}`,
+                background: totalSeconds === p.secs && (running || seconds > 0) ? C.accent + '18' : C.faint,
+                color: C.text, fontFamily: 'Montserrat,sans-serif',
+                fontWeight: 700, fontSize: 11, cursor: 'pointer',
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Controls */}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+          {running ? (
+            <button onClick={pause} style={{ flex: 1, padding: '7px 0', borderRadius: 8, border: `1.5px solid ${C.orange}`, background: C.orange + '18', color: C.orange, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
+              Pause
+            </button>
+          ) : seconds > 0 ? (
+            <button onClick={resume} style={{ flex: 1, padding: '7px 0', borderRadius: 8, border: `1.5px solid ${C.accent}`, background: C.accent + '18', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
+              Resume
+            </button>
+          ) : null}
+          {(seconds > 0 || done) && (
+            <button onClick={reset} style={{ flex: 1, padding: '7px 0', borderRadius: 8, border: `1.5px solid ${C.border}`, background: C.faint, color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
+              Reset
+            </button>
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
+
 // ── ASSESSMENT FORM ───────────────────────────────────────────────────────────
 function AssessmentForm({ assessment, client, onComplete, onBack }) {
   const [answers, setAnswers] = useState({})
@@ -4695,6 +4896,9 @@ export default function App() {
           </button>
         </div>
       </div>
+
+      {/* Rest Timer */}
+      <RestTimer />
 
       {/* Content */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
