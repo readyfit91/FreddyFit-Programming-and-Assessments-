@@ -42,6 +42,189 @@ function Btn({onClick,children,color=C.accent,outline=false,small=false,disabled
   return <button onClick={onClick} disabled={disabled} style={{padding:pad,borderRadius:8,border:`1.5px solid ${outline?color:bg}`,background:bg,color:clr,fontFamily:'Montserrat,sans-serif',fontWeight:700,fontSize:small?11:13,cursor:disabled?'not-allowed':'pointer',letterSpacing:.5,transition:'opacity .15s',opacity:disabled?.5:1}}>{children}</button>
 }
 
+// ── STOPWATCH TIMER ──────────────────────────────────────────────────────────
+function StopwatchTimer() {
+  const [seconds, setSeconds] = useState(0)
+  const [initialSeconds, setInitialSeconds] = useState(0)
+  const [running, setRunning] = useState(false)
+  const [finished, setFinished] = useState(false)
+  const intervalRef = useRef(null)
+  const audioRef = useRef(null)
+  const [expanded, setExpanded] = useState(false)
+
+  // Presets in seconds
+  const PRESETS = [
+    { label: '30s', value: 30 },
+    { label: '60s', value: 60 },
+    { label: '90s', value: 90 },
+    { label: '2 min', value: 120 },
+    { label: '3 min', value: 180 },
+    { label: '5 min', value: 300 },
+  ]
+
+  useEffect(() => {
+    if (running && seconds > 0) {
+      intervalRef.current = setInterval(() => {
+        setSeconds(s => {
+          if (s <= 1) {
+            clearInterval(intervalRef.current)
+            setRunning(false)
+            setFinished(true)
+            // Play beep sound
+            try {
+              const ctx = new (window.AudioContext || window.webkitAudioContext)()
+              const osc = ctx.createOscillator()
+              const gain = ctx.createGain()
+              osc.connect(gain)
+              gain.connect(ctx.destination)
+              osc.frequency.value = 880
+              gain.gain.value = 0.3
+              osc.start()
+              osc.stop(ctx.currentTime + 0.5)
+              // Second beep
+              setTimeout(() => {
+                const osc2 = ctx.createOscillator()
+                const gain2 = ctx.createGain()
+                osc2.connect(gain2)
+                gain2.connect(ctx.destination)
+                osc2.frequency.value = 880
+                gain2.gain.value = 0.3
+                osc2.start()
+                osc2.stop(ctx.currentTime + 0.5)
+              }, 600)
+            } catch {}
+            return 0
+          }
+          return s - 1
+        })
+      }, 1000)
+    }
+    return () => clearInterval(intervalRef.current)
+  }, [running, seconds])
+
+  const selectPreset = (val) => {
+    clearInterval(intervalRef.current)
+    setSeconds(val)
+    setInitialSeconds(val)
+    setRunning(false)
+    setFinished(false)
+  }
+
+  const toggleRunning = () => {
+    if (seconds === 0 && !running) return
+    setFinished(false)
+    setRunning(r => !r)
+  }
+
+  const reset = () => {
+    clearInterval(intervalRef.current)
+    setSeconds(initialSeconds)
+    setRunning(false)
+    setFinished(false)
+  }
+
+  const formatTime = (s) => {
+    const m = Math.floor(s / 60)
+    const sec = s % 60
+    return `${m}:${sec.toString().padStart(2, '0')}`
+  }
+
+  const progress = initialSeconds > 0 ? ((initialSeconds - seconds) / initialSeconds) * 100 : 0
+  const isLow = seconds <= 5 && seconds > 0 && running
+
+  return (
+    <div style={{ background: finished ? C.accent + '08' : C.card, border: `1.5px solid ${finished ? C.accent : C.border}`, borderRadius: 14, marginBottom: 20, overflow: 'hidden', transition: 'border-color .3s' }}>
+      {/* Header - always visible */}
+      <div
+        onClick={() => setExpanded(!expanded)}
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 20px', cursor: 'pointer', userSelect: 'none' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase' }}>⏱ Rest Timer</span>
+          {!expanded && seconds > 0 && (
+            <span style={{ fontSize: 14, fontWeight: 800, color: isLow ? C.red : finished ? C.accent : C.text, fontFamily: 'Montserrat,sans-serif', animation: isLow ? 'pulse 1s infinite' : 'none' }}>
+              {formatTime(seconds)}
+            </span>
+          )}
+          {!expanded && finished && <span style={{ fontSize: 11, fontWeight: 700, color: C.accent }}>DONE!</span>}
+        </div>
+        <span style={{ fontSize: 11, color: C.sub }}>{expanded ? '▲' : '▼'}</span>
+      </div>
+
+      {expanded && (
+        <div style={{ padding: '0 20px 20px' }}>
+          {/* Progress bar */}
+          <div style={{ height: 4, background: C.faint, borderRadius: 2, marginBottom: 16, overflow: 'hidden' }}>
+            <div style={{ height: '100%', background: isLow ? C.red : C.accent, borderRadius: 2, width: `${progress}%`, transition: 'width 1s linear, background .3s' }} />
+          </div>
+
+          {/* Timer display */}
+          <div style={{ textAlign: 'center', marginBottom: 16 }}>
+            <div style={{
+              fontSize: 56, fontWeight: 900, fontFamily: 'Montserrat,sans-serif', letterSpacing: 4,
+              color: finished ? C.accent : isLow ? C.red : C.text,
+              animation: isLow ? 'pulse 1s infinite' : finished ? 'none' : 'none',
+              transition: 'color .3s'
+            }}>
+              {formatTime(seconds)}
+            </div>
+            {finished && <div style={{ fontSize: 14, fontWeight: 800, color: C.accent, letterSpacing: 3, marginTop: 4 }}>TIME&apos;S UP!</div>}
+          </div>
+
+          {/* Preset buttons */}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
+            {PRESETS.map(p => (
+              <button
+                key={p.value}
+                onClick={() => selectPreset(p.value)}
+                style={{
+                  padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                  fontFamily: 'Montserrat,sans-serif', cursor: 'pointer', letterSpacing: 0.5,
+                  border: `1.5px solid ${initialSeconds === p.value ? C.accent : C.border}`,
+                  background: initialSeconds === p.value ? C.accent + '15' : 'transparent',
+                  color: initialSeconds === p.value ? C.accent : C.text,
+                  transition: 'all .15s'
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Controls */}
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+            <button
+              onClick={toggleRunning}
+              disabled={seconds === 0 && !running}
+              style={{
+                padding: '10px 28px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 800,
+                fontFamily: 'Montserrat,sans-serif', cursor: seconds === 0 && !running ? 'not-allowed' : 'pointer',
+                background: running ? C.orange : C.accent, color: running ? '#000' : '#000',
+                letterSpacing: 1, opacity: seconds === 0 && !running ? 0.4 : 1,
+                transition: 'all .15s'
+              }}
+            >
+              {running ? 'PAUSE' : 'START'}
+            </button>
+            <button
+              onClick={reset}
+              style={{
+                padding: '10px 28px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 800,
+                fontFamily: 'Montserrat,sans-serif', cursor: 'pointer', background: 'transparent', color: C.sub,
+                letterSpacing: 1
+              }}
+            >
+              RESET
+            </button>
+          </div>
+        </div>
+      )}
+
+      <style>{`@keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.5 } }`}</style>
+    </div>
+  )
+}
+
 // ── ASSESSMENT FORM ───────────────────────────────────────────────────────────
 function AssessmentForm({ assessment, client, onComplete, onBack }) {
   const [answers, setAnswers] = useState({})
@@ -4303,6 +4486,9 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
           <Btn onClick={() => onEditClient(client)} outline small color={C.sub}>✏️ Edit</Btn>
         </div>
       </div>
+
+      {/* Rest Timer */}
+      <StopwatchTimer />
 
       {/* Intake Summary */}
       {intake ? (
