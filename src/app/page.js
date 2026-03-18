@@ -770,21 +770,58 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
         <div style={{ width: `${progress}%`, background: assessment.color, height: 4, borderRadius: 4, transition: 'width .3s' }} />
       </div>
 
-      {viewingPrevious && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: C.sky + '12', border: `1px solid ${C.sky}33`, borderRadius: 10, marginBottom: 20 }}>
-          <div style={{ fontSize: 12, color: C.text, fontFamily: 'Montserrat,sans-serif' }}>
-            <span style={{ fontWeight: 700 }}>Viewing previous results</span>
-            {client.assessments?.[assessment.id]?._completedAt && (
-              <span style={{ color: C.sub, marginLeft: 6 }}>
-                from {new Date(client.assessments[assessment.id]._completedAt).toLocaleDateString()}
-              </span>
-            )}
+      {(() => {
+        const versions = client.assessments?.[assessment.id]?._versions || []
+        const hasVersions = versions.length > 0
+        if (!hasVersions && !viewingPrevious) return null
+        return (
+          <div style={{ padding: '12px 16px', background: C.sky + '12', border: `1px solid ${C.sky}33`, borderRadius: 10, marginBottom: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ fontSize: 12, color: C.text, fontFamily: 'Montserrat,sans-serif' }}>
+                {viewingPrevious ? (
+                  <span style={{ fontWeight: 700 }}>Viewing previous results</span>
+                ) : (
+                  <span style={{ fontWeight: 700 }}>New assessment</span>
+                )}
+                {hasVersions && (
+                  <span style={{ color: C.sub, marginLeft: 6 }}>{versions.length} version{versions.length !== 1 ? 's' : ''} saved</span>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {hasVersions && (
+                  <select
+                    onChange={(e) => {
+                      const idx = parseInt(e.target.value)
+                      if (isNaN(idx)) return
+                      const ver = versions[idx]
+                      if (ver?.answers) {
+                        setAnswers({ ...ver.answers, _completedAt: ver.completedAt, _versions: versions })
+                        setViewingPrevious(true)
+                        setSaved(true)
+                        setHasUnsaved(false)
+                      }
+                    }}
+                    value=""
+                    style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 12, color: C.text, background: 'white', cursor: 'pointer' }}
+                  >
+                    <option value="" disabled>View previous version...</option>
+                    {versions.map((v, i) => (
+                      <option key={v.id || i} value={i}>
+                        {i === 0 ? 'Latest' : `v${versions.length - i}`} — {v.completedAt ? new Date(v.completedAt).toLocaleDateString() : 'Unknown date'}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {viewingPrevious && (
+                  <button onClick={startFresh} style={{ padding: '6px 14px', borderRadius: 7, border: `1.5px solid ${C.accent}`, background: C.accent, color: 'white', fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    Start New Assessment
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
-          <button onClick={startFresh} style={{ padding: '6px 14px', borderRadius: 7, border: `1.5px solid ${C.accent}`, background: C.accent, color: 'white', fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-            Start New Assessment
-          </button>
-        </div>
-      )}
+        )
+      })()}
 
       {assessment.sections.map(s => (
         <div key={s.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '20px 22px', marginBottom: 16 }}>
