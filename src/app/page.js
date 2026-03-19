@@ -50,39 +50,72 @@ function RestTimer() {
   const [totalSeconds, setTotalSeconds] = useState(0)
   const intervalRef = useRef(null)
   const audioCtxRef = useRef(null)
+  const silentBufferRef = useRef(null)
+  const keepAliveRef = useRef(null)
 
-  // Use Web Audio API for cross-device sound (no mp3 needed)
+  // Get or create AudioContext — must be called during a user tap on iOS
+  const getAudioCtx = useCallback(() => {
+    if (!audioCtxRef.current) {
+      try {
+        audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)()
+        // Create a reusable silent buffer for keep-alive pings
+        const buf = audioCtxRef.current.createBuffer(1, 1, 22050)
+        silentBufferRef.current = buf
+      } catch {}
+    }
+    const ctx = audioCtxRef.current
+    if (ctx?.state === 'suspended') ctx.resume()
+    return ctx
+  }, [])
+
+  // Play a silent sound to keep iOS audio context alive — call on every user tap
+  const unlockAudio = useCallback(() => {
+    const ctx = getAudioCtx()
+    if (!ctx || !silentBufferRef.current) return
+    const src = ctx.createBufferSource()
+    src.buffer = silentBufferRef.current
+    src.connect(ctx.destination)
+    src.start(0)
+  }, [getAudioCtx])
+
+  // Play loud beep — works even from a timer callback because context is kept warm
   const playBeep = useCallback(() => {
     try {
-      const ctx = audioCtxRef.current || new (window.AudioContext || window.webkitAudioContext)()
-      audioCtxRef.current = ctx
-      // Play 3 beeps
-      ;[0, 0.25, 0.5].forEach(delay => {
+      const ctx = getAudioCtx()
+      if (!ctx) return
+      if (ctx.state === 'suspended') ctx.resume()
+      // Play 3 beeps at different pitches for maximum audibility
+      ;[0, 0.3, 0.6].forEach((delay, i) => {
         const osc = ctx.createOscillator()
         const gain = ctx.createGain()
         osc.connect(gain)
         gain.connect(ctx.destination)
-        osc.frequency.value = 880
-        osc.type = 'sine'
-        gain.gain.setValueAtTime(0.3, ctx.currentTime + delay)
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.2)
+        osc.frequency.value = [880, 988, 1047][i] // A5, B5, C6
+        osc.type = 'square' // louder than sine on small speakers
+        gain.gain.setValueAtTime(0.4, ctx.currentTime + delay)
+        gain.gain.setValueAtTime(0.4, ctx.currentTime + delay + 0.15)
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.25)
         osc.start(ctx.currentTime + delay)
-        osc.stop(ctx.currentTime + delay + 0.2)
+        osc.stop(ctx.currentTime + delay + 0.25)
       })
     } catch {}
-  }, [])
+  }, [getAudioCtx])
 
-  // Warm up audio context on first user interaction (needed for iOS/Safari)
-  const warmAudio = useCallback(() => {
-    if (!audioCtxRef.current) {
-      try {
-        audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)()
-      } catch {}
+  // Keep audio context alive while timer is running (iOS suspends after ~30s idle)
+  useEffect(() => {
+    if (running) {
+      keepAliveRef.current = setInterval(() => {
+        const ctx = audioCtxRef.current
+        if (!ctx || !silentBufferRef.current) return
+        if (ctx.state === 'suspended') ctx.resume()
+        const src = ctx.createBufferSource()
+        src.buffer = silentBufferRef.current
+        src.connect(ctx.destination)
+        src.start(0)
+      }, 5000) // ping every 5s to prevent iOS from suspending context
     }
-    if (audioCtxRef.current?.state === 'suspended') {
-      audioCtxRef.current.resume()
-    }
-  }, [])
+    return () => clearInterval(keepAliveRef.current)
+  }, [running])
 
   useEffect(() => {
     if (running && seconds > 0) {
@@ -102,7 +135,7 @@ function RestTimer() {
   }, [running, playBeep])
 
   const start = (secs) => {
-    warmAudio()
+    unlockAudio()
     clearInterval(intervalRef.current)
     setSeconds(secs)
     setTotalSeconds(secs)
@@ -110,9 +143,9 @@ function RestTimer() {
     setOpen(true)
   }
 
-  const pause = () => { clearInterval(intervalRef.current); setRunning(false) }
-  const resume = () => { if (seconds > 0) setRunning(true) }
-  const reset = () => { clearInterval(intervalRef.current); setRunning(false); setSeconds(0); setTotalSeconds(0) }
+  const pause = () => { unlockAudio(); clearInterval(intervalRef.current); setRunning(false) }
+  const resume = () => { unlockAudio(); if (seconds > 0) setRunning(true) }
+  const reset = () => { unlockAudio(); clearInterval(intervalRef.current); setRunning(false); setSeconds(0); setTotalSeconds(0) }
 
   const mm = String(Math.floor(seconds / 60)).padStart(2, '0')
   const ss = String(seconds % 60).padStart(2, '0')
@@ -131,7 +164,7 @@ function RestTimer() {
   if (!open) {
     return (
       <button
-        onClick={() => { warmAudio(); setOpen(true) }}
+        onClick={() => { unlockAudio(); setOpen(true) }}
         style={{
           position: 'fixed', top: 62, right: 16, zIndex: 10000,
           width: running ? 52 : 44, height: running ? 52 : 44,
