@@ -51,27 +51,33 @@ export async function getAssessmentsForClient(clientId) {
     .eq('client_id', clientId)
     .order('completed_at', { ascending: false })
   if (error) throw error
-  // Convert to { [assessmentType]: { ...answers, _summary, _completedAt } }
+  // Convert to { [assessmentType]: { ...answers, _summary, _completedAt, _history } }
   const result = {}
+  const historyMap = {}
   for (const row of data || []) {
-    result[row.assessment_type] = {
-      ...row.answers,
-      _summary: row.summary || '',
-      _completedAt: row.completed_at
+    if (!historyMap[row.assessment_type]) historyMap[row.assessment_type] = []
+    historyMap[row.assessment_type].push({
+      id: row.id,
+      answers: row.answers,
+      summary: row.summary || '',
+      completedAt: row.completed_at
+    })
+    if (!result[row.assessment_type]) {
+      result[row.assessment_type] = {
+        ...row.answers,
+        _summary: row.summary || '',
+        _completedAt: row.completed_at
+      }
     }
+  }
+  // Attach history arrays
+  for (const type of Object.keys(result)) {
+    result[type]._history = historyMap[type] || []
   }
   return result
 }
 
-export async function saveAssessment(clientId, assessmentType, answers, summary) {
-  // Check if one already exists for this client+type
-  const { data: existing } = await supabase
-    .from('assessments')
-    .select('id')
-    .eq('client_id', clientId)
-    .eq('assessment_type', assessmentType)
-    .single()
-
+export async function saveAssessment(clientId, assessmentType, answers, summary, forceNew = false) {
   const payload = {
     client_id: clientId,
     assessment_type: assessmentType,
@@ -80,18 +86,31 @@ export async function saveAssessment(clientId, assessmentType, answers, summary)
     completed_at: new Date().toISOString()
   }
 
-  if (existing) {
-    const { error } = await supabase
+  if (!forceNew) {
+    // Check if one already exists for this client+type
+    const { data: existing } = await supabase
       .from('assessments')
-      .update(payload)
-      .eq('id', existing.id)
-    if (error) throw error
-  } else {
-    const { error } = await supabase
-      .from('assessments')
-      .insert(payload)
-    if (error) throw error
+      .select('id')
+      .eq('client_id', clientId)
+      .eq('assessment_type', assessmentType)
+      .order('completed_at', { ascending: false })
+      .limit(1)
+      .single()
+
+    if (existing) {
+      const { error } = await supabase
+        .from('assessments')
+        .update(payload)
+        .eq('id', existing.id)
+      if (error) throw error
+      return
+    }
   }
+
+  const { error } = await supabase
+    .from('assessments')
+    .insert(payload)
+  if (error) throw error
 }
 
 // ── PROGRAMS ─────────────────────────────────────────────────────────────────

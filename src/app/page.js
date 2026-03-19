@@ -42,19 +42,271 @@ function Btn({onClick,children,color=C.accent,outline=false,small=false,disabled
   return <button onClick={onClick} disabled={disabled} style={{padding:pad,borderRadius:8,border:`1.5px solid ${outline?color:bg}`,background:bg,color:clr,fontFamily:'Montserrat,sans-serif',fontWeight:700,fontSize:small?11:13,cursor:disabled?'not-allowed':'pointer',letterSpacing:.5,transition:'opacity .15s',opacity:disabled?.5:1}}>{children}</button>
 }
 
+// ── REST TIMER ───────────────────────────────────────────────────────────────
+function RestTimer() {
+  const [open, setOpen] = useState(false)
+  const [seconds, setSeconds] = useState(0)
+  const [running, setRunning] = useState(false)
+  const [totalSeconds, setTotalSeconds] = useState(0)
+  const intervalRef = useRef(null)
+  const audioCtxRef = useRef(null)
+  const silentBufferRef = useRef(null)
+  const keepAliveRef = useRef(null)
+
+  // Get or create AudioContext — must be called during a user tap on iOS
+  const getAudioCtx = useCallback(() => {
+    if (!audioCtxRef.current) {
+      try {
+        audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)()
+        // Create a reusable silent buffer for keep-alive pings
+        const buf = audioCtxRef.current.createBuffer(1, 1, 22050)
+        silentBufferRef.current = buf
+      } catch {}
+    }
+    const ctx = audioCtxRef.current
+    if (ctx?.state === 'suspended') ctx.resume()
+    return ctx
+  }, [])
+
+  // Play a silent sound to keep iOS audio context alive — call on every user tap
+  const unlockAudio = useCallback(() => {
+    const ctx = getAudioCtx()
+    if (!ctx || !silentBufferRef.current) return
+    const src = ctx.createBufferSource()
+    src.buffer = silentBufferRef.current
+    src.connect(ctx.destination)
+    src.start(0)
+  }, [getAudioCtx])
+
+  // Play 5-second alert: beeps then "Time to get back to work!"
+  const playBeep = useCallback(() => {
+    try {
+      const ctx = getAudioCtx()
+      if (!ctx) return
+      if (ctx.state === 'suspended') ctx.resume()
+      // 5 seconds of ascending beep pattern (10 beeps over ~3.5s)
+      const beeps = [
+        { t: 0.0, freq: 880 },  { t: 0.35, freq: 988 },
+        { t: 0.7, freq: 1047 }, { t: 1.05, freq: 880 },
+        { t: 1.4, freq: 988 },  { t: 1.75, freq: 1047 },
+        { t: 2.1, freq: 880 },  { t: 2.45, freq: 988 },
+        { t: 2.8, freq: 1047 }, { t: 3.15, freq: 1175 },
+      ]
+      beeps.forEach(({ t, freq }) => {
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.connect(gain)
+        gain.connect(ctx.destination)
+        osc.frequency.value = freq
+        osc.type = 'square'
+        gain.gain.setValueAtTime(0.35, ctx.currentTime + t)
+        gain.gain.setValueAtTime(0.35, ctx.currentTime + t + 0.15)
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.25)
+        osc.start(ctx.currentTime + t)
+        osc.stop(ctx.currentTime + t + 0.25)
+      })
+      // Speak "Time to get back to work!" after the beeps
+      if ('speechSynthesis' in window) {
+        setTimeout(() => {
+          const msg = new SpeechSynthesisUtterance('Time to get back to work!')
+          msg.rate = 1.0
+          msg.pitch = 1.1
+          msg.volume = 1.0
+          window.speechSynthesis.cancel() // clear any queued speech
+          window.speechSynthesis.speak(msg)
+        }, 1800) // start speaking partway through the beeps
+      }
+    } catch {}
+  }, [getAudioCtx])
+
+  // Keep audio context alive while timer is running (iOS suspends after ~30s idle)
+  useEffect(() => {
+    if (running) {
+      keepAliveRef.current = setInterval(() => {
+        const ctx = audioCtxRef.current
+        if (!ctx || !silentBufferRef.current) return
+        if (ctx.state === 'suspended') ctx.resume()
+        const src = ctx.createBufferSource()
+        src.buffer = silentBufferRef.current
+        src.connect(ctx.destination)
+        src.start(0)
+      }, 5000) // ping every 5s to prevent iOS from suspending context
+    }
+    return () => clearInterval(keepAliveRef.current)
+  }, [running])
+
+  useEffect(() => {
+    if (running && seconds > 0) {
+      intervalRef.current = setInterval(() => {
+        setSeconds(s => {
+          if (s <= 1) {
+            clearInterval(intervalRef.current)
+            setRunning(false)
+            playBeep()
+            return 0
+          }
+          return s - 1
+        })
+      }, 1000)
+    }
+    return () => clearInterval(intervalRef.current)
+  }, [running, playBeep])
+
+  const start = (secs) => {
+    unlockAudio()
+    clearInterval(intervalRef.current)
+    setSeconds(secs)
+    setTotalSeconds(secs)
+    setRunning(true)
+    setOpen(true)
+  }
+
+  const pause = () => { unlockAudio(); clearInterval(intervalRef.current); setRunning(false) }
+  const resume = () => { unlockAudio(); if (seconds > 0) setRunning(true) }
+  const reset = () => { unlockAudio(); clearInterval(intervalRef.current); setRunning(false); setSeconds(0); setTotalSeconds(0) }
+
+  const mm = String(Math.floor(seconds / 60)).padStart(2, '0')
+  const ss = String(seconds % 60).padStart(2, '0')
+  const progress = totalSeconds > 0 ? seconds / totalSeconds : 0
+  const done = totalSeconds > 0 && seconds === 0 && !running
+
+  const presets = [
+    { label: '30s', secs: 30 },
+    { label: '60s', secs: 60 },
+    { label: '90s', secs: 90 },
+    { label: '2m', secs: 120 },
+    { label: '3m', secs: 180 },
+  ]
+
+  // Minimized floating button
+  if (!open) {
+    return (
+      <button
+        onClick={() => { unlockAudio(); setOpen(true) }}
+        style={{
+          position: 'fixed', top: 62, right: 16, zIndex: 10000,
+          width: running ? 52 : 44, height: running ? 52 : 44,
+          borderRadius: '50%',
+          background: running ? C.accent : done ? C.green : C.panel,
+          border: `2px solid ${running ? C.accent : done ? C.green : C.border}`,
+          color: running ? '#000' : done ? '#fff' : C.sub,
+          fontFamily: 'Montserrat,sans-serif', fontWeight: 700,
+          fontSize: running ? 11 : 16, cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
+          transition: 'all .2s',
+          animation: done ? 'timerPulse 1s ease-in-out infinite' : 'none',
+        }}
+      >
+        {running ? `${mm}:${ss}` : done ? '✓' : '⏱'}
+      </button>
+    )
+  }
+
+  // Expanded panel
+  return (
+    <>
+      <style>{`
+        @keyframes timerPulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.08)} }
+      `}</style>
+      <div style={{
+        position: 'fixed', top: 58, right: 12, zIndex: 10000,
+        background: C.panel, borderRadius: 16,
+        border: `1.5px solid ${C.border}`,
+        boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+        padding: 16, width: 200,
+        fontFamily: 'Montserrat,sans-serif',
+      }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: C.sub, letterSpacing: 1.5, textTransform: 'uppercase' }}>Rest Timer</span>
+          <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: C.sub, padding: 0, lineHeight: 1 }}>✕</button>
+        </div>
+
+        {/* Circular progress + time */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 14 }}>
+          <div style={{ position: 'relative', width: 100, height: 100 }}>
+            <svg width="100" height="100" style={{ transform: 'rotate(-90deg)' }}>
+              <circle cx="50" cy="50" r="44" fill="none" stroke={C.faint} strokeWidth="6" />
+              <circle
+                cx="50" cy="50" r="44" fill="none"
+                stroke={done ? C.green : C.accent}
+                strokeWidth="6" strokeLinecap="round"
+                strokeDasharray={2 * Math.PI * 44}
+                strokeDashoffset={2 * Math.PI * 44 * (1 - progress)}
+                style={{ transition: 'stroke-dashoffset 0.3s linear' }}
+              />
+            </svg>
+            <div style={{
+              position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <span style={{
+                fontSize: 26, fontWeight: 800, color: done ? C.green : C.text,
+                fontVariantNumeric: 'tabular-nums', letterSpacing: 1,
+                animation: done ? 'timerPulse 1s ease-in-out infinite' : 'none',
+              }}>
+                {mm}:{ss}
+              </span>
+              {done && <span style={{ fontSize: 9, fontWeight: 700, color: C.green, marginTop: 2 }}>DONE</span>}
+            </div>
+          </div>
+        </div>
+
+        {/* Presets */}
+        <div style={{ display: 'flex', gap: 6, justifyContent: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+          {presets.map(p => (
+            <button
+              key={p.secs}
+              onClick={() => start(p.secs)}
+              style={{
+                padding: '5px 10px', borderRadius: 6,
+                border: `1.5px solid ${totalSeconds === p.secs && (running || seconds > 0) ? C.accent : C.border}`,
+                background: totalSeconds === p.secs && (running || seconds > 0) ? C.accent + '18' : C.faint,
+                color: C.text, fontFamily: 'Montserrat,sans-serif',
+                fontWeight: 700, fontSize: 11, cursor: 'pointer',
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Controls */}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+          {running ? (
+            <button onClick={pause} style={{ flex: 1, padding: '7px 0', borderRadius: 8, border: `1.5px solid ${C.orange}`, background: C.orange + '18', color: C.orange, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
+              Pause
+            </button>
+          ) : seconds > 0 ? (
+            <button onClick={resume} style={{ flex: 1, padding: '7px 0', borderRadius: 8, border: `1.5px solid ${C.accent}`, background: C.accent + '18', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
+              Resume
+            </button>
+          ) : null}
+          {(seconds > 0 || done) && (
+            <button onClick={reset} style={{ flex: 1, padding: '7px 0', borderRadius: 8, border: `1.5px solid ${C.border}`, background: C.faint, color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
+              Reset
+            </button>
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
+
 // ── ASSESSMENT FORM ───────────────────────────────────────────────────────────
-function AssessmentForm({ assessment, client, onComplete, onBack }) {
+function AssessmentForm({ assessment, client, onComplete, onBack, forceNew = false }) {
   const [answers, setAnswers] = useState({})
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [hasUnsaved, setHasUnsaved] = useState(false)
 
   useEffect(() => {
-    if (client.assessments?.[assessment.id]) {
+    if (!forceNew && client.assessments?.[assessment.id]) {
       setAnswers(client.assessments[assessment.id])
       setSaved(true)
     }
-  }, [assessment.id, client.assessments])
+  }, [assessment.id, client.assessments, forceNew])
 
   const allFields = assessment.sections.flatMap(s => s.fields)
   const answered = allFields.filter(f => answers[f.id]?.toString().trim()).length
@@ -103,7 +355,7 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
     setSaving(true)
     try {
       const completed = { ...answers, _completedAt: new Date().toISOString() }
-      await saveAssessment(client.id, assessment.id, answers, '')
+      await saveAssessment(client.id, assessment.id, answers, '', forceNew)
       onComplete(assessment.id, completed)
       setSaved(true)
       setHasUnsaved(false)
@@ -3578,13 +3830,33 @@ function ProgramUploads({ client, onUpdate }) {
                   <input value={ex.reps} onChange={e => updateExercise(dayIdx, exIdx, 'reps', e.target.value)} placeholder="10" style={{ ...inputCell, textAlign: 'center' }} />
                   <span onClick={() => updateExercise(dayIdx, exIdx, 'repsType', ex.repsType === 'time' ? 'reps' : 'time')} style={{ fontSize: 7, fontWeight: 700, color: ex.repsType === 'time' ? C.accent : C.sub, cursor: 'pointer', letterSpacing: 0.3, textTransform: 'uppercase', userSelect: 'none', lineHeight: 1 }} title="Click to toggle reps/seconds">{ex.repsType === 'time' ? 'sec' : 'reps'}</span>
                 </div>
-                <input value={ex.weight || ''} onChange={e => updateExercise(dayIdx, exIdx, 'weight', e.target.value)} placeholder="lbs" style={{ ...inputCell, textAlign: 'center' }} />
-                <input value={ex.tempo || ''} onChange={e => { const digits = e.target.value.replace(/[^0-9]/g, '').slice(0, 4); const formatted = digits.split('').join('-'); updateExercise(dayIdx, exIdx, 'tempo', formatted); }} placeholder="3-1-2-0" style={{ ...inputCell, textAlign: 'center' }} maxLength={7} />
-                <select value={ex.rpe} onChange={e => updateExercise(dayIdx, exIdx, 'rpe', e.target.value)} style={{ ...inputCell, textAlign: 'center', padding: '6px 2px' }}>
-                  <option value="">—</option>
-                  {[1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8,8.5,9,9.5,10].map(n => <option key={n} value={n}>{n}</option>)}
-                </select>
-                <input value={ex.notes} onChange={e => updateExercise(dayIdx, exIdx, 'notes', e.target.value)} placeholder="Cues..." style={inputCell} />
+                {/* Weight — hide in main row when per-set breakdown is open */}
+                {expandedSetLogs.has(setLogKey) && setsNum >= 2 ? (
+                  <div style={{ textAlign: 'center', fontSize: 8, color: C.sub, fontWeight: 700, letterSpacing: 0.3 }}>per set ↓</div>
+                ) : (
+                  <input value={ex.weight || ''} onChange={e => updateExercise(dayIdx, exIdx, 'weight', e.target.value)} placeholder="lbs" style={{ ...inputCell, textAlign: 'center' }} />
+                )}
+                {/* Tempo — hide in main row when per-set breakdown is open */}
+                {expandedSetLogs.has(setLogKey) && setsNum >= 2 ? (
+                  <div style={{ textAlign: 'center', fontSize: 8, color: C.sub, fontWeight: 700, letterSpacing: 0.3 }}>per set ↓</div>
+                ) : (
+                  <input value={ex.tempo || ''} onChange={e => { const digits = e.target.value.replace(/[^0-9]/g, '').slice(0, 4); const formatted = digits.split('').join('-'); updateExercise(dayIdx, exIdx, 'tempo', formatted); }} placeholder="3-1-2-0" style={{ ...inputCell, textAlign: 'center' }} maxLength={7} />
+                )}
+                {/* RPE — hide in main row when per-set breakdown is open */}
+                {expandedSetLogs.has(setLogKey) && setsNum >= 2 ? (
+                  <div style={{ textAlign: 'center', fontSize: 8, color: C.sub, fontWeight: 700, letterSpacing: 0.3 }}>↓</div>
+                ) : (
+                  <select value={ex.rpe} onChange={e => updateExercise(dayIdx, exIdx, 'rpe', e.target.value)} style={{ ...inputCell, textAlign: 'center', padding: '6px 2px' }}>
+                    <option value="">—</option>
+                    {[1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8,8.5,9,9.5,10].map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                )}
+                {/* Notes — hide in main row when per-set breakdown is open */}
+                {expandedSetLogs.has(setLogKey) && setsNum >= 2 ? (
+                  <div style={{ fontSize: 8, color: C.sub, fontWeight: 700, letterSpacing: 0.3, paddingLeft: 4 }}>per set ↓</div>
+                ) : (
+                  <input value={ex.notes} onChange={e => updateExercise(dayIdx, exIdx, 'notes', e.target.value)} placeholder="Cues..." style={inputCell} />
+                )}
                 <button onClick={() => duplicateExercise(dayIdx, exIdx)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 5, color: C.accent, fontSize: 11, cursor: 'pointer', padding: 0, lineHeight: 1, fontWeight: 700, fontFamily: 'Montserrat,sans-serif' }} title="Add set">+</button>
                 <button onClick={() => removeExercise(dayIdx, exIdx)} disabled={day.exercises.length <= 1} style={{ background: 'none', border: 'none', color: day.exercises.length > 1 ? C.red + '88' : C.border, fontSize: 16, cursor: day.exercises.length > 1 ? 'pointer' : 'default', padding: 0, lineHeight: 1 }} title="Remove exercise">×</button>
                 </div>
@@ -3592,20 +3864,28 @@ function ProgramUploads({ client, onUpdate }) {
                 {expandedSetLogs.has(setLogKey) && setsNum >= 2 && (
                   <div style={{ marginLeft: 56, marginTop: 4, marginBottom: 6, padding: '8px 10px', background: '#fff', borderRadius: 8, border: `1px solid ${C.accent}33` }}>
                     <div style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Per-Set Breakdown</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '40px 60px 1fr', gap: 4, marginBottom: 4, alignItems: 'end' }}>
-                      <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>Set</div>
-                      <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>RPE</div>
-                      <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>Notes</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '36px 54px 50px 54px 66px 50px 1fr', gap: 4, marginBottom: 4, alignItems: 'end' }}>
+                      <div style={{ fontSize: 7, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>Set</div>
+                      <div style={{ fontSize: 7, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>Weight</div>
+                      <div style={{ fontSize: 7, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>{ex.repsType === 'time' ? 'Sec' : 'Reps'}</div>
+                      <div style={{ fontSize: 7, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>RPE</div>
+                      <div style={{ fontSize: 7, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>Tempo</div>
+                      <div />
+                      <div style={{ fontSize: 7, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>Notes</div>
                     </div>
                     {Array.from({ length: setsNum }, (_, si) => {
                       const log = (ex.setLogs || [])[si] || {}
                       return (
-                        <div key={si} style={{ display: 'grid', gridTemplateColumns: '40px 60px 1fr', gap: 4, marginBottom: 3, alignItems: 'center' }}>
+                        <div key={si} style={{ display: 'grid', gridTemplateColumns: '36px 54px 50px 54px 66px 50px 1fr', gap: 4, marginBottom: 3, alignItems: 'center' }}>
                           <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, paddingLeft: 4 }}>#{si + 1}</div>
+                          <input value={log.weight || ''} onChange={e => updateSetLog(dayIdx, exIdx, si, 'weight', e.target.value)} placeholder="lbs" style={{ ...inputCell, textAlign: 'center', fontSize: 11, padding: '4px 2px' }} />
+                          <input value={log.reps || ''} onChange={e => updateSetLog(dayIdx, exIdx, si, 'reps', e.target.value)} placeholder={ex.repsType === 'time' ? 'sec' : 'reps'} style={{ ...inputCell, textAlign: 'center', fontSize: 11, padding: '4px 2px' }} />
                           <select value={log.rpe || ''} onChange={e => updateSetLog(dayIdx, exIdx, si, 'rpe', e.target.value)} style={{ ...inputCell, textAlign: 'center', padding: '4px 2px', fontSize: 11 }}>
                             <option value="">—</option>
                             {[1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8,8.5,9,9.5,10].map(n => <option key={n} value={n}>{n}</option>)}
                           </select>
+                          <input value={log.tempo || ''} onChange={e => { const digits = e.target.value.replace(/[^0-9]/g, '').slice(0, 4); const formatted = digits.split('').join('-'); updateSetLog(dayIdx, exIdx, si, 'tempo', formatted); }} placeholder="3-1-2-0" style={{ ...inputCell, textAlign: 'center', fontSize: 11, padding: '4px 2px' }} maxLength={7} />
+                          <div />
                           <input value={log.notes || ''} onChange={e => updateSetLog(dayIdx, exIdx, si, 'notes', e.target.value)} placeholder="Set notes..." style={{ ...inputCell, fontSize: 11, padding: '4px 6px' }} />
                         </div>
                       )
@@ -4179,10 +4459,423 @@ function WeightTracker({ client, onBack }) {
   )
 }
 
+// ── CLIENT REMINDERS ──────────────────────────────────────────────────────────
+function ClientReminders({ client, onUpdate }) {
+  const [open, setOpen] = useState(true)
+  const [adding, setAdding] = useState(false)
+  const [newDate, setNewDate] = useState('')
+  const [newNote, setNewNote] = useState('')
+
+  const intake = (() => {
+    try { return JSON.parse(client.trainerNotes || '{}') } catch { return {} }
+  })()
+  const reminders = (intake.reminders || []).sort((a, b) => new Date(a.date) - new Date(b.date))
+
+  const saveReminders = async (updated) => {
+    const updatedNotes = JSON.stringify({ ...intake, reminders: updated })
+    const updatedClient = { ...client, trainerNotes: updatedNotes }
+    await saveClient(updatedClient)
+    onUpdate(updatedClient)
+  }
+
+  const addReminder = async () => {
+    if (!newDate || !newNote.trim()) return
+    await saveReminders([...reminders, { id: makeId(), date: newDate, note: newNote.trim(), done: false }])
+    setNewDate(''); setNewNote(''); setAdding(false)
+  }
+
+  const toggleDone = async (id) => {
+    await saveReminders(reminders.map(r => r.id === id ? { ...r, done: !r.done } : r))
+  }
+
+  const removeReminder = async (id) => {
+    await saveReminders(reminders.filter(r => r.id !== id))
+  }
+
+  const today = new Date().toISOString().split('T')[0]
+  const upcoming = reminders.filter(r => !r.done && r.date >= today)
+  const overdue = reminders.filter(r => !r.done && r.date < today)
+  const completed = reminders.filter(r => r.done)
+
+  return (
+    <div style={{ background: C.card, border: `1.5px solid ${overdue.length > 0 ? C.red + '66' : C.accent + '44'}`, borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setOpen(!open)}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: overdue.length > 0 ? C.red : C.accent, textTransform: 'uppercase' }}>📌 Reminders</span>
+          {overdue.length > 0 && <span style={{ fontSize: 10, background: C.red + '18', color: C.red, borderRadius: 10, padding: '2px 8px', fontWeight: 700 }}>{overdue.length} overdue</span>}
+          {upcoming.length > 0 && <span style={{ fontSize: 10, background: C.accent + '15', color: C.accent, borderRadius: 10, padding: '2px 8px', fontWeight: 700 }}>{upcoming.length} upcoming</span>}
+        </div>
+        <span style={{ fontSize: 11, color: C.sub }}>{open ? '▲' : '▼'}</span>
+      </div>
+
+      {open && (
+        <div style={{ marginTop: 12 }}>
+          {/* Overdue */}
+          {overdue.map(r => (
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: C.red + '08', borderRadius: 8, marginBottom: 6, border: `1px solid ${C.red}22` }}>
+              <input type="checkbox" checked={false} onChange={() => toggleDone(r.id)} style={{ accentColor: C.red }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: C.red }}>{r.note}</div>
+                <div style={{ fontSize: 10, color: C.red + 'AA' }}>⚠️ Overdue — {new Date(r.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+              </div>
+              <button onClick={() => removeReminder(r.id)} style={{ background: 'none', border: 'none', color: C.sub, cursor: 'pointer', fontSize: 14 }}>✕</button>
+            </div>
+          ))}
+          {/* Upcoming */}
+          {upcoming.map(r => (
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: C.faint, borderRadius: 8, marginBottom: 6 }}>
+              <input type="checkbox" checked={false} onChange={() => toggleDone(r.id)} style={{ accentColor: C.accent }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{r.note}</div>
+                <div style={{ fontSize: 10, color: C.sub }}>{new Date(r.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</div>
+              </div>
+              <button onClick={() => removeReminder(r.id)} style={{ background: 'none', border: 'none', color: C.sub, cursor: 'pointer', fontSize: 14 }}>✕</button>
+            </div>
+          ))}
+          {/* Completed */}
+          {completed.length > 0 && (
+            <div style={{ marginTop: 6 }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 }}>Completed</div>
+              {completed.map(r => (
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', opacity: 0.5, marginBottom: 4 }}>
+                  <input type="checkbox" checked={true} onChange={() => toggleDone(r.id)} style={{ accentColor: C.green }} />
+                  <span style={{ fontSize: 11, color: C.sub, textDecoration: 'line-through', flex: 1 }}>{r.note}</span>
+                  <button onClick={() => removeReminder(r.id)} style={{ background: 'none', border: 'none', color: C.sub, cursor: 'pointer', fontSize: 14 }}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Add new */}
+          {adding ? (
+            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+              <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif' }} />
+              <input value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="Reminder note..." onKeyDown={e => e.key === 'Enter' && addReminder()} style={{ flex: 1, minWidth: 140, padding: '6px 10px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif' }} />
+              <Btn onClick={addReminder} small>Save</Btn>
+              <Btn onClick={() => { setAdding(false); setNewDate(''); setNewNote('') }} small outline color={C.sub}>Cancel</Btn>
+            </div>
+          ) : (
+            <button onClick={() => setAdding(true)} style={{ marginTop: 6, padding: '6px 14px', borderRadius: 8, border: `1.5px dashed ${C.accent}44`, background: 'transparent', color: C.accent, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+              + Add Reminder
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── AI CHATBOX ────────────────────────────────────────────────────────────────
+function AIChatBox({ client }) {
+  const [open, setOpen] = useState(false)
+  const [messages, setMessages] = useState([])
+  const [input, setInput] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [clientData, setClientData] = useState(null)
+  const chatEndRef = useRef(null)
+
+  // Load ALL client data when chat opens
+  useEffect(() => {
+    if (!open || !client?.id) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const [workouts, weightLogs, program] = await Promise.all([
+          getWorkoutsForClient(client.id).catch(() => []),
+          getWeightLogsForClient(client.id).catch(() => []),
+          getProgramForClient(client.id).catch(() => null),
+        ])
+        if (!cancelled) setClientData({ workouts, weightLogs, program })
+      } catch {}
+    })()
+    return () => { cancelled = true }
+  }, [open, client?.id])
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, loading])
+
+  // Build FULL context about the client
+  const getClientContext = () => {
+    let ctx = `CLIENT PROFILE:\nName: ${client.name}\nGoal: ${client.goal || 'Not set'}\n`
+    if (client.dob) ctx += `DOB: ${client.dob}\n`
+    if (client.equipment) ctx += `Equipment: ${client.equipment}\n`
+
+    // Full intake data
+    let intake = null
+    try { intake = JSON.parse(client.trainerNotes || '{}') } catch {}
+    if (intake) {
+      ctx += '\nINTAKE FORM:\n'
+      const fields = [
+        ['Phone', intake.phone], ['Email', intake.email], ['Gender', intake.gender],
+        ['Occupation', intake.occupation], ['Fitness Level', intake.fitness_experience],
+        ['Activity Level', intake.activity_level],
+        ['Short-term Goals', intake.short_term_goals], ['Long-term Goals', intake.long_term_goals],
+        ['Medications', intake.medication_list], ['Conditions', intake.pre_existing_conditions],
+        ['Surgery', intake.surgery_description], ['Sleep', intake.sleep_hours],
+        ['Stress', intake.stress_rating ? `${intake.stress_rating}/10` : ''],
+        ['Nutrition', intake.nutrition_rating ? `${intake.nutrition_rating}/10` : ''],
+        ['Diet', intake.diet_description], ['Mental Health', intake.mental_health_challenges],
+        ['Commitment', intake.commitment_rating ? `${intake.commitment_rating}/10` : ''],
+        ['Motivation', intake.motivation], ['Training Methods', intake.training_methods],
+        ['Preferred Days', intake.preferred_days], ['Preferred Times', intake.preferred_times],
+      ]
+      fields.forEach(([k, v]) => { if (v) ctx += `  ${k}: ${Array.isArray(v) ? v.join(', ') : v}\n` })
+
+      // Pain areas
+      const painAreas = ['foot', 'knee', 'hip', 'back', 'shoulder', 'neck', 'migraines']
+      painAreas.forEach(area => {
+        const val = intake[`pain_${area}`]
+        if (val === 'Yes') ctx += `  ${area} pain: Yes (${intake[`pain_${area}_side`] || 'unspecified side'})\n`
+      })
+
+      // Reminders
+      const reminders = intake.reminders || []
+      if (reminders.length > 0) {
+        ctx += '\nREMINDERS:\n'
+        reminders.forEach(r => ctx += `  ${r.date}: ${r.note} [${r.done ? 'done' : 'pending'}]\n`)
+      }
+    }
+
+    // Full assessment data with all test results
+    const assessments = client.assessments || {}
+    const doneTypes = Object.keys(assessments)
+    if (doneTypes.length > 0) {
+      ctx += '\nASSESSMENT RESULTS:\n'
+      doneTypes.forEach(type => {
+        const a = assessments[type]
+        ctx += `\n  --- ${type.toUpperCase()} (completed ${a._completedAt ? new Date(a._completedAt).toLocaleDateString() : 'unknown'}) ---\n`
+        Object.entries(a).forEach(([k, v]) => {
+          if (k.startsWith('_')) return
+          const display = typeof v === 'object' ? JSON.stringify(v) : String(v)
+          ctx += `    ${k.replace(/_/g, ' ')}: ${display}\n`
+        })
+        if (a._summary) ctx += `    Summary: ${a._summary}\n`
+      })
+    }
+
+    // Workout history
+    if (clientData?.workouts?.length > 0) {
+      ctx += '\nWORKOUT HISTORY (most recent first):\n'
+      clientData.workouts.slice(0, 5).forEach((w, i) => {
+        ctx += `\n  --- Workout ${i + 1} (${new Date(w.generated_at).toLocaleDateString()}) ---\n`
+        if (w.prompt) ctx += `    Prompt: ${w.prompt}\n`
+        const content = typeof w.content === 'string' ? w.content : JSON.stringify(w.content)
+        ctx += `    Content: ${content.slice(0, 1500)}\n`
+      })
+    }
+
+    // Weight logs
+    if (clientData?.weightLogs?.length > 0) {
+      ctx += '\nWEIGHT TRACKING:\n'
+      clientData.weightLogs.slice(-10).forEach(l => {
+        ctx += `  ${new Date(l.logged_at).toLocaleDateString()}: `
+        if (l.weight) ctx += `Weight: ${l.weight}lbs `
+        if (l.body_fat) ctx += `BF: ${l.body_fat}% `
+        if (l.rating) ctx += `Rating: ${l.rating}/10 `
+        if (l.behavior_notes) ctx += `Notes: ${l.behavior_notes}`
+        ctx += '\n'
+      })
+    }
+
+    // Program
+    if (clientData?.program?.phases) {
+      ctx += '\nPROGRAM (current):\n'
+      const phases = clientData.program.phases
+      const programStr = typeof phases === 'string' ? phases : JSON.stringify(phases)
+      ctx += `  ${programStr.slice(0, 2000)}\n`
+    }
+
+    return ctx
+  }
+
+  const send = async () => {
+    if (!input.trim() || loading) return
+    const userMsg = input.trim()
+    setInput('')
+    setMessages(prev => [...prev, { role: 'user', content: userMsg }])
+    setLoading(true)
+    try {
+      const clientCtx = getClientContext()
+      const systemPrompt = `You are FreddyFit AI, an expert personal training assistant. You have COMPLETE access to all of this client's data including intake forms, assessment test results, workout history, weight logs, program details, and reminders.\n\nHere is everything on file:\n\n${clientCtx}\n\nAnswer any question about this client with specific data from their records. Reference actual test results, scores, and dates when relevant. Be concise and practical. If the trainer asks about assessments, cite the specific test answers. If asked about progress, reference weight logs and assessment history.`
+      const chatHistory = [...messages, { role: 'user', content: userMsg }].slice(-10)
+      const text = await callClaude([
+        { role: 'user', content: systemPrompt + '\n\nConversation:\n' + chatHistory.map(m => `${m.role === 'user' ? 'Trainer' : 'AI'}: ${m.content}`).join('\n') + '\n\nAI:' }
+      ], 2000)
+      setMessages(prev => [...prev, { role: 'assistant', content: text }])
+    } catch (err) {
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Error: ' + err.message }])
+    }
+    setLoading(false)
+  }
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} style={{
+        position: 'fixed', bottom: 20, right: 16, zIndex: 9999,
+        width: 52, height: 52, borderRadius: '50%',
+        background: C.accent, border: 'none', color: '#fff',
+        fontSize: 22, cursor: 'pointer',
+        boxShadow: '0 4px 16px rgba(43,170,223,0.35)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        🤖
+      </button>
+    )
+  }
+
+  return (
+    <div style={{
+      position: 'fixed', bottom: 16, right: 12, zIndex: 9999,
+      width: 340, maxWidth: 'calc(100vw - 24px)', height: 460, maxHeight: 'calc(100dvh - 100px)',
+      background: C.panel, borderRadius: 18,
+      border: `1.5px solid ${C.border}`, boxShadow: '0 8px 40px rgba(0,0,0,0.15)',
+      display: 'flex', flexDirection: 'column', fontFamily: 'Montserrat,sans-serif',
+      overflow: 'hidden',
+    }}>
+      {/* Header */}
+      <div style={{ padding: '12px 16px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: C.accent + '08', flexShrink: 0 }}>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: C.accent }}>🤖 FreddyFit AI</div>
+          <div style={{ fontSize: 10, color: C.sub }}>Ask about {client.name}</div>
+        </div>
+        <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: C.sub }}>✕</button>
+      </div>
+
+      {/* Messages */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {messages.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '30px 10px', color: C.sub, fontSize: 12 }}>
+            Ask anything about {client.name} — training ideas, assessment insights, programming suggestions...
+          </div>
+        )}
+        {messages.map((m, i) => (
+          <div key={i} style={{
+            alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
+            maxWidth: '85%', padding: '8px 12px', borderRadius: 12,
+            background: m.role === 'user' ? C.accent : C.faint,
+            color: m.role === 'user' ? '#fff' : C.text,
+            fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap',
+          }}>
+            {m.content}
+          </div>
+        ))}
+        {loading && (
+          <div style={{ alignSelf: 'flex-start', padding: '8px 12px', borderRadius: 12, background: C.faint, fontSize: 12, color: C.sub }}>
+            Thinking...
+          </div>
+        )}
+        <div ref={chatEndRef} />
+      </div>
+
+      {/* Input */}
+      <div style={{ padding: '10px 12px', borderTop: `1px solid ${C.border}`, display: 'flex', gap: 8, flexShrink: 0 }}>
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && send()}
+          placeholder="Ask about this client..."
+          style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', outline: 'none', background: C.faint }}
+        />
+        <button onClick={send} disabled={loading || !input.trim()} style={{
+          padding: '8px 14px', borderRadius: 8, border: 'none',
+          background: loading || !input.trim() ? '#CBD5E0' : C.accent,
+          color: '#fff', fontWeight: 700, fontSize: 12, cursor: loading ? 'not-allowed' : 'pointer',
+        }}>
+          Send
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── ASSESSMENT HISTORY MODAL ──────────────────────────────────────────────────
+function AssessmentHistoryModal({ assessment, client, onClose, onNewAssessment }) {
+  const history = (client.assessments?.[assessment.id]?._history || [])
+  if (history.length === 0) return null
+
+  const [compareIdx, setCompareIdx] = useState(history.length > 1 ? 1 : null)
+  const latest = history[0]
+  const compare = compareIdx !== null ? history[compareIdx] : null
+
+  // Get all answer keys across both versions
+  const allKeys = [...new Set([
+    ...Object.keys(latest?.answers || {}),
+    ...Object.keys(compare?.answers || {})
+  ])].filter(k => !k.startsWith('_'))
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 10001, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ background: C.panel, borderRadius: 18, maxWidth: 700, width: '100%', maxHeight: '85dvh', overflow: 'auto', boxShadow: '0 12px 40px rgba(0,0,0,0.2)', fontFamily: 'Montserrat,sans-serif' }}>
+        {/* Header */}
+        <div style={{ padding: '18px 22px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, background: C.panel, zIndex: 1, borderRadius: '18px 18px 0 0' }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 16, color: C.text }}>{assessment.icon} {assessment.name}</div>
+            <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>{history.length} version{history.length !== 1 ? 's' : ''} on file</div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <Btn onClick={onNewAssessment} small color={C.green}>+ New Assessment</Btn>
+            <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: C.sub }}>✕</button>
+          </div>
+        </div>
+
+        {/* Version selector */}
+        <div style={{ padding: '14px 22px', borderBottom: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>Assessment Timeline</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {history.map((h, i) => (
+              <button key={i} onClick={() => i > 0 && setCompareIdx(i)} style={{
+                padding: '6px 12px', borderRadius: 8,
+                border: `1.5px solid ${i === 0 ? C.accent : compareIdx === i ? C.orange : C.border}`,
+                background: i === 0 ? C.accent + '15' : compareIdx === i ? C.orange + '15' : 'transparent',
+                color: i === 0 ? C.accent : compareIdx === i ? C.orange : C.text,
+                fontWeight: 700, fontSize: 11, cursor: i === 0 ? 'default' : 'pointer',
+                fontFamily: 'Montserrat,sans-serif',
+              }}>
+                {i === 0 ? '★ Latest' : `v${history.length - i}`} — {new Date(h.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Comparison */}
+        <div style={{ padding: '14px 22px' }}>
+          {compare ? (
+            <>
+              <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+                <div style={{ flex: 1, fontSize: 10, fontWeight: 700, color: C.accent, letterSpacing: 1 }}>LATEST — {new Date(latest.completedAt).toLocaleDateString()}</div>
+                <div style={{ flex: 1, fontSize: 10, fontWeight: 700, color: C.orange, letterSpacing: 1 }}>PREVIOUS — {new Date(compare.completedAt).toLocaleDateString()}</div>
+              </div>
+              {allKeys.map(key => {
+                const curr = latest.answers?.[key]
+                const prev = compare.answers?.[key]
+                const changed = JSON.stringify(curr) !== JSON.stringify(prev)
+                const display = v => v === undefined || v === null || v === '' ? '—' : typeof v === 'object' ? JSON.stringify(v) : String(v)
+                return (
+                  <div key={key} style={{ display: 'flex', gap: 12, padding: '6px 0', borderBottom: `1px solid ${C.border}22`, background: changed ? C.accent + '06' : 'transparent' }}>
+                    <div style={{ width: 120, fontSize: 10, fontWeight: 600, color: C.sub, flexShrink: 0, paddingTop: 2 }}>{key.replace(/_/g, ' ')}</div>
+                    <div style={{ flex: 1, fontSize: 12, color: changed ? C.accent : C.text, fontWeight: changed ? 700 : 400 }}>{display(curr)}</div>
+                    <div style={{ flex: 1, fontSize: 12, color: changed ? C.orange : C.sub }}>{display(prev)}</div>
+                  </div>
+                )
+              })}
+            </>
+          ) : (
+            <div style={{ textAlign: 'center', padding: 20, color: C.sub, fontSize: 12 }}>
+              Only one version on file. Complete a new assessment to compare changes over time.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onSignInSheet, onWeightTracker, onBack, allClients = [], onSwitchClient }) {
   const assessmentsDone = Object.keys(client.assessments || {})
   const [showIntake, setShowIntake] = useState(false)
   const [showLinkMenu, setShowLinkMenu] = useState(false)
+  const [historyAssessment, setHistoryAssessment] = useState(null)
 
   // Parse intake data from trainerNotes JSON
   const intake = (() => {
@@ -4403,6 +5096,9 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
         </div>
       )}
 
+      {/* Client Reminders */}
+      <ClientReminders client={client} onUpdate={onUpdate} />
+
       {/* Program Uploads */}
       <ProgramUploads key={client.id} client={client} onUpdate={onUpdate} />
 
@@ -4412,14 +5108,30 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             {items.map(a => {
               const done = assessmentsDone.includes(a.id)
+              const historyCount = client.assessments?.[a.id]?._history?.length || 0
+              const completedAt = client.assessments?.[a.id]?._completedAt
               return (
-                <button key={a.id} onClick={() => !locked && onRunAssessment(a, client)} style={{ padding: '12px 16px', borderRadius: 12, border: `2px solid ${done ? a.color : C.border}`, background: done ? a.color + '12' : C.card, cursor: locked ? 'not-allowed' : 'pointer', textAlign: 'left', minWidth: 160, flex: '1 1 160px', maxWidth: 220, opacity: locked ? 0.45 : 1 }}>
-                  <div style={{ fontSize: 18, marginBottom: 4 }}>{a.icon}</div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: done ? a.color : C.text, marginBottom: 2 }}>{a.name}</div>
-                  {done && <div style={{ fontSize: 10, color: a.color, fontWeight: 600 }}>✓ Completed</div>}
-                  {!done && !locked && <div style={{ fontSize: 10, color: C.sub }}>Tap to start</div>}
-                  {locked && <div style={{ fontSize: 10, color: C.sub }}>🔒 Complete Phase 1 & 2 first</div>}
-                </button>
+                <div key={a.id} style={{ minWidth: 160, flex: '1 1 160px', maxWidth: 220 }}>
+                  <button onClick={() => !locked && onRunAssessment(a, client)} style={{ width: '100%', padding: '12px 16px', borderRadius: 12, border: `2px solid ${done ? a.color : C.border}`, background: done ? a.color + '12' : C.card, cursor: locked ? 'not-allowed' : 'pointer', textAlign: 'left', opacity: locked ? 0.45 : 1 }}>
+                    <div style={{ fontSize: 18, marginBottom: 4 }}>{a.icon}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: done ? a.color : C.text, marginBottom: 2 }}>{a.name}</div>
+                    {done && <div style={{ fontSize: 10, color: a.color, fontWeight: 600 }}>✓ Completed {completedAt ? new Date(completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</div>}
+                    {!done && !locked && <div style={{ fontSize: 10, color: C.sub }}>Tap to start</div>}
+                    {locked && <div style={{ fontSize: 10, color: C.sub }}>🔒 Complete Phase 1 & 2 first</div>}
+                  </button>
+                  {done && !locked && (
+                    <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                      {historyCount > 0 && (
+                        <button onClick={() => setHistoryAssessment(a)} style={{ flex: 1, padding: '4px 0', borderRadius: 6, border: `1px solid ${C.border}`, background: C.faint, color: C.sub, fontSize: 9, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+                          📊 History ({historyCount})
+                        </button>
+                      )}
+                      <button onClick={() => onRunAssessment(a, client, true)} style={{ flex: 1, padding: '4px 0', borderRadius: 6, border: `1px solid ${C.green}44`, background: C.green + '08', color: C.green, fontSize: 9, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+                        + New
+                      </button>
+                    </div>
+                  )}
+                </div>
               )
             })}
           </div>
@@ -4437,6 +5149,19 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
           </div>
         )
       })}
+
+      {/* AI ChatBox */}
+      <AIChatBox client={client} />
+
+      {/* Assessment History Modal */}
+      {historyAssessment && (
+        <AssessmentHistoryModal
+          assessment={historyAssessment}
+          client={client}
+          onClose={() => setHistoryAssessment(null)}
+          onNewAssessment={() => { setHistoryAssessment(null); onRunAssessment(historyAssessment, client, true) }}
+        />
+      )}
     </div>
   )
 }
@@ -4527,24 +5252,79 @@ function ClientRoster({ onSelectClient, onNewClient }) {
         </div>
       )}
 
+      {/* All Reminders Dashboard */}
+      {!loading && (() => {
+        const today = new Date().toISOString().split('T')[0]
+        const allReminders = clients.flatMap(c => {
+          let intake = null
+          try { intake = JSON.parse(c.trainerNotes || c.trainer_notes || '{}') } catch {}
+          const reminders = intake?.reminders || []
+          return reminders.filter(r => !r.done).map(r => ({ ...r, clientName: c.name, clientId: c.id }))
+        }).sort((a, b) => new Date(a.date) - new Date(b.date))
+        const overdue = allReminders.filter(r => r.date < today)
+        const upcoming = allReminders.filter(r => r.date >= today).slice(0, 5)
+        if (allReminders.length === 0) return null
+        return (
+          <div style={{ background: C.card, border: `1px solid ${overdue.length > 0 ? C.red + '44' : C.accent + '33'}`, borderRadius: 14, padding: '18px 22px', marginBottom: 20 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: overdue.length > 0 ? C.red : C.accent, textTransform: 'uppercase', marginBottom: 14 }}>
+              📌 Client Reminders {overdue.length > 0 && <span style={{ fontSize: 10, background: C.red + '18', color: C.red, borderRadius: 10, padding: '2px 8px', fontWeight: 700, marginLeft: 6 }}>{overdue.length} overdue</span>}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {overdue.map(r => (
+                <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: C.red + '08', borderRadius: 8, border: `1px solid ${C.red}22` }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: C.red }}>{r.clientName}: {r.note}</div>
+                    <div style={{ fontSize: 10, color: C.red + 'AA' }}>⚠️ Overdue — {new Date(r.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+                  </div>
+                </div>
+              ))}
+              {upcoming.map(r => (
+                <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: C.faint, borderRadius: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{r.clientName}: {r.note}</div>
+                    <div style={{ fontSize: 10, color: C.sub }}>{new Date(r.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
+
       {loading ? <Spinner /> : filtered.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 60, color: C.sub, fontSize: 14 }}>{clients.length === 0 ? 'No clients yet. Add your first client above.' : 'No clients match your search.'}</div>
       ) : filtered.map(c => {
         const count = Object.keys(c.assessments || {}).length
+        let intake = null
+        try { intake = JSON.parse(c.trainerNotes || c.trainer_notes || '{}') } catch {}
+        const reminders = (intake?.reminders || []).filter(r => !r.done)
+        const today = new Date().toISOString().split('T')[0]
+        const overdueCount = reminders.filter(r => r.date < today).length
+        const nextReminder = reminders.sort((a, b) => new Date(a.date) - new Date(b.date))[0]
         return (
-          <div key={c.id} onClick={() => onSelectClient(c)} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 20px', marginBottom: 10, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'border-color .15s' }}
+          <div key={c.id} onClick={() => onSelectClient(c)} style={{ background: C.card, border: `1px solid ${overdueCount > 0 ? C.red + '44' : C.border}`, borderRadius: 12, padding: '16px 20px', marginBottom: 10, cursor: 'pointer', transition: 'border-color .15s' }}
             onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
-            onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 16, color: C.text }}>{c.name}</div>
-              <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-                {c.goal && <span>{c.goal} · </span>}
-                <span>{count} assessment{count !== 1 ? 's' : ''} on file</span>
+            onMouseLeave={e => e.currentTarget.style.borderColor = overdueCount > 0 ? C.red + '44' : C.border}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 16, color: C.text }}>{c.name}</div>
+                <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
+                  {c.goal && <span>{c.goal} · </span>}
+                  <span>{count} assessment{count !== 1 ? 's' : ''} on file</span>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                {overdueCount > 0 && <span style={{ fontSize: 10, background: C.red + '18', color: C.red, borderRadius: 10, padding: '3px 10px', fontWeight: 700 }}>⚠️ {overdueCount}</span>}
+                {count > 0 && <span style={{ fontSize: 10, background: C.accent + '15', color: C.accent, borderRadius: 10, padding: '3px 10px', fontWeight: 700 }}>{count} assessments</span>}
+                <button onClick={e => removeClient(c.id, e)} style={{ background: 'none', border: 'none', color: C.sub, cursor: 'pointer', fontSize: 16, padding: '4px 8px', borderRadius: 6 }}>✕</button>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              {count > 0 && <span style={{ fontSize: 10, background: C.accent + '15', color: C.accent, borderRadius: 10, padding: '3px 10px', fontWeight: 700 }}>{count} assessments</span>}
-              <button onClick={e => removeClient(c.id, e)} style={{ background: 'none', border: 'none', color: C.sub, cursor: 'pointer', fontSize: 16, padding: '4px 8px', borderRadius: 6 }}>✕</button>
+            {/* Key info badges */}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+              {intake?.fitness_experience && <span style={{ fontSize: 9, background: C.accent + '10', color: C.accent, borderRadius: 8, padding: '2px 8px', fontWeight: 700 }}>{intake.fitness_experience}</span>}
+              {intake?.activity_level && <span style={{ fontSize: 9, background: C.teal + '10', color: C.teal, borderRadius: 8, padding: '2px 8px', fontWeight: 700 }}>{intake.activity_level.split('(')[0].trim()}</span>}
+              {intake?.pre_existing_conditions && intake.pre_existing_conditions !== 'No' && <span style={{ fontSize: 9, background: C.orange + '10', color: C.orange, borderRadius: 8, padding: '2px 8px', fontWeight: 700 }}>⚕️ Conditions</span>}
+              {nextReminder && <span style={{ fontSize: 9, background: nextReminder.date < today ? C.red + '10' : C.faint, color: nextReminder.date < today ? C.red : C.sub, borderRadius: 8, padding: '2px 8px', fontWeight: 700 }}>📌 {nextReminder.note.slice(0, 25)}{nextReminder.note.length > 25 ? '...' : ''}</span>}
             </div>
           </div>
         )
@@ -4662,9 +5442,12 @@ export default function App() {
   const openIntake = () => { setClient(null); setView('intake') }
   const openEditClient = (c) => { setClient(c); setView('editClient') }
 
-  const runAssessment = (a, c) => {
+  const [forceNewAssessment, setForceNewAssessment] = useState(false)
+
+  const runAssessment = (a, c, forceNew = false) => {
     setAssessment(a)
     setClient(c)
+    setForceNewAssessment(!!forceNew)
     setView('assessment')
   }
 
@@ -4696,6 +5479,9 @@ export default function App() {
         </div>
       </div>
 
+      {/* Rest Timer */}
+      <RestTimer />
+
       {/* Content */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {view === 'roster' && <ClientRoster onSelectClient={goToClient} onNewClient={openIntake} />}
@@ -4721,6 +5507,7 @@ export default function App() {
             client={client}
             onComplete={completeAssessment}
             onBack={() => setView('client')}
+            forceNew={forceNewAssessment}
           />
         )}
         {view === 'program' && client && (
