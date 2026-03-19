@@ -45,12 +45,15 @@ function Btn({onClick,children,color=C.accent,outline=false,small=false,disabled
 // ── SCROLLING REMINDER TICKER ────────────────────────────────────────────────
 function ReminderTicker({ clients }) {
   const today = new Date().toISOString().split('T')[0]
-  const allReminders = (clients || []).flatMap(c => {
-    let intake = null
-    try { intake = JSON.parse(c.trainerNotes || c.trainer_notes || '{}') } catch {}
-    const reminders = intake?.reminders || []
-    return reminders.filter(r => !r.done).map(r => ({ ...r, clientName: c.name, clientId: c.id }))
-  }).sort((a, b) => new Date(a.date) - new Date(b.date))
+  let allReminders = []
+  try {
+    allReminders = (clients || []).flatMap(c => {
+      let intake = null
+      try { intake = JSON.parse(c.trainerNotes || c.trainer_notes || '{}') } catch { return [] }
+      const reminders = intake?.reminders || []
+      return reminders.filter(r => r && !r.done && r.date && r.note).map(r => ({ ...r, clientName: c.name || 'Unknown', clientId: c.id }))
+    }).sort((a, b) => new Date(a.date) - new Date(b.date))
+  } catch { return null }
 
   if (allReminders.length === 0) return null
 
@@ -5486,6 +5489,7 @@ export default function App() {
   const [client, setClient] = useState(null)
   const [assessment, setAssessment] = useState(null)
   const [allClients, setAllClients] = useState([])
+  const [forceNewAssessment, setForceNewAssessment] = useState(false)
 
   // Load all clients for linked-client switching
   const refreshAllClients = useCallback(async () => {
@@ -5533,8 +5537,6 @@ export default function App() {
   const switchToClient = (c) => { setClient(c); setView('client') }
   const openIntake = () => { setClient(null); setView('intake') }
   const openEditClient = (c) => { setClient(c); setView('editClient') }
-
-  const [forceNewAssessment, setForceNewAssessment] = useState(false)
 
   const runAssessment = (a, c, forceNew = false) => {
     setAssessment(a)
