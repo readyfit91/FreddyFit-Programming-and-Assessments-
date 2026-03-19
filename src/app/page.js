@@ -78,26 +78,44 @@ function RestTimer() {
     src.start(0)
   }, [getAudioCtx])
 
-  // Play loud beep — works even from a timer callback because context is kept warm
+  // Play 5-second alert: beeps then "Time to get back to work!"
   const playBeep = useCallback(() => {
     try {
       const ctx = getAudioCtx()
       if (!ctx) return
       if (ctx.state === 'suspended') ctx.resume()
-      // Play 3 beeps at different pitches for maximum audibility
-      ;[0, 0.3, 0.6].forEach((delay, i) => {
+      // 5 seconds of ascending beep pattern (10 beeps over ~3.5s)
+      const beeps = [
+        { t: 0.0, freq: 880 },  { t: 0.35, freq: 988 },
+        { t: 0.7, freq: 1047 }, { t: 1.05, freq: 880 },
+        { t: 1.4, freq: 988 },  { t: 1.75, freq: 1047 },
+        { t: 2.1, freq: 880 },  { t: 2.45, freq: 988 },
+        { t: 2.8, freq: 1047 }, { t: 3.15, freq: 1175 },
+      ]
+      beeps.forEach(({ t, freq }) => {
         const osc = ctx.createOscillator()
         const gain = ctx.createGain()
         osc.connect(gain)
         gain.connect(ctx.destination)
-        osc.frequency.value = [880, 988, 1047][i] // A5, B5, C6
-        osc.type = 'square' // louder than sine on small speakers
-        gain.gain.setValueAtTime(0.4, ctx.currentTime + delay)
-        gain.gain.setValueAtTime(0.4, ctx.currentTime + delay + 0.15)
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.25)
-        osc.start(ctx.currentTime + delay)
-        osc.stop(ctx.currentTime + delay + 0.25)
+        osc.frequency.value = freq
+        osc.type = 'square'
+        gain.gain.setValueAtTime(0.35, ctx.currentTime + t)
+        gain.gain.setValueAtTime(0.35, ctx.currentTime + t + 0.15)
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.25)
+        osc.start(ctx.currentTime + t)
+        osc.stop(ctx.currentTime + t + 0.25)
       })
+      // Speak "Time to get back to work!" after the beeps
+      if ('speechSynthesis' in window) {
+        setTimeout(() => {
+          const msg = new SpeechSynthesisUtterance('Time to get back to work!')
+          msg.rate = 1.0
+          msg.pitch = 1.1
+          msg.volume = 1.0
+          window.speechSynthesis.cancel() // clear any queued speech
+          window.speechSynthesis.speak(msg)
+        }, 1800) // start speaking partway through the beeps
+      }
     } catch {}
   }, [getAudioCtx])
 
