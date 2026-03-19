@@ -8,11 +8,13 @@ import { QRCodeCanvas } from 'qrcode.react'
 const makeId = () => Math.random().toString(36).slice(2,10)
 
 // ── HELPERS ──────────────────────────────────────────────────────────────────
-async function callClaude(messages, maxTokens = 1000) {
+async function callClaude(messages, maxTokens = 1000, system = undefined) {
+  const body = { messages, maxTokens }
+  if (system) body.system = system
   const res = await fetch('/api/claude', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ messages, maxTokens })
+    body: JSON.stringify(body)
   })
   const data = await res.json()
   if (data.error) throw new Error(data.error)
@@ -4959,14 +4961,14 @@ function AIChatBox({ client }) {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, loading])
 
-  // Build FULL context about the client — uses ref for latest data
+  // Build FULL context about the client — every piece of data, no truncation
   const buildClientContext = useCallback((freshData) => {
     const cd = freshData || clientDataRef.current
     let ctx = `CLIENT PROFILE:\nName: ${client.name}\nGoal: ${client.goal || 'Not set'}\n`
     if (client.dob) ctx += `DOB: ${client.dob}\n`
     if (client.equipment) ctx += `Equipment: ${client.equipment}\n`
 
-    // Full intake data
+    // Full intake data from trainerNotes
     let intake = null
     try { intake = JSON.parse(client.trainerNotes || '{}') } catch {}
     if (intake) {
@@ -5000,6 +5002,52 @@ function AIChatBox({ client }) {
         ctx += '\nREMINDERS:\n'
         reminders.forEach(r => ctx += `  ${r.date}: ${r.note} [${r.done ? 'done' : 'pending'}]\n`)
       }
+
+      // ── PROGRAM JOURNAL (workout log — exercises, sets, weights, reps, RPE, notes per week) ──
+      const journalKeys = Object.keys(intake).filter(k => k.startsWith('y') && k.includes('_p') && k.includes('_Week'))
+      if (journalKeys.length > 0) {
+        ctx += '\nWORKOUT LOG (Program Journal — actual logged exercises, sets, weights, reps, RPE):\n'
+        // Sort by year, phase, week for readability
+        journalKeys.sort().forEach(key => {
+          const weekData = intake[key]
+          if (!weekData?.days?.length) return
+          // Parse key like "y1_p1_Week 1" into readable form
+          const parts = key.match(/y(\d+)_p(\d+)_(.+)/)
+          const label = parts ? `Year ${parts[1]} Phase ${parts[2]} ${parts[3]}` : key
+          ctx += `\n  --- ${label} ---\n`
+          weekData.days.forEach(day => {
+            const dayLabel = `Day ${day.dayNum}${day.date ? ` (${day.date})` : ''}`
+            ctx += `  ${dayLabel}:\n`
+            day.exercises.forEach((ex, ei) => {
+              if (!ex.exercise) return
+              const setsNum = parseInt(ex.sets) || 0
+              let line = `    ${ei + 1}. ${ex.exercise}`
+              if (ex.sets) line += ` — ${ex.sets} ${ex.setsType || 'sets'}`
+              if (ex.reps) line += ` x ${ex.reps} ${ex.repsType === 'time' ? 'sec' : 'reps'}`
+              if (ex.weight) line += ` @ ${ex.weight}`
+              if (ex.tempo) line += ` tempo ${ex.tempo}`
+              if (ex.rpe) line += ` RPE ${ex.rpe}`
+              if (ex.circuit) line += ` [Circuit ${ex.circuit}]`
+              if (ex.notes) line += ` — ${ex.notes}`
+              ctx += line + '\n'
+              // Per-set breakdown if logged
+              if (ex.setLogs?.length > 0 && setsNum >= 2) {
+                ex.setLogs.forEach((log, si) => {
+                  if (!log || (!log.weight && !log.reps && !log.rpe && !log.notes)) return
+                  let setLine = `       Set ${si + 1}:`
+                  if (log.weight) setLine += ` ${log.weight}lbs`
+                  if (log.reps) setLine += ` x ${log.reps}`
+                  if (log.rpe) setLine += ` RPE ${log.rpe}`
+                  if (log.tempo) setLine += ` tempo ${log.tempo}`
+                  if (log.notes) setLine += ` — ${log.notes}`
+                  ctx += setLine + '\n'
+                })
+              }
+            })
+            if (day.dayNotes) ctx += `    Day Notes: ${day.dayNotes}\n`
+          })
+        })
+      }
     }
 
     // Trainer session notes
@@ -5021,7 +5069,7 @@ function AIChatBox({ client }) {
       })
     }
 
-    // Full assessment data — use fresh DB data, then fallback to client prop
+    // Full assessment data with history of retakes
     const assessments = cd?.assessments || client.assessments || {}
     const doneTypes = Object.keys(assessments)
     if (doneTypes.length > 0) {
@@ -5029,31 +5077,46 @@ function AIChatBox({ client }) {
       doneTypes.forEach(type => {
         const a = assessments[type]
         if (!a || typeof a !== 'object') return
-        ctx += `\n  --- ${type.toUpperCase()} (completed ${a._completedAt ? new Date(a._completedAt).toLocaleDateString() : 'unknown'}) ---\n`
+        // Current (most recent) results
+        ctx += `\n  --- ${type.toUpperCase()} (latest: ${a._completedAt ? new Date(a._completedAt).toLocaleDateString() : 'unknown'}) ---\n`
         Object.entries(a).forEach(([k, v]) => {
           if (k.startsWith('_')) return
           const display = typeof v === 'object' ? JSON.stringify(v) : String(v)
           ctx += `    ${k.replace(/_/g, ' ')}: ${display}\n`
         })
         if (a._summary) ctx += `    Summary: ${a._summary}\n`
+        // History of previous attempts (for tracking progress over time)
+        if (a._history?.length > 1) {
+          ctx += `    --- Previous ${type.toUpperCase()} results (oldest to newest) ---\n`
+          a._history.slice(1).reverse().forEach(h => {
+            ctx += `      [${new Date(h.completedAt).toLocaleDateString()}]:\n`
+            if (h.answers && typeof h.answers === 'object') {
+              Object.entries(h.answers).forEach(([k, v]) => {
+                const display = typeof v === 'object' ? JSON.stringify(v) : String(v)
+                ctx += `        ${k.replace(/_/g, ' ')}: ${display}\n`
+              })
+            }
+            if (h.summary) ctx += `        Summary: ${h.summary}\n`
+          })
+        }
       })
     }
 
-    // Workout history
+    // ALL workout history (no limit)
     if (cd?.workouts?.length > 0) {
       ctx += '\nWORKOUT HISTORY (most recent first):\n'
-      cd.workouts.slice(0, 5).forEach((w, i) => {
+      cd.workouts.forEach((w, i) => {
         ctx += `\n  --- Workout ${i + 1} (${new Date(w.generated_at).toLocaleDateString()}) ---\n`
         if (w.prompt) ctx += `    Prompt: ${w.prompt}\n`
         const content = typeof w.content === 'string' ? w.content : JSON.stringify(w.content)
-        ctx += `    Content: ${content.slice(0, 1500)}\n`
+        ctx += `    Content: ${content}\n`
       })
     }
 
-    // Weight logs
+    // ALL weight logs (no limit)
     if (cd?.weightLogs?.length > 0) {
-      ctx += '\nWEIGHT TRACKING:\n'
-      cd.weightLogs.slice(-10).forEach(l => {
+      ctx += '\nWEIGHT TRACKING (all entries):\n'
+      cd.weightLogs.forEach(l => {
         ctx += `  ${new Date(l.logged_at).toLocaleDateString()}: `
         if (l.weight) ctx += `Weight: ${l.weight}lbs `
         if (l.body_fat) ctx += `BF: ${l.body_fat}% `
@@ -5063,12 +5126,20 @@ function AIChatBox({ client }) {
       })
     }
 
-    // Program
+    // Full program (no truncation)
     if (cd?.program?.phases) {
-      ctx += '\nPROGRAM (current):\n'
+      ctx += '\nPROGRAM (current phases — full detail):\n'
       const phases = cd.program.phases
-      const programStr = typeof phases === 'string' ? phases : JSON.stringify(phases)
-      ctx += `  ${programStr.slice(0, 2000)}\n`
+      if (typeof phases === 'object') {
+        Object.entries(phases).forEach(([phaseKey, phase]) => {
+          ctx += `\n  --- ${phaseKey.toUpperCase()} ---\n`
+          if (phase.equipment) ctx += `    Equipment: ${phase.equipment}\n`
+          if (phase.program) ctx += `    Program:\n${phase.program}\n`
+          if (phase.trainerNotes) ctx += `    Trainer Notes: ${phase.trainerNotes}\n`
+        })
+      } else {
+        ctx += `  ${typeof phases === 'string' ? phases : JSON.stringify(phases)}\n`
+      }
     }
 
     return ctx
@@ -5084,11 +5155,27 @@ function AIChatBox({ client }) {
       // Always fetch fresh data on every send — guarantees no stale closures
       const freshData = await loadClientData()
       const clientCtx = buildClientContext(freshData)
-      const systemPrompt = `You are FreddyFit AI, an expert personal training assistant. You have COMPLETE access to all of this client's data including intake forms, assessment test results, workout history, weight logs, program details, sign-in/attendance records, trainer session notes, and reminders.\n\nHere is EVERYTHING on file for this client:\n\n${clientCtx}\n\nIMPORTANT INSTRUCTIONS:\n- Answer any question about this client using the SPECIFIC data shown above.\n- ALWAYS reference actual test results, scores, dates, and values from their records.\n- If data exists above that answers the question, USE IT — never say "no data available" if the data is present.\n- Be concise and practical.\n- If the trainer asks about assessments, cite the specific test answers and scores.\n- If asked about progress, reference weight logs, sign-in history, session notes, and assessment history.\n- If asked for recommendations, base them on the actual assessment results, session notes, and intake data shown above.\n- Trainer session notes contain the trainer's observations, progress updates, and session-specific details — use these to provide context-aware answers.`
-      const chatHistory = [...messages, { role: 'user', content: userMsg }].slice(-10)
-      const text = await callClaude([
-        { role: 'user', content: systemPrompt + '\n\nConversation:\n' + chatHistory.map(m => `${m.role === 'user' ? 'Trainer' : 'AI'}: ${m.content}`).join('\n') + '\n\nAI:' }
-      ], 2000)
+      const systemPrompt = `You are FreddyFit AI, an expert personal training assistant. You have COMPLETE access to ALL of this client's data — every intake form field, every assessment result (including retakes), every workout log entry with per-set weights/reps/RPE, full program details, all weight tracking entries, sign-in/attendance records, trainer session notes, and reminders.
+
+Here is EVERYTHING on file for this client:
+
+${clientCtx}
+
+CRITICAL INSTRUCTIONS:
+- You have access to ALL client data above. Read through it carefully before answering.
+- ALWAYS reference actual data — specific test results, scores, dates, weights, reps, RPE values from their records.
+- If the data exists above, USE IT. Never say "no data available" or "I don't have that information" if the data is present above.
+- When asked about workout logs, reference the specific exercises, sets, weights, reps, and RPE they logged.
+- When asked about progress, compare assessment retakes, weight log trends, and session notes over time.
+- When asked about assessments, cite the exact answers, scores, and dates from the assessment results above.
+- Base all recommendations on the actual data shown above — intake, assessments, workout logs, session notes.
+- Trainer session notes contain the trainer's own observations — use these for context.
+- Be specific, practical, and reference real numbers from their records.`
+
+      // Build proper message array with alternating user/assistant roles
+      const chatHistory = [...messages, { role: 'user', content: userMsg }].slice(-12)
+      const apiMessages = chatHistory.map(m => ({ role: m.role, content: m.content }))
+      const text = await callClaude(apiMessages, 4000, systemPrompt)
       setMessages(prev => [...prev, { role: 'assistant', content: text }])
     } catch (err) {
       setMessages(prev => [...prev, { role: 'assistant', content: 'Error: ' + err.message }])
