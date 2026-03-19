@@ -5004,12 +5004,13 @@ function AIChatBox({ client }) {
       }
 
       // ── PROGRAM JOURNAL (workout log — exercises, sets, weights, reps, RPE, notes per week) ──
-      const journalKeys = Object.keys(intake).filter(k => k.startsWith('y') && k.includes('_p') && k.includes('_Week'))
+      const programJournal = intake.program_journal || {}
+      const journalKeys = Object.keys(programJournal).filter(k => k.startsWith('y') && k.includes('_p') && k.includes('_Week'))
       if (journalKeys.length > 0) {
         ctx += '\nWORKOUT LOG (Program Journal — actual logged exercises, sets, weights, reps, RPE):\n'
         // Sort by year, phase, week for readability
         journalKeys.sort().forEach(key => {
-          const weekData = intake[key]
+          const weekData = programJournal[key]
           if (!weekData?.days?.length) return
           // Parse key like "y1_p1_Week 1" into readable form
           const parts = key.match(/y(\d+)_p(\d+)_(.+)/)
@@ -5047,6 +5048,14 @@ function AIChatBox({ client }) {
             if (day.dayNotes) ctx += `    Day Notes: ${day.dayNotes}\n`
           })
         })
+      }
+
+      // Uploaded program file content (if trainer uploaded a program document)
+      if (intake.program_file) {
+        ctx += '\nUPLOADED PROGRAM FILE:\n'
+        if (intake.program_file.name) ctx += `  File: ${intake.program_file.name}\n`
+        if (intake.program_file.content) ctx += `  Content: ${intake.program_file.content}\n`
+        else if (typeof intake.program_file === 'string') ctx += `  ${intake.program_file}\n`
       }
     }
 
