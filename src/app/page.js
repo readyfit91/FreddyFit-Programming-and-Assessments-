@@ -128,15 +128,10 @@ function ReminderTicker({ clients }) {
   )
 }
 
-// ── Generate a beep WAV as a base64 data URI (no external file needed) ───────
-function generateBeepDataURI() {
-  const sampleRate = 22050
-  const duration = 5
-  const numSamples = sampleRate * duration
+// ── Generate a WAV data URI from sample generator function ───────────────────
+function generateWavDataURI(sampleRate, numSamples, sampleFn) {
   const buffer = new ArrayBuffer(44 + numSamples * 2)
   const view = new DataView(buffer)
-
-  // WAV header
   const writeStr = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)) }
   writeStr(0, 'RIFF')
   view.setUint32(4, 36 + numSamples * 2, true)
@@ -151,28 +146,38 @@ function generateBeepDataURI() {
   view.setUint16(34, 16, true)
   writeStr(36, 'data')
   view.setUint32(40, numSamples * 2, true)
-
-  // Generate pulsing ascending beep — 10 pulses over 5 seconds
-  const freqs = [880, 880, 988, 988, 1047, 1047, 1175, 1175, 1319, 1319]
   for (let i = 0; i < numSamples; i++) {
-    const t = i / sampleRate
-    const pulseIdx = Math.min(Math.floor(t / 0.5), 9)
-    const withinPulse = t - pulseIdx * 0.5
-    const amplitude = withinPulse < 0.3 ? 0.45 : 0.05 // loud then soft
-    const freq = freqs[pulseIdx]
-    // Square wave approximation
-    const val = Math.sin(2 * Math.PI * freq * t) > 0 ? amplitude : -amplitude
-    // Fade out last 0.2s
-    const fadeout = t > 4.8 ? Math.max(0, (5.0 - t) / 0.2) : 1
-    const sample = Math.max(-1, Math.min(1, val * fadeout))
-    view.setInt16(44 + i * 2, sample * 32767, true)
+    view.setInt16(44 + i * 2, Math.max(-32768, Math.min(32767, sampleFn(i, sampleRate) * 32767)), true)
   }
-
-  // Convert to base64 data URI
   const bytes = new Uint8Array(buffer)
   let binary = ''
   for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
   return 'data:audio/wav;base64,' + btoa(binary)
+}
+
+// 5-second pulsing ascending beep
+function generateBeepDataURI() {
+  return generateWavDataURI(22050, 22050 * 5, (i, sr) => {
+    const t = i / sr
+    const freqs = [880, 880, 988, 988, 1047, 1047, 1175, 1175, 1319, 1319]
+    const pulseIdx = Math.min(Math.floor(t / 0.5), 9)
+    const withinPulse = t - pulseIdx * 0.5
+    const amplitude = withinPulse < 0.3 ? 0.45 : 0.05
+    const val = Math.sin(2 * Math.PI * freqs[pulseIdx] * t) > 0 ? amplitude : -amplitude
+    const fadeout = t > 4.8 ? Math.max(0, (5.0 - t) / 0.2) : 1
+    return val * fadeout
+  })
+}
+
+// 2-second near-silent tick — just loud enough to keep iOS audio session alive
+function generateSilentTickDataURI() {
+  return generateWavDataURI(8000, 8000 * 2, (i, sr) => {
+    // Tiny 0.5% amplitude tick every second — inaudible but keeps iOS audio active
+    const t = i / sr
+    const tickPhase = t % 1.0
+    if (tickPhase < 0.01) return 0.005 * Math.sin(2 * Math.PI * 200 * t)
+    return 0.0
+  })
 }
 
 // ── REST TIMER ───────────────────────────────────────────────────────────────
@@ -185,28 +190,40 @@ function RestTimer() {
   const audioCtxRef = useRef(null)
   const silentBufferRef = useRef(null)
   const keepAliveRef = useRef(null)
-  const audioElRef = useRef(null)
+  // Two Audio elements: one for the continuous silent loop, one for the beep
+  const silentAudioRef = useRef(null)
+  const beepAudioRef = useRef(null)
   const beepDataRef = useRef(null)
+  const silentDataRef = useRef(null)
 
-  // Initialize HTML5 Audio element on first render — iOS handles <audio> more reliably
+  // Initialize BOTH Audio elements on first render
   useEffect(() => {
     try {
+      // Beep audio element (for alarm)
       beepDataRef.current = generateBeepDataURI()
-      const audio = new Audio()
-      audio.preload = 'auto'
-      audio.setAttribute('playsinline', '')
-      audio.src = beepDataRef.current
-      audioElRef.current = audio
+      const beepAudio = new Audio()
+      beepAudio.preload = 'auto'
+      beepAudio.setAttribute('playsinline', '')
+      beepAudio.src = beepDataRef.current
+      beepAudioRef.current = beepAudio
+
+      // Silent loop audio element (keeps iOS audio session alive while timer runs)
+      silentDataRef.current = generateSilentTickDataURI()
+      const silentAudio = new Audio()
+      silentAudio.preload = 'auto'
+      silentAudio.setAttribute('playsinline', '')
+      silentAudio.loop = true  // loops continuously while timer runs
+      silentAudio.src = silentDataRef.current
+      silentAudioRef.current = silentAudio
     } catch {}
   }, [])
 
-  // Get or create AudioContext — must be called during a user tap on iOS
+  // Get or create AudioContext
   const getAudioCtx = useCallback(() => {
     if (!audioCtxRef.current) {
       try {
         audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)()
-        const buf = audioCtxRef.current.createBuffer(1, 1, 22050)
-        silentBufferRef.current = buf
+        silentBufferRef.current = audioCtxRef.current.createBuffer(1, 1, 22050)
       } catch {}
     }
     const ctx = audioCtxRef.current
@@ -214,7 +231,7 @@ function RestTimer() {
     return ctx
   }, [])
 
-  // Unlock audio on user interaction — prime BOTH AudioContext and HTML5 Audio for iOS
+  // Unlock BOTH audio elements on user tap — iOS requires user-gesture play
   const unlockAudio = useCallback(() => {
     // Prime AudioContext
     const ctx = getAudioCtx()
@@ -224,68 +241,88 @@ function RestTimer() {
       src.connect(ctx.destination)
       src.start(0)
     }
-    // Prime HTML5 Audio element — iOS requires a user-gesture play before auto-play works
-    if (audioElRef.current) {
+    // Prime beep Audio element
+    if (beepAudioRef.current) {
       try {
-        audioElRef.current.volume = 0.01
-        audioElRef.current.play().then(() => {
-          audioElRef.current.pause()
-          audioElRef.current.currentTime = 0
-          audioElRef.current.volume = 1.0
+        beepAudioRef.current.volume = 0.01
+        beepAudioRef.current.play().then(() => {
+          beepAudioRef.current.pause()
+          beepAudioRef.current.currentTime = 0
+          beepAudioRef.current.volume = 1.0
+        }).catch(() => {})
+      } catch {}
+    }
+    // Prime silent Audio element
+    if (silentAudioRef.current) {
+      try {
+        silentAudioRef.current.volume = 1.0
+        silentAudioRef.current.play().then(() => {
+          silentAudioRef.current.pause()
+          silentAudioRef.current.currentTime = 0
         }).catch(() => {})
       } catch {}
     }
   }, [getAudioCtx])
 
-  // Play 5-second beep — try HTML5 Audio first (most reliable on iOS), fallback to oscillator
-  const playBeep = useCallback(() => {
-    let audioPlayed = false
+  // Start/stop the silent loop when timer starts/stops
+  // This is the KEY fix: a looping Audio element registers as active media on iOS
+  // so iOS keeps the audio session alive and won't block the beep when timer ends
+  useEffect(() => {
+    if (running && silentAudioRef.current) {
+      try {
+        silentAudioRef.current.currentTime = 0
+        silentAudioRef.current.volume = 1.0
+        silentAudioRef.current.play().catch(() => {})
+      } catch {}
+    }
+    if (!running && silentAudioRef.current) {
+      try {
+        silentAudioRef.current.pause()
+        silentAudioRef.current.currentTime = 0
+      } catch {}
+    }
+  }, [running])
 
-    // Method 1: HTML5 Audio element — iOS handles this most reliably
+  // Play the alarm — beep Audio element first, oscillator backup, then speech
+  const playBeep = useCallback(() => {
+    // Method 1: HTML5 Audio — should always work because silent loop kept audio session alive
     try {
-      const audio = audioElRef.current
+      const audio = beepAudioRef.current
       if (audio) {
         audio.currentTime = 0
         audio.volume = 1.0
-        const p = audio.play()
-        if (p && p.then) {
-          p.then(() => { audioPlayed = true }).catch(() => {})
-        } else {
-          audioPlayed = true
-        }
+        audio.play().catch(() => {})
       }
     } catch {}
 
-    // Method 2: Web Audio API oscillator as backup
+    // Method 2: Web Audio API oscillator as simultaneous backup
     try {
       const ctx = getAudioCtx()
-      if (ctx) {
-        if (ctx.state === 'suspended') ctx.resume()
-        const now = ctx.currentTime
-        const osc = ctx.createOscillator()
-        const gain = ctx.createGain()
-        osc.connect(gain)
-        gain.connect(ctx.destination)
-        osc.type = 'square'
-        osc.frequency.setValueAtTime(880, now)
-
-        for (let i = 0; i < 10; i++) {
-          const t = now + i * 0.5
-          gain.gain.setValueAtTime(0.45, t)
-          gain.gain.setValueAtTime(0.08, t + 0.3)
-          if (i % 2 === 0) {
-            const freqs = [880, 988, 1047, 1175, 1319]
-            osc.frequency.setValueAtTime(freqs[Math.min(Math.floor(i / 2), freqs.length - 1)], t)
-          }
+      if (!ctx) return
+      if (ctx.state === 'suspended') ctx.resume()
+      const now = ctx.currentTime
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.type = 'square'
+      osc.frequency.setValueAtTime(880, now)
+      for (let i = 0; i < 10; i++) {
+        const t = now + i * 0.5
+        gain.gain.setValueAtTime(0.45, t)
+        gain.gain.setValueAtTime(0.08, t + 0.3)
+        if (i % 2 === 0) {
+          const freqs = [880, 988, 1047, 1175, 1319]
+          osc.frequency.setValueAtTime(freqs[Math.min(Math.floor(i / 2), freqs.length - 1)], t)
         }
-        gain.gain.setValueAtTime(0.45, now + 4.8)
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 5.0)
-        osc.start(now)
-        osc.stop(now + 5.0)
       }
+      gain.gain.setValueAtTime(0.45, now + 4.8)
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 5.0)
+      osc.start(now)
+      osc.stop(now + 5.0)
     } catch {}
 
-    // Speak after the beep finishes
+    // Method 3: Speech synthesis as final backup
     if ('speechSynthesis' in window) {
       setTimeout(() => {
         try {
@@ -300,11 +337,10 @@ function RestTimer() {
     }
   }, [getAudioCtx])
 
-  // Keep audio context alive while timer is running (iOS suspends after ~30s idle)
+  // Keep AudioContext alive while running (backup to the silent audio loop)
   useEffect(() => {
     if (running) {
       keepAliveRef.current = setInterval(() => {
-        // Ping AudioContext
         const ctx = audioCtxRef.current
         if (ctx && silentBufferRef.current) {
           if (ctx.state === 'suspended') ctx.resume()
@@ -313,14 +349,7 @@ function RestTimer() {
           src.connect(ctx.destination)
           src.start(0)
         }
-        // Re-prime HTML5 Audio periodically so iOS doesn't forget it
-        if (audioElRef.current && beepDataRef.current) {
-          try {
-            audioElRef.current.src = beepDataRef.current
-            audioElRef.current.load()
-          } catch {}
-        }
-      }, 3000) // ping every 3s — more aggressive than before
+      }, 3000)
     }
     return () => clearInterval(keepAliveRef.current)
   }, [running])
