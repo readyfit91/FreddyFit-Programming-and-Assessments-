@@ -42,6 +42,89 @@ function Btn({onClick,children,color=C.accent,outline=false,small=false,disabled
   return <button onClick={onClick} disabled={disabled} style={{padding:pad,borderRadius:8,border:`1.5px solid ${outline?color:bg}`,background:bg,color:clr,fontFamily:'Montserrat,sans-serif',fontWeight:700,fontSize:small?11:13,cursor:disabled?'not-allowed':'pointer',letterSpacing:.5,transition:'opacity .15s',opacity:disabled?.5:1}}>{children}</button>
 }
 
+// ── SCROLLING REMINDER TICKER ────────────────────────────────────────────────
+function ReminderTicker({ clients }) {
+  const today = new Date().toISOString().split('T')[0]
+  const allReminders = (clients || []).flatMap(c => {
+    let intake = null
+    try { intake = JSON.parse(c.trainerNotes || c.trainer_notes || '{}') } catch {}
+    const reminders = intake?.reminders || []
+    return reminders.filter(r => !r.done).map(r => ({ ...r, clientName: c.name, clientId: c.id }))
+  }).sort((a, b) => new Date(a.date) - new Date(b.date))
+
+  if (allReminders.length === 0) return null
+
+  const items = allReminders.map(r => {
+    const isOverdue = r.date < today
+    const dateStr = new Date(r.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    return { ...r, isOverdue, dateStr }
+  })
+
+  // Duplicate items for seamless loop
+  const tickerContent = [...items, ...items]
+
+  return (
+    <>
+      <style>{`
+        @keyframes reminderScroll {
+          0% { transform: translateX(0); }
+          100% { transform: translateX(-50%); }
+        }
+      `}</style>
+      <div className="no-print" style={{
+        background: C.card,
+        borderBottom: `1px solid ${C.border}`,
+        overflow: 'hidden',
+        whiteSpace: 'nowrap',
+        position: 'relative',
+        flexShrink: 0,
+      }}>
+        {/* Static label */}
+        <div style={{
+          position: 'absolute', left: 0, top: 0, bottom: 0, zIndex: 2,
+          display: 'flex', alignItems: 'center',
+          background: `linear-gradient(90deg, ${C.card} 80%, transparent)`,
+          paddingLeft: 12, paddingRight: 18,
+        }}>
+          <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase' }}>📌 REMINDERS</span>
+        </div>
+        {/* Scrolling track */}
+        <div style={{
+          display: 'inline-flex', alignItems: 'center',
+          animation: `reminderScroll ${Math.max(items.length * 6, 15)}s linear infinite`,
+          paddingLeft: 130,
+        }}>
+          {tickerContent.map((r, i) => (
+            <span key={`${r.id}-${i}`} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '6px 18px',
+              fontSize: 12, fontFamily: 'Montserrat,sans-serif', fontWeight: 600,
+              color: r.isOverdue ? C.red : C.text,
+            }}>
+              <span style={{
+                fontSize: 10, fontWeight: 800,
+                background: r.isOverdue ? C.red + '18' : C.accent + '15',
+                color: r.isOverdue ? C.red : C.accent,
+                borderRadius: 6, padding: '2px 8px',
+              }}>{r.clientName}</span>
+              <span>{r.note}</span>
+              <span style={{ fontSize: 10, color: r.isOverdue ? C.red + 'AA' : C.sub }}>
+                {r.isOverdue ? '⚠️ overdue' : r.dateStr}
+              </span>
+              <span style={{ color: C.border, margin: '0 8px' }}>•</span>
+            </span>
+          ))}
+        </div>
+        {/* Right fade */}
+        <div style={{
+          position: 'absolute', right: 0, top: 0, bottom: 0, width: 40, zIndex: 2,
+          background: `linear-gradient(270deg, ${C.card} 40%, transparent)`,
+        }} />
+      </div>
+    </>
+  )
+}
+
 // ── REST TIMER ───────────────────────────────────────────────────────────────
 function RestTimer() {
   const [open, setOpen] = useState(false)
@@ -78,33 +161,42 @@ function RestTimer() {
     src.start(0)
   }, [getAudioCtx])
 
-  // Play 5-second alert: beeps then "Time to get back to work!"
+  // Play 5-second continuous beep alert — works reliably on iOS/iPad
   const playBeep = useCallback(() => {
     try {
       const ctx = getAudioCtx()
       if (!ctx) return
       if (ctx.state === 'suspended') ctx.resume()
-      // 5 seconds of ascending beep pattern (10 beeps over ~3.5s)
-      const beeps = [
-        { t: 0.0, freq: 880 },  { t: 0.35, freq: 988 },
-        { t: 0.7, freq: 1047 }, { t: 1.05, freq: 880 },
-        { t: 1.4, freq: 988 },  { t: 1.75, freq: 1047 },
-        { t: 2.1, freq: 880 },  { t: 2.45, freq: 988 },
-        { t: 2.8, freq: 1047 }, { t: 3.15, freq: 1175 },
-      ]
-      beeps.forEach(({ t, freq }) => {
-        const osc = ctx.createOscillator()
-        const gain = ctx.createGain()
-        osc.connect(gain)
-        gain.connect(ctx.destination)
-        osc.frequency.value = freq
-        osc.type = 'square'
-        gain.gain.setValueAtTime(0.35, ctx.currentTime + t)
-        gain.gain.setValueAtTime(0.35, ctx.currentTime + t + 0.15)
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.25)
-        osc.start(ctx.currentTime + t)
-        osc.stop(ctx.currentTime + t + 0.25)
-      })
+      const now = ctx.currentTime
+
+      // Single continuous oscillator for full 5 seconds — iOS handles one long tone
+      // much more reliably than many short scheduled tones
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.type = 'square'
+      osc.frequency.setValueAtTime(880, now)
+
+      // Pulsing pattern: alternate between loud and soft to create urgency
+      // Each pulse cycle is 0.5s (0.3s on, 0.2s softer) = 10 pulses in 5s
+      for (let i = 0; i < 10; i++) {
+        const t = now + i * 0.5
+        gain.gain.setValueAtTime(0.4, t)
+        gain.gain.setValueAtTime(0.08, t + 0.3)
+        // Step up frequency every 2 pulses for ascending urgency
+        if (i % 2 === 0) {
+          const freqs = [880, 988, 1047, 1175, 1319]
+          osc.frequency.setValueAtTime(freqs[Math.min(Math.floor(i / 2), freqs.length - 1)], t)
+        }
+      }
+      // Fade out at the very end
+      gain.gain.setValueAtTime(0.4, now + 4.8)
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 5.0)
+
+      osc.start(now)
+      osc.stop(now + 5.0)
+
       // Speak "Time to get back to work!" after the beeps
       if ('speechSynthesis' in window) {
         setTimeout(() => {
@@ -112,9 +204,9 @@ function RestTimer() {
           msg.rate = 1.0
           msg.pitch = 1.1
           msg.volume = 1.0
-          window.speechSynthesis.cancel() // clear any queued speech
+          window.speechSynthesis.cancel()
           window.speechSynthesis.speak(msg)
-        }, 1800) // start speaking partway through the beeps
+        }, 5000)
       }
     } catch {}
   }, [getAudioCtx])
@@ -5410,9 +5502,9 @@ export default function App() {
 
   useEffect(() => {
     fetch('/api/auth').then(r => r.json()).then(d => {
-      if (d.authed) setAuthed(true)
+      if (d.authed) { setAuthed(true); refreshAllClients() }
     }).catch(() => {}).finally(() => setCheckingAuth(false))
-  }, [])
+  }, [refreshAllClients])
 
   // Prevent iPad/iOS keyboard from pushing the viewport around
   useEffect(() => {
@@ -5434,7 +5526,7 @@ export default function App() {
   }, [])
 
   if (checkingAuth) return null
-  if (!authed) return <LoginScreen onLogin={() => setAuthed(true)} />
+  if (!authed) return <LoginScreen onLogin={() => { setAuthed(true); refreshAllClients() }} />
 
   const goToClient = (c) => { setClient(c); setView('client'); refreshAllClients() }
   const updateClient = (c) => { setClient(c); setAllClients(prev => prev.map(p => p.id === c.id ? c : p)) }
@@ -5478,6 +5570,9 @@ export default function App() {
           </button>
         </div>
       </div>
+
+      {/* Scrolling Reminder Ticker */}
+      <ReminderTicker clients={allClients} />
 
       {/* Rest Timer */}
       <RestTimer />
