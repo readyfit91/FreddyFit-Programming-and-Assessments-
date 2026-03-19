@@ -128,6 +128,53 @@ function ReminderTicker({ clients }) {
   )
 }
 
+// ── Generate a beep WAV as a base64 data URI (no external file needed) ───────
+function generateBeepDataURI() {
+  const sampleRate = 22050
+  const duration = 5
+  const numSamples = sampleRate * duration
+  const buffer = new ArrayBuffer(44 + numSamples * 2)
+  const view = new DataView(buffer)
+
+  // WAV header
+  const writeStr = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)) }
+  writeStr(0, 'RIFF')
+  view.setUint32(4, 36 + numSamples * 2, true)
+  writeStr(8, 'WAVE')
+  writeStr(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * 2, true)
+  view.setUint16(32, 2, true)
+  view.setUint16(34, 16, true)
+  writeStr(36, 'data')
+  view.setUint32(40, numSamples * 2, true)
+
+  // Generate pulsing ascending beep — 10 pulses over 5 seconds
+  const freqs = [880, 880, 988, 988, 1047, 1047, 1175, 1175, 1319, 1319]
+  for (let i = 0; i < numSamples; i++) {
+    const t = i / sampleRate
+    const pulseIdx = Math.min(Math.floor(t / 0.5), 9)
+    const withinPulse = t - pulseIdx * 0.5
+    const amplitude = withinPulse < 0.3 ? 0.45 : 0.05 // loud then soft
+    const freq = freqs[pulseIdx]
+    // Square wave approximation
+    const val = Math.sin(2 * Math.PI * freq * t) > 0 ? amplitude : -amplitude
+    // Fade out last 0.2s
+    const fadeout = t > 4.8 ? Math.max(0, (5.0 - t) / 0.2) : 1
+    const sample = Math.max(-1, Math.min(1, val * fadeout))
+    view.setInt16(44 + i * 2, sample * 32767, true)
+  }
+
+  // Convert to base64 data URI
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+  return 'data:audio/wav;base64,' + btoa(binary)
+}
+
 // ── REST TIMER ───────────────────────────────────────────────────────────────
 function RestTimer() {
   const [open, setOpen] = useState(false)
@@ -138,13 +185,26 @@ function RestTimer() {
   const audioCtxRef = useRef(null)
   const silentBufferRef = useRef(null)
   const keepAliveRef = useRef(null)
+  const audioElRef = useRef(null)
+  const beepDataRef = useRef(null)
+
+  // Initialize HTML5 Audio element on first render — iOS handles <audio> more reliably
+  useEffect(() => {
+    try {
+      beepDataRef.current = generateBeepDataURI()
+      const audio = new Audio()
+      audio.preload = 'auto'
+      audio.setAttribute('playsinline', '')
+      audio.src = beepDataRef.current
+      audioElRef.current = audio
+    } catch {}
+  }, [])
 
   // Get or create AudioContext — must be called during a user tap on iOS
   const getAudioCtx = useCallback(() => {
     if (!audioCtxRef.current) {
       try {
         audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)()
-        // Create a reusable silent buffer for keep-alive pings
         const buf = audioCtxRef.current.createBuffer(1, 1, 22050)
         silentBufferRef.current = buf
       } catch {}
@@ -154,78 +214,113 @@ function RestTimer() {
     return ctx
   }, [])
 
-  // Play a silent sound to keep iOS audio context alive — call on every user tap
+  // Unlock audio on user interaction — prime BOTH AudioContext and HTML5 Audio for iOS
   const unlockAudio = useCallback(() => {
+    // Prime AudioContext
     const ctx = getAudioCtx()
-    if (!ctx || !silentBufferRef.current) return
-    const src = ctx.createBufferSource()
-    src.buffer = silentBufferRef.current
-    src.connect(ctx.destination)
-    src.start(0)
+    if (ctx && silentBufferRef.current) {
+      const src = ctx.createBufferSource()
+      src.buffer = silentBufferRef.current
+      src.connect(ctx.destination)
+      src.start(0)
+    }
+    // Prime HTML5 Audio element — iOS requires a user-gesture play before auto-play works
+    if (audioElRef.current) {
+      try {
+        audioElRef.current.volume = 0.01
+        audioElRef.current.play().then(() => {
+          audioElRef.current.pause()
+          audioElRef.current.currentTime = 0
+          audioElRef.current.volume = 1.0
+        }).catch(() => {})
+      } catch {}
+    }
   }, [getAudioCtx])
 
-  // Play 5-second continuous beep alert — works reliably on iOS/iPad
+  // Play 5-second beep — try HTML5 Audio first (most reliable on iOS), fallback to oscillator
   const playBeep = useCallback(() => {
+    let audioPlayed = false
+
+    // Method 1: HTML5 Audio element — iOS handles this most reliably
     try {
-      const ctx = getAudioCtx()
-      if (!ctx) return
-      if (ctx.state === 'suspended') ctx.resume()
-      const now = ctx.currentTime
-
-      // Single continuous oscillator for full 5 seconds — iOS handles one long tone
-      // much more reliably than many short scheduled tones
-      const osc = ctx.createOscillator()
-      const gain = ctx.createGain()
-      osc.connect(gain)
-      gain.connect(ctx.destination)
-      osc.type = 'square'
-      osc.frequency.setValueAtTime(880, now)
-
-      // Pulsing pattern: alternate between loud and soft to create urgency
-      // Each pulse cycle is 0.5s (0.3s on, 0.2s softer) = 10 pulses in 5s
-      for (let i = 0; i < 10; i++) {
-        const t = now + i * 0.5
-        gain.gain.setValueAtTime(0.4, t)
-        gain.gain.setValueAtTime(0.08, t + 0.3)
-        // Step up frequency every 2 pulses for ascending urgency
-        if (i % 2 === 0) {
-          const freqs = [880, 988, 1047, 1175, 1319]
-          osc.frequency.setValueAtTime(freqs[Math.min(Math.floor(i / 2), freqs.length - 1)], t)
+      const audio = audioElRef.current
+      if (audio) {
+        audio.currentTime = 0
+        audio.volume = 1.0
+        const p = audio.play()
+        if (p && p.then) {
+          p.then(() => { audioPlayed = true }).catch(() => {})
+        } else {
+          audioPlayed = true
         }
       }
-      // Fade out at the very end
-      gain.gain.setValueAtTime(0.4, now + 4.8)
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 5.0)
+    } catch {}
 
-      osc.start(now)
-      osc.stop(now + 5.0)
+    // Method 2: Web Audio API oscillator as backup
+    try {
+      const ctx = getAudioCtx()
+      if (ctx) {
+        if (ctx.state === 'suspended') ctx.resume()
+        const now = ctx.currentTime
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.connect(gain)
+        gain.connect(ctx.destination)
+        osc.type = 'square'
+        osc.frequency.setValueAtTime(880, now)
 
-      // Speak "Time to get back to work!" after the beeps
-      if ('speechSynthesis' in window) {
-        setTimeout(() => {
+        for (let i = 0; i < 10; i++) {
+          const t = now + i * 0.5
+          gain.gain.setValueAtTime(0.45, t)
+          gain.gain.setValueAtTime(0.08, t + 0.3)
+          if (i % 2 === 0) {
+            const freqs = [880, 988, 1047, 1175, 1319]
+            osc.frequency.setValueAtTime(freqs[Math.min(Math.floor(i / 2), freqs.length - 1)], t)
+          }
+        }
+        gain.gain.setValueAtTime(0.45, now + 4.8)
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 5.0)
+        osc.start(now)
+        osc.stop(now + 5.0)
+      }
+    } catch {}
+
+    // Speak after the beep finishes
+    if ('speechSynthesis' in window) {
+      setTimeout(() => {
+        try {
           const msg = new SpeechSynthesisUtterance('Time to get back to work!')
           msg.rate = 1.0
           msg.pitch = 1.1
           msg.volume = 1.0
           window.speechSynthesis.cancel()
           window.speechSynthesis.speak(msg)
-        }, 5000)
-      }
-    } catch {}
+        } catch {}
+      }, 5200)
+    }
   }, [getAudioCtx])
 
   // Keep audio context alive while timer is running (iOS suspends after ~30s idle)
   useEffect(() => {
     if (running) {
       keepAliveRef.current = setInterval(() => {
+        // Ping AudioContext
         const ctx = audioCtxRef.current
-        if (!ctx || !silentBufferRef.current) return
-        if (ctx.state === 'suspended') ctx.resume()
-        const src = ctx.createBufferSource()
-        src.buffer = silentBufferRef.current
-        src.connect(ctx.destination)
-        src.start(0)
-      }, 5000) // ping every 5s to prevent iOS from suspending context
+        if (ctx && silentBufferRef.current) {
+          if (ctx.state === 'suspended') ctx.resume()
+          const src = ctx.createBufferSource()
+          src.buffer = silentBufferRef.current
+          src.connect(ctx.destination)
+          src.start(0)
+        }
+        // Re-prime HTML5 Audio periodically so iOS doesn't forget it
+        if (audioElRef.current && beepDataRef.current) {
+          try {
+            audioElRef.current.src = beepDataRef.current
+            audioElRef.current.load()
+          } catch {}
+        }
+      }, 3000) // ping every 3s — more aggressive than before
     }
     return () => clearInterval(keepAliveRef.current)
   }, [running])
@@ -4554,6 +4649,102 @@ function WeightTracker({ client, onBack }) {
   )
 }
 
+// ── TRAINER NOTES ────────────────────────────────────────────────────────────
+function TrainerNotes({ client, onUpdate }) {
+  const [open, setOpen] = useState(true)
+  const [adding, setAdding] = useState(false)
+  const [editId, setEditId] = useState(null)
+  const [noteText, setNoteText] = useState('')
+
+  const intake = (() => {
+    try { return JSON.parse(client.trainerNotes || '{}') } catch { return {} }
+  })()
+  const notes = (intake.trainer_session_notes || []).sort((a, b) => new Date(b.date) - new Date(a.date))
+
+  const saveNotes = async (updated) => {
+    const updatedNotes = JSON.stringify({ ...intake, trainer_session_notes: updated })
+    const updatedClient = { ...client, trainerNotes: updatedNotes }
+    await saveClient(updatedClient)
+    onUpdate(updatedClient)
+  }
+
+  const addNote = async () => {
+    if (!noteText.trim()) return
+    const newNote = { id: makeId(), date: new Date().toISOString(), text: noteText.trim() }
+    await saveNotes([newNote, ...notes])
+    setNoteText(''); setAdding(false)
+  }
+
+  const updateNote = async () => {
+    if (!noteText.trim()) return
+    await saveNotes(notes.map(n => n.id === editId ? { ...n, text: noteText.trim(), editedAt: new Date().toISOString() } : n))
+    setNoteText(''); setEditId(null)
+  }
+
+  const removeNote = async (id) => {
+    if (!confirm('Delete this note?')) return
+    await saveNotes(notes.filter(n => n.id !== id))
+  }
+
+  return (
+    <div style={{ background: C.card, border: `1.5px solid ${C.accent + '44'}`, borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setOpen(!open)}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase' }}>Session Notes</span>
+          {notes.length > 0 && <span style={{ fontSize: 10, background: C.accent + '15', color: C.accent, borderRadius: 10, padding: '2px 8px', fontWeight: 700 }}>{notes.length}</span>}
+        </div>
+        <span style={{ fontSize: 11, color: C.sub }}>{open ? '▲' : '▼'}</span>
+      </div>
+
+      {open && (
+        <div style={{ marginTop: 12 }}>
+          {/* Add / Edit input */}
+          {(adding || editId) ? (
+            <div style={{ marginBottom: 12 }}>
+              <textarea
+                value={noteText}
+                onChange={e => setNoteText(e.target.value)}
+                placeholder="Write your session note..."
+                rows={3}
+                style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', resize: 'vertical', outline: 'none', background: C.faint, boxSizing: 'border-box' }}
+              />
+              <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                <Btn onClick={editId ? updateNote : addNote} small>{editId ? 'Update' : 'Save Note'}</Btn>
+                <Btn onClick={() => { setAdding(false); setEditId(null); setNoteText('') }} small outline color={C.sub}>Cancel</Btn>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setAdding(true)} style={{ marginBottom: 10, padding: '6px 14px', borderRadius: 8, border: `1.5px dashed ${C.accent}44`, background: 'transparent', color: C.accent, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+              + Add Note
+            </button>
+          )}
+
+          {/* Notes list */}
+          {notes.length === 0 && !adding && (
+            <div style={{ fontSize: 11, color: C.sub, textAlign: 'center', padding: '8px 0' }}>No session notes yet</div>
+          )}
+          {notes.map(n => (
+            <div key={n.id} style={{ padding: '10px 12px', background: C.faint, borderRadius: 8, marginBottom: 6, border: `1px solid ${C.border}22` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                <div style={{ fontSize: 10, color: C.sub, fontWeight: 600 }}>
+                  {new Date(n.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                  {' '}{new Date(n.date).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                  {n.editedAt && <span style={{ fontStyle: 'italic', marginLeft: 6 }}>(edited)</span>}
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => { setEditId(n.id); setNoteText(n.text) }} style={{ background: 'none', border: 'none', color: C.accent, cursor: 'pointer', fontSize: 11, fontWeight: 700, padding: 0 }}>Edit</button>
+                  <button onClick={() => removeNote(n.id)} style={{ background: 'none', border: 'none', color: C.sub, cursor: 'pointer', fontSize: 14, padding: 0 }}>✕</button>
+                </div>
+              </div>
+              <div style={{ fontSize: 12, color: C.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{n.text}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── CLIENT REMINDERS ──────────────────────────────────────────────────────────
 function ClientReminders({ client, onUpdate }) {
   const [open, setOpen] = useState(true)
@@ -4736,6 +4927,16 @@ function AIChatBox({ client }) {
       }
     }
 
+    // Trainer session notes
+    const sessionNotes = intake?.trainer_session_notes || []
+    if (sessionNotes.length > 0) {
+      ctx += '\nTRAINER SESSION NOTES (most recent first):\n'
+      sessionNotes.sort((a, b) => new Date(b.date) - new Date(a.date)).forEach(n => {
+        const dateStr = new Date(n.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+        ctx += `  [${dateStr}]: ${n.text}\n`
+      })
+    }
+
     // Sign-in sheet / attendance
     if (intake?.sign_in_entries?.length > 0) {
       ctx += '\nSIGN-IN / ATTENDANCE LOG:\n'
@@ -4813,7 +5014,7 @@ function AIChatBox({ client }) {
         }
       }
       const clientCtx = getClientContext()
-      const systemPrompt = `You are FreddyFit AI, an expert personal training assistant. You have COMPLETE access to all of this client's data including intake forms, assessment test results, workout history, weight logs, program details, sign-in/attendance records, and reminders.\n\nHere is EVERYTHING on file for this client:\n\n${clientCtx}\n\nIMPORTANT INSTRUCTIONS:\n- Answer any question about this client using the SPECIFIC data shown above.\n- ALWAYS reference actual test results, scores, dates, and values from their records.\n- If data exists above that answers the question, USE IT — never say "no data available" if the data is present.\n- Be concise and practical.\n- If the trainer asks about assessments, cite the specific test answers and scores.\n- If asked about progress, reference weight logs, sign-in history, and assessment history.\n- If asked for recommendations, base them on the actual assessment results and intake data shown above.`
+      const systemPrompt = `You are FreddyFit AI, an expert personal training assistant. You have COMPLETE access to all of this client's data including intake forms, assessment test results, workout history, weight logs, program details, sign-in/attendance records, trainer session notes, and reminders.\n\nHere is EVERYTHING on file for this client:\n\n${clientCtx}\n\nIMPORTANT INSTRUCTIONS:\n- Answer any question about this client using the SPECIFIC data shown above.\n- ALWAYS reference actual test results, scores, dates, and values from their records.\n- If data exists above that answers the question, USE IT — never say "no data available" if the data is present.\n- Be concise and practical.\n- If the trainer asks about assessments, cite the specific test answers and scores.\n- If asked about progress, reference weight logs, sign-in history, session notes, and assessment history.\n- If asked for recommendations, base them on the actual assessment results, session notes, and intake data shown above.\n- Trainer session notes contain the trainer's observations, progress updates, and session-specific details — use these to provide context-aware answers.`
       const chatHistory = [...messages, { role: 'user', content: userMsg }].slice(-10)
       const text = await callClaude([
         { role: 'user', content: systemPrompt + '\n\nConversation:\n' + chatHistory.map(m => `${m.role === 'user' ? 'Trainer' : 'AI'}: ${m.content}`).join('\n') + '\n\nAI:' }
@@ -5219,6 +5420,9 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
       {/* Client Reminders */}
       <ClientReminders client={client} onUpdate={onUpdate} />
 
+      {/* Trainer Session Notes */}
+      <TrainerNotes client={client} onUpdate={onUpdate} />
+
       {/* Program Uploads */}
       <ProgramUploads key={client.id} client={client} onUpdate={onUpdate} />
 
@@ -5372,38 +5576,66 @@ function ClientRoster({ onSelectClient, onNewClient }) {
         </div>
       )}
 
-      {/* All Reminders Dashboard */}
+      {/* All Reminders Dashboard — Grid by Client */}
       {!loading && (() => {
         const today = new Date().toISOString().split('T')[0]
-        const allReminders = clients.flatMap(c => {
+        // Group reminders by client
+        const clientsWithReminders = clients.map(c => {
           let intake = null
           try { intake = JSON.parse(c.trainerNotes || c.trainer_notes || '{}') } catch {}
-          const reminders = intake?.reminders || []
-          return reminders.filter(r => !r.done).map(r => ({ ...r, clientName: c.name, clientId: c.id }))
-        }).sort((a, b) => new Date(a.date) - new Date(b.date))
-        const overdue = allReminders.filter(r => r.date < today)
-        const upcoming = allReminders.filter(r => r.date >= today).slice(0, 5)
-        if (allReminders.length === 0) return null
+          const reminders = (intake?.reminders || []).filter(r => !r.done).sort((a, b) => new Date(a.date) - new Date(b.date))
+          const overdue = reminders.filter(r => r.date < today)
+          const upcoming = reminders.filter(r => r.date >= today)
+          return { name: c.name, id: c.id, reminders, overdue, upcoming }
+        }).filter(c => c.reminders.length > 0)
+
+        if (clientsWithReminders.length === 0) return null
+        const totalOverdue = clientsWithReminders.reduce((sum, c) => sum + c.overdue.length, 0)
+        const totalReminders = clientsWithReminders.reduce((sum, c) => sum + c.reminders.length, 0)
+
         return (
-          <div style={{ background: C.card, border: `1px solid ${overdue.length > 0 ? C.red + '44' : C.accent + '33'}`, borderRadius: 14, padding: '18px 22px', marginBottom: 20 }}>
-            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: overdue.length > 0 ? C.red : C.accent, textTransform: 'uppercase', marginBottom: 14 }}>
-              📌 Client Reminders {overdue.length > 0 && <span style={{ fontSize: 10, background: C.red + '18', color: C.red, borderRadius: 10, padding: '2px 8px', fontWeight: 700, marginLeft: 6 }}>{overdue.length} overdue</span>}
+          <div style={{ background: C.card, border: `1.5px solid ${totalOverdue > 0 ? C.red + '55' : C.accent + '33'}`, borderRadius: 14, padding: '18px 22px', marginBottom: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: totalOverdue > 0 ? C.red : C.accent, textTransform: 'uppercase' }}>All Client Reminders</span>
+                <span style={{ fontSize: 10, background: C.accent + '15', color: C.accent, borderRadius: 10, padding: '2px 10px', fontWeight: 700 }}>{totalReminders} active</span>
+                {totalOverdue > 0 && <span style={{ fontSize: 10, background: C.red + '18', color: C.red, borderRadius: 10, padding: '2px 10px', fontWeight: 700 }}>{totalOverdue} overdue</span>}
+              </div>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {overdue.map(r => (
-                <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: C.red + '08', borderRadius: 8, border: `1px solid ${C.red}22` }}>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: C.red }}>{r.clientName}: {r.note}</div>
-                    <div style={{ fontSize: 10, color: C.red + 'AA' }}>⚠️ Overdue — {new Date(r.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+              {clientsWithReminders.map(c => (
+                <div key={c.id} style={{
+                  background: C.panel, borderRadius: 12, padding: '14px 16px',
+                  border: `1px solid ${c.overdue.length > 0 ? C.red + '44' : C.border}`,
+                }}>
+                  {/* Client name header */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${C.border}44` }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: C.text }}>{c.name}</div>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {c.overdue.length > 0 && <span style={{ fontSize: 9, background: C.red + '18', color: C.red, borderRadius: 8, padding: '2px 8px', fontWeight: 700 }}>{c.overdue.length} overdue</span>}
+                      <span style={{ fontSize: 9, background: C.faint, color: C.sub, borderRadius: 8, padding: '2px 8px', fontWeight: 700 }}>{c.reminders.length} total</span>
+                    </div>
                   </div>
-                </div>
-              ))}
-              {upcoming.map(r => (
-                <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: C.faint, borderRadius: 8 }}>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{r.clientName}: {r.note}</div>
-                    <div style={{ fontSize: 10, color: C.sub }}>{new Date(r.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</div>
-                  </div>
+                  {/* Overdue reminders */}
+                  {c.overdue.map(r => (
+                    <div key={r.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 8px', background: C.red + '08', borderRadius: 6, marginBottom: 4, border: `1px solid ${C.red}18` }}>
+                      <span style={{ fontSize: 12, marginTop: 1 }}>⚠️</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: C.red, lineHeight: 1.4 }}>{r.note}</div>
+                        <div style={{ fontSize: 9, color: C.red + 'AA', marginTop: 2 }}>Due {new Date(r.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+                      </div>
+                    </div>
+                  ))}
+                  {/* Upcoming reminders */}
+                  {c.upcoming.map(r => (
+                    <div key={r.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 8px', background: C.faint, borderRadius: 6, marginBottom: 4 }}>
+                      <span style={{ fontSize: 10, color: C.accent, marginTop: 2 }}>●</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: C.text, lineHeight: 1.4 }}>{r.note}</div>
+                        <div style={{ fontSize: 9, color: C.sub, marginTop: 2 }}>{new Date(r.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>
