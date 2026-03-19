@@ -4667,21 +4667,25 @@ function AIChatBox({ client }) {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [clientData, setClientData] = useState(null)
+  const [dataLoading, setDataLoading] = useState(false)
   const chatEndRef = useRef(null)
 
-  // Load ALL client data when chat opens
+  // Load ALL client data fresh from DB when chat opens
   useEffect(() => {
     if (!open || !client?.id) return
     let cancelled = false
     ;(async () => {
+      setDataLoading(true)
       try {
-        const [workouts, weightLogs, program] = await Promise.all([
+        const [assessments, workouts, weightLogs, program] = await Promise.all([
+          getAssessmentsForClient(client.id).catch(() => ({})),
           getWorkoutsForClient(client.id).catch(() => []),
           getWeightLogsForClient(client.id).catch(() => []),
           getProgramForClient(client.id).catch(() => null),
         ])
-        if (!cancelled) setClientData({ workouts, weightLogs, program })
+        if (!cancelled) setClientData({ assessments, workouts, weightLogs, program })
       } catch {}
+      if (!cancelled) setDataLoading(false)
     })()
     return () => { cancelled = true }
   }, [open, client?.id])
@@ -4732,8 +4736,17 @@ function AIChatBox({ client }) {
       }
     }
 
-    // Full assessment data with all test results
-    const assessments = client.assessments || {}
+    // Sign-in sheet / attendance
+    if (intake?.sign_in_entries?.length > 0) {
+      ctx += '\nSIGN-IN / ATTENDANCE LOG:\n'
+      if (intake.sign_in_package) ctx += `  Package: ${intake.sign_in_package}\n`
+      intake.sign_in_entries.forEach(e => {
+        ctx += `  ${e.date}: Session ${e.session}${e.notes ? ` — ${e.notes}` : ''}\n`
+      })
+    }
+
+    // Full assessment data — use fresh DB data if available, fallback to client prop
+    const assessments = clientData?.assessments || client.assessments || {}
     const doneTypes = Object.keys(assessments)
     if (doneTypes.length > 0) {
       ctx += '\nASSESSMENT RESULTS:\n'
@@ -4791,8 +4804,16 @@ function AIChatBox({ client }) {
     setMessages(prev => [...prev, { role: 'user', content: userMsg }])
     setLoading(true)
     try {
+      // If data hasn't loaded yet, wait for it
+      if (!clientData) {
+        let waited = 0
+        while (!clientData && waited < 5000) {
+          await new Promise(r => setTimeout(r, 250))
+          waited += 250
+        }
+      }
       const clientCtx = getClientContext()
-      const systemPrompt = `You are FreddyFit AI, an expert personal training assistant. You have COMPLETE access to all of this client's data including intake forms, assessment test results, workout history, weight logs, program details, and reminders.\n\nHere is everything on file:\n\n${clientCtx}\n\nAnswer any question about this client with specific data from their records. Reference actual test results, scores, and dates when relevant. Be concise and practical. If the trainer asks about assessments, cite the specific test answers. If asked about progress, reference weight logs and assessment history.`
+      const systemPrompt = `You are FreddyFit AI, an expert personal training assistant. You have COMPLETE access to all of this client's data including intake forms, assessment test results, workout history, weight logs, program details, sign-in/attendance records, and reminders.\n\nHere is EVERYTHING on file for this client:\n\n${clientCtx}\n\nIMPORTANT INSTRUCTIONS:\n- Answer any question about this client using the SPECIFIC data shown above.\n- ALWAYS reference actual test results, scores, dates, and values from their records.\n- If data exists above that answers the question, USE IT — never say "no data available" if the data is present.\n- Be concise and practical.\n- If the trainer asks about assessments, cite the specific test answers and scores.\n- If asked about progress, reference weight logs, sign-in history, and assessment history.\n- If asked for recommendations, base them on the actual assessment results and intake data shown above.`
       const chatHistory = [...messages, { role: 'user', content: userMsg }].slice(-10)
       const text = await callClaude([
         { role: 'user', content: systemPrompt + '\n\nConversation:\n' + chatHistory.map(m => `${m.role === 'user' ? 'Trainer' : 'AI'}: ${m.content}`).join('\n') + '\n\nAI:' }
@@ -4841,7 +4862,11 @@ function AIChatBox({ client }) {
       <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         {messages.length === 0 && (
           <div style={{ textAlign: 'center', padding: '30px 10px', color: C.sub, fontSize: 12 }}>
-            Ask anything about {client.name} — training ideas, assessment insights, programming suggestions...
+            {dataLoading ? (
+              <><Spinner /><div style={{ marginTop: 8 }}>Loading {client.name}'s data...</div></>
+            ) : (
+              <>Ask anything about {client.name} — training ideas, assessment insights, programming suggestions...</>
+            )}
           </div>
         )}
         {messages.map((m, i) => (
