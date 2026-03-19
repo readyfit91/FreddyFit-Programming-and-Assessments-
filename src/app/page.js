@@ -3830,13 +3830,33 @@ function ProgramUploads({ client, onUpdate }) {
                   <input value={ex.reps} onChange={e => updateExercise(dayIdx, exIdx, 'reps', e.target.value)} placeholder="10" style={{ ...inputCell, textAlign: 'center' }} />
                   <span onClick={() => updateExercise(dayIdx, exIdx, 'repsType', ex.repsType === 'time' ? 'reps' : 'time')} style={{ fontSize: 7, fontWeight: 700, color: ex.repsType === 'time' ? C.accent : C.sub, cursor: 'pointer', letterSpacing: 0.3, textTransform: 'uppercase', userSelect: 'none', lineHeight: 1 }} title="Click to toggle reps/seconds">{ex.repsType === 'time' ? 'sec' : 'reps'}</span>
                 </div>
-                <input value={ex.weight || ''} onChange={e => updateExercise(dayIdx, exIdx, 'weight', e.target.value)} placeholder="lbs" style={{ ...inputCell, textAlign: 'center' }} />
-                <input value={ex.tempo || ''} onChange={e => { const digits = e.target.value.replace(/[^0-9]/g, '').slice(0, 4); const formatted = digits.split('').join('-'); updateExercise(dayIdx, exIdx, 'tempo', formatted); }} placeholder="3-1-2-0" style={{ ...inputCell, textAlign: 'center' }} maxLength={7} />
-                <select value={ex.rpe} onChange={e => updateExercise(dayIdx, exIdx, 'rpe', e.target.value)} style={{ ...inputCell, textAlign: 'center', padding: '6px 2px' }}>
-                  <option value="">—</option>
-                  {[1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8,8.5,9,9.5,10].map(n => <option key={n} value={n}>{n}</option>)}
-                </select>
-                <input value={ex.notes} onChange={e => updateExercise(dayIdx, exIdx, 'notes', e.target.value)} placeholder="Cues..." style={inputCell} />
+                {/* Weight — hide in main row when per-set breakdown is open */}
+                {expandedSetLogs.has(setLogKey) && setsNum >= 2 ? (
+                  <div style={{ textAlign: 'center', fontSize: 8, color: C.sub, fontWeight: 700, letterSpacing: 0.3 }}>per set ↓</div>
+                ) : (
+                  <input value={ex.weight || ''} onChange={e => updateExercise(dayIdx, exIdx, 'weight', e.target.value)} placeholder="lbs" style={{ ...inputCell, textAlign: 'center' }} />
+                )}
+                {/* Tempo — hide in main row when per-set breakdown is open */}
+                {expandedSetLogs.has(setLogKey) && setsNum >= 2 ? (
+                  <div style={{ textAlign: 'center', fontSize: 8, color: C.sub, fontWeight: 700, letterSpacing: 0.3 }}>per set ↓</div>
+                ) : (
+                  <input value={ex.tempo || ''} onChange={e => { const digits = e.target.value.replace(/[^0-9]/g, '').slice(0, 4); const formatted = digits.split('').join('-'); updateExercise(dayIdx, exIdx, 'tempo', formatted); }} placeholder="3-1-2-0" style={{ ...inputCell, textAlign: 'center' }} maxLength={7} />
+                )}
+                {/* RPE — hide in main row when per-set breakdown is open */}
+                {expandedSetLogs.has(setLogKey) && setsNum >= 2 ? (
+                  <div style={{ textAlign: 'center', fontSize: 8, color: C.sub, fontWeight: 700, letterSpacing: 0.3 }}>↓</div>
+                ) : (
+                  <select value={ex.rpe} onChange={e => updateExercise(dayIdx, exIdx, 'rpe', e.target.value)} style={{ ...inputCell, textAlign: 'center', padding: '6px 2px' }}>
+                    <option value="">—</option>
+                    {[1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8,8.5,9,9.5,10].map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                )}
+                {/* Notes — hide in main row when per-set breakdown is open */}
+                {expandedSetLogs.has(setLogKey) && setsNum >= 2 ? (
+                  <div style={{ fontSize: 8, color: C.sub, fontWeight: 700, letterSpacing: 0.3, paddingLeft: 4 }}>per set ↓</div>
+                ) : (
+                  <input value={ex.notes} onChange={e => updateExercise(dayIdx, exIdx, 'notes', e.target.value)} placeholder="Cues..." style={inputCell} />
+                )}
                 <button onClick={() => duplicateExercise(dayIdx, exIdx)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 5, color: C.accent, fontSize: 11, cursor: 'pointer', padding: 0, lineHeight: 1, fontWeight: 700, fontFamily: 'Montserrat,sans-serif' }} title="Add set">+</button>
                 <button onClick={() => removeExercise(dayIdx, exIdx)} disabled={day.exercises.length <= 1} style={{ background: 'none', border: 'none', color: day.exercises.length > 1 ? C.red + '88' : C.border, fontSize: 16, cursor: day.exercises.length > 1 ? 'pointer' : 'default', padding: 0, lineHeight: 1 }} title="Remove exercise">×</button>
                 </div>
@@ -3844,20 +3864,28 @@ function ProgramUploads({ client, onUpdate }) {
                 {expandedSetLogs.has(setLogKey) && setsNum >= 2 && (
                   <div style={{ marginLeft: 56, marginTop: 4, marginBottom: 6, padding: '8px 10px', background: '#fff', borderRadius: 8, border: `1px solid ${C.accent}33` }}>
                     <div style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Per-Set Breakdown</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '40px 60px 1fr', gap: 4, marginBottom: 4, alignItems: 'end' }}>
-                      <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>Set</div>
-                      <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>RPE</div>
-                      <div style={{ fontSize: 8, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>Notes</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '36px 54px 50px 54px 66px 50px 1fr', gap: 4, marginBottom: 4, alignItems: 'end' }}>
+                      <div style={{ fontSize: 7, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>Set</div>
+                      <div style={{ fontSize: 7, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>Weight</div>
+                      <div style={{ fontSize: 7, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>{ex.repsType === 'time' ? 'Sec' : 'Reps'}</div>
+                      <div style={{ fontSize: 7, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>RPE</div>
+                      <div style={{ fontSize: 7, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>Tempo</div>
+                      <div />
+                      <div style={{ fontSize: 7, fontWeight: 800, color: C.sub, letterSpacing: 0.5, textTransform: 'uppercase' }}>Notes</div>
                     </div>
                     {Array.from({ length: setsNum }, (_, si) => {
                       const log = (ex.setLogs || [])[si] || {}
                       return (
-                        <div key={si} style={{ display: 'grid', gridTemplateColumns: '40px 60px 1fr', gap: 4, marginBottom: 3, alignItems: 'center' }}>
+                        <div key={si} style={{ display: 'grid', gridTemplateColumns: '36px 54px 50px 54px 66px 50px 1fr', gap: 4, marginBottom: 3, alignItems: 'center' }}>
                           <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, paddingLeft: 4 }}>#{si + 1}</div>
+                          <input value={log.weight || ''} onChange={e => updateSetLog(dayIdx, exIdx, si, 'weight', e.target.value)} placeholder="lbs" style={{ ...inputCell, textAlign: 'center', fontSize: 11, padding: '4px 2px' }} />
+                          <input value={log.reps || ''} onChange={e => updateSetLog(dayIdx, exIdx, si, 'reps', e.target.value)} placeholder={ex.repsType === 'time' ? 'sec' : 'reps'} style={{ ...inputCell, textAlign: 'center', fontSize: 11, padding: '4px 2px' }} />
                           <select value={log.rpe || ''} onChange={e => updateSetLog(dayIdx, exIdx, si, 'rpe', e.target.value)} style={{ ...inputCell, textAlign: 'center', padding: '4px 2px', fontSize: 11 }}>
                             <option value="">—</option>
                             {[1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8,8.5,9,9.5,10].map(n => <option key={n} value={n}>{n}</option>)}
                           </select>
+                          <input value={log.tempo || ''} onChange={e => { const digits = e.target.value.replace(/[^0-9]/g, '').slice(0, 4); const formatted = digits.split('').join('-'); updateSetLog(dayIdx, exIdx, si, 'tempo', formatted); }} placeholder="3-1-2-0" style={{ ...inputCell, textAlign: 'center', fontSize: 11, padding: '4px 2px' }} maxLength={7} />
+                          <div />
                           <input value={log.notes || ''} onChange={e => updateSetLog(dayIdx, exIdx, si, 'notes', e.target.value)} placeholder="Set notes..." style={{ ...inputCell, fontSize: 11, padding: '4px 6px' }} />
                         </div>
                       )
