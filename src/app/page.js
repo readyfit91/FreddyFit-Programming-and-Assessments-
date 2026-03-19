@@ -5005,7 +5005,11 @@ function AIChatBox({ client }) {
 
       // ── PROGRAM JOURNAL (workout log — exercises, sets, weights, reps, RPE, notes per week) ──
       const programJournal = intake.program_journal || {}
-      const journalKeys = Object.keys(programJournal).filter(k => k.startsWith('y') && k.includes('_p') && k.includes('_Week'))
+      // Grab all week keys (Week 1, Week 2, Deload, etc.) — skip _weekorder arrays
+      const journalKeys = Object.keys(programJournal).filter(k => {
+        if (k.includes('_weekorder')) return false  // skip week-order metadata
+        return k.match(/^y\d+_p\d+_/)  // matches y1_p1_Week 1, y1_p2_Deload, etc.
+      })
       if (journalKeys.length > 0) {
         ctx += '\nWORKOUT LOG (Program Journal — actual logged exercises, sets, weights, reps, RPE):\n'
         // Sort by year, phase, week for readability
@@ -5032,7 +5036,7 @@ function AIChatBox({ client }) {
               if (ex.notes) line += ` — ${ex.notes}`
               ctx += line + '\n'
               // Per-set breakdown if logged
-              if (ex.setLogs?.length > 0 && setsNum >= 2) {
+              if (ex.setLogs?.length > 0) {
                 ex.setLogs.forEach((log, si) => {
                   if (!log || (!log.weight && !log.reps && !log.rpe && !log.notes)) return
                   let setLine = `       Set ${si + 1}:`
@@ -5164,6 +5168,16 @@ function AIChatBox({ client }) {
       // Always fetch fresh data on every send — guarantees no stale closures
       const freshData = await loadClientData()
       const clientCtx = buildClientContext(freshData)
+      // Debug: log context length and whether journal data was found
+      try {
+        const intake = JSON.parse(client.trainerNotes || '{}')
+        const pj = intake.program_journal
+        console.log('[FreddyFit AI] Context length:', clientCtx.length, 'chars')
+        console.log('[FreddyFit AI] program_journal keys:', pj ? Object.keys(pj) : 'NONE — no program_journal in trainerNotes')
+        console.log('[FreddyFit AI] trainerNotes top-level keys:', Object.keys(intake))
+        if (clientCtx.includes('WORKOUT LOG')) console.log('[FreddyFit AI] ✓ Journal data IS in context')
+        else console.log('[FreddyFit AI] ✗ Journal data NOT in context')
+      } catch (e) { console.log('[FreddyFit AI] debug error:', e) }
       const systemPrompt = `You are FreddyFit AI, an expert personal training assistant. You have COMPLETE access to ALL of this client's data — every intake form field, every assessment result (including retakes), every workout log entry with per-set weights/reps/RPE, full program details, all weight tracking entries, sign-in/attendance records, trainer session notes, and reminders.
 
 Here is EVERYTHING on file for this client:
