@@ -4857,36 +4857,47 @@ function AIChatBox({ client }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [clientData, setClientData] = useState(null)
   const [dataLoading, setDataLoading] = useState(false)
   const chatEndRef = useRef(null)
+  const clientDataRef = useRef(null)
 
   // Load ALL client data fresh from DB when chat opens
+  const loadClientData = useCallback(async () => {
+    if (!client?.id) return null
+    try {
+      const [assessments, workouts, weightLogs, program] = await Promise.all([
+        getAssessmentsForClient(client.id).catch(() => ({})),
+        getWorkoutsForClient(client.id).catch(() => []),
+        getWeightLogsForClient(client.id).catch(() => []),
+        getProgramForClient(client.id).catch(() => null),
+      ])
+      const data = { assessments, workouts, weightLogs, program }
+      clientDataRef.current = data
+      return data
+    } catch {
+      return null
+    }
+  }, [client?.id])
+
+  // Pre-load data when chat opens
   useEffect(() => {
     if (!open || !client?.id) return
     let cancelled = false
     ;(async () => {
       setDataLoading(true)
-      try {
-        const [assessments, workouts, weightLogs, program] = await Promise.all([
-          getAssessmentsForClient(client.id).catch(() => ({})),
-          getWorkoutsForClient(client.id).catch(() => []),
-          getWeightLogsForClient(client.id).catch(() => []),
-          getProgramForClient(client.id).catch(() => null),
-        ])
-        if (!cancelled) setClientData({ assessments, workouts, weightLogs, program })
-      } catch {}
+      await loadClientData()
       if (!cancelled) setDataLoading(false)
     })()
     return () => { cancelled = true }
-  }, [open, client?.id])
+  }, [open, client?.id, loadClientData])
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, loading])
 
-  // Build FULL context about the client
-  const getClientContext = () => {
+  // Build FULL context about the client — uses ref for latest data
+  const buildClientContext = useCallback((freshData) => {
+    const cd = freshData || clientDataRef.current
     let ctx = `CLIENT PROFILE:\nName: ${client.name}\nGoal: ${client.goal || 'Not set'}\n`
     if (client.dob) ctx += `DOB: ${client.dob}\n`
     if (client.equipment) ctx += `Equipment: ${client.equipment}\n`
@@ -4946,13 +4957,14 @@ function AIChatBox({ client }) {
       })
     }
 
-    // Full assessment data — use fresh DB data if available, fallback to client prop
-    const assessments = clientData?.assessments || client.assessments || {}
+    // Full assessment data — use fresh DB data, then fallback to client prop
+    const assessments = cd?.assessments || client.assessments || {}
     const doneTypes = Object.keys(assessments)
     if (doneTypes.length > 0) {
       ctx += '\nASSESSMENT RESULTS:\n'
       doneTypes.forEach(type => {
         const a = assessments[type]
+        if (!a || typeof a !== 'object') return
         ctx += `\n  --- ${type.toUpperCase()} (completed ${a._completedAt ? new Date(a._completedAt).toLocaleDateString() : 'unknown'}) ---\n`
         Object.entries(a).forEach(([k, v]) => {
           if (k.startsWith('_')) return
@@ -4964,9 +4976,9 @@ function AIChatBox({ client }) {
     }
 
     // Workout history
-    if (clientData?.workouts?.length > 0) {
+    if (cd?.workouts?.length > 0) {
       ctx += '\nWORKOUT HISTORY (most recent first):\n'
-      clientData.workouts.slice(0, 5).forEach((w, i) => {
+      cd.workouts.slice(0, 5).forEach((w, i) => {
         ctx += `\n  --- Workout ${i + 1} (${new Date(w.generated_at).toLocaleDateString()}) ---\n`
         if (w.prompt) ctx += `    Prompt: ${w.prompt}\n`
         const content = typeof w.content === 'string' ? w.content : JSON.stringify(w.content)
@@ -4975,9 +4987,9 @@ function AIChatBox({ client }) {
     }
 
     // Weight logs
-    if (clientData?.weightLogs?.length > 0) {
+    if (cd?.weightLogs?.length > 0) {
       ctx += '\nWEIGHT TRACKING:\n'
-      clientData.weightLogs.slice(-10).forEach(l => {
+      cd.weightLogs.slice(-10).forEach(l => {
         ctx += `  ${new Date(l.logged_at).toLocaleDateString()}: `
         if (l.weight) ctx += `Weight: ${l.weight}lbs `
         if (l.body_fat) ctx += `BF: ${l.body_fat}% `
@@ -4988,15 +5000,15 @@ function AIChatBox({ client }) {
     }
 
     // Program
-    if (clientData?.program?.phases) {
+    if (cd?.program?.phases) {
       ctx += '\nPROGRAM (current):\n'
-      const phases = clientData.program.phases
+      const phases = cd.program.phases
       const programStr = typeof phases === 'string' ? phases : JSON.stringify(phases)
       ctx += `  ${programStr.slice(0, 2000)}\n`
     }
 
     return ctx
-  }
+  }, [client])
 
   const send = async () => {
     if (!input.trim() || loading) return
@@ -5005,15 +5017,9 @@ function AIChatBox({ client }) {
     setMessages(prev => [...prev, { role: 'user', content: userMsg }])
     setLoading(true)
     try {
-      // If data hasn't loaded yet, wait for it
-      if (!clientData) {
-        let waited = 0
-        while (!clientData && waited < 5000) {
-          await new Promise(r => setTimeout(r, 250))
-          waited += 250
-        }
-      }
-      const clientCtx = getClientContext()
+      // Always fetch fresh data on every send — guarantees no stale closures
+      const freshData = await loadClientData()
+      const clientCtx = buildClientContext(freshData)
       const systemPrompt = `You are FreddyFit AI, an expert personal training assistant. You have COMPLETE access to all of this client's data including intake forms, assessment test results, workout history, weight logs, program details, sign-in/attendance records, trainer session notes, and reminders.\n\nHere is EVERYTHING on file for this client:\n\n${clientCtx}\n\nIMPORTANT INSTRUCTIONS:\n- Answer any question about this client using the SPECIFIC data shown above.\n- ALWAYS reference actual test results, scores, dates, and values from their records.\n- If data exists above that answers the question, USE IT — never say "no data available" if the data is present.\n- Be concise and practical.\n- If the trainer asks about assessments, cite the specific test answers and scores.\n- If asked about progress, reference weight logs, sign-in history, session notes, and assessment history.\n- If asked for recommendations, base them on the actual assessment results, session notes, and intake data shown above.\n- Trainer session notes contain the trainer's observations, progress updates, and session-specific details — use these to provide context-aware answers.`
       const chatHistory = [...messages, { role: 'user', content: userMsg }].slice(-10)
       const text = await callClaude([
