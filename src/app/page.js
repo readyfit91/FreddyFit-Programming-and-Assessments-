@@ -295,18 +295,18 @@ function RestTimer() {
 }
 
 // ── ASSESSMENT FORM ───────────────────────────────────────────────────────────
-function AssessmentForm({ assessment, client, onComplete, onBack }) {
+function AssessmentForm({ assessment, client, onComplete, onBack, forceNew = false }) {
   const [answers, setAnswers] = useState({})
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [hasUnsaved, setHasUnsaved] = useState(false)
 
   useEffect(() => {
-    if (client.assessments?.[assessment.id]) {
+    if (!forceNew && client.assessments?.[assessment.id]) {
       setAnswers(client.assessments[assessment.id])
       setSaved(true)
     }
-  }, [assessment.id, client.assessments])
+  }, [assessment.id, client.assessments, forceNew])
 
   const allFields = assessment.sections.flatMap(s => s.fields)
   const answered = allFields.filter(f => answers[f.id]?.toString().trim()).length
@@ -355,7 +355,7 @@ function AssessmentForm({ assessment, client, onComplete, onBack }) {
     setSaving(true)
     try {
       const completed = { ...answers, _completedAt: new Date().toISOString() }
-      await saveAssessment(client.id, assessment.id, answers, '')
+      await saveAssessment(client.id, assessment.id, answers, '', forceNew)
       onComplete(assessment.id, completed)
       setSaved(true)
       setHasUnsaved(false)
@@ -4431,10 +4431,423 @@ function WeightTracker({ client, onBack }) {
   )
 }
 
+// ── CLIENT REMINDERS ──────────────────────────────────────────────────────────
+function ClientReminders({ client, onUpdate }) {
+  const [open, setOpen] = useState(true)
+  const [adding, setAdding] = useState(false)
+  const [newDate, setNewDate] = useState('')
+  const [newNote, setNewNote] = useState('')
+
+  const intake = (() => {
+    try { return JSON.parse(client.trainerNotes || '{}') } catch { return {} }
+  })()
+  const reminders = (intake.reminders || []).sort((a, b) => new Date(a.date) - new Date(b.date))
+
+  const saveReminders = async (updated) => {
+    const updatedNotes = JSON.stringify({ ...intake, reminders: updated })
+    const updatedClient = { ...client, trainerNotes: updatedNotes }
+    await saveClient(updatedClient)
+    onUpdate(updatedClient)
+  }
+
+  const addReminder = async () => {
+    if (!newDate || !newNote.trim()) return
+    await saveReminders([...reminders, { id: makeId(), date: newDate, note: newNote.trim(), done: false }])
+    setNewDate(''); setNewNote(''); setAdding(false)
+  }
+
+  const toggleDone = async (id) => {
+    await saveReminders(reminders.map(r => r.id === id ? { ...r, done: !r.done } : r))
+  }
+
+  const removeReminder = async (id) => {
+    await saveReminders(reminders.filter(r => r.id !== id))
+  }
+
+  const today = new Date().toISOString().split('T')[0]
+  const upcoming = reminders.filter(r => !r.done && r.date >= today)
+  const overdue = reminders.filter(r => !r.done && r.date < today)
+  const completed = reminders.filter(r => r.done)
+
+  return (
+    <div style={{ background: C.card, border: `1.5px solid ${overdue.length > 0 ? C.red + '66' : C.accent + '44'}`, borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setOpen(!open)}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: overdue.length > 0 ? C.red : C.accent, textTransform: 'uppercase' }}>📌 Reminders</span>
+          {overdue.length > 0 && <span style={{ fontSize: 10, background: C.red + '18', color: C.red, borderRadius: 10, padding: '2px 8px', fontWeight: 700 }}>{overdue.length} overdue</span>}
+          {upcoming.length > 0 && <span style={{ fontSize: 10, background: C.accent + '15', color: C.accent, borderRadius: 10, padding: '2px 8px', fontWeight: 700 }}>{upcoming.length} upcoming</span>}
+        </div>
+        <span style={{ fontSize: 11, color: C.sub }}>{open ? '▲' : '▼'}</span>
+      </div>
+
+      {open && (
+        <div style={{ marginTop: 12 }}>
+          {/* Overdue */}
+          {overdue.map(r => (
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: C.red + '08', borderRadius: 8, marginBottom: 6, border: `1px solid ${C.red}22` }}>
+              <input type="checkbox" checked={false} onChange={() => toggleDone(r.id)} style={{ accentColor: C.red }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: C.red }}>{r.note}</div>
+                <div style={{ fontSize: 10, color: C.red + 'AA' }}>⚠️ Overdue — {new Date(r.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+              </div>
+              <button onClick={() => removeReminder(r.id)} style={{ background: 'none', border: 'none', color: C.sub, cursor: 'pointer', fontSize: 14 }}>✕</button>
+            </div>
+          ))}
+          {/* Upcoming */}
+          {upcoming.map(r => (
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: C.faint, borderRadius: 8, marginBottom: 6 }}>
+              <input type="checkbox" checked={false} onChange={() => toggleDone(r.id)} style={{ accentColor: C.accent }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{r.note}</div>
+                <div style={{ fontSize: 10, color: C.sub }}>{new Date(r.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</div>
+              </div>
+              <button onClick={() => removeReminder(r.id)} style={{ background: 'none', border: 'none', color: C.sub, cursor: 'pointer', fontSize: 14 }}>✕</button>
+            </div>
+          ))}
+          {/* Completed */}
+          {completed.length > 0 && (
+            <div style={{ marginTop: 6 }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 }}>Completed</div>
+              {completed.map(r => (
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', opacity: 0.5, marginBottom: 4 }}>
+                  <input type="checkbox" checked={true} onChange={() => toggleDone(r.id)} style={{ accentColor: C.green }} />
+                  <span style={{ fontSize: 11, color: C.sub, textDecoration: 'line-through', flex: 1 }}>{r.note}</span>
+                  <button onClick={() => removeReminder(r.id)} style={{ background: 'none', border: 'none', color: C.sub, cursor: 'pointer', fontSize: 14 }}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Add new */}
+          {adding ? (
+            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+              <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)} style={{ padding: '6px 10px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif' }} />
+              <input value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="Reminder note..." onKeyDown={e => e.key === 'Enter' && addReminder()} style={{ flex: 1, minWidth: 140, padding: '6px 10px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif' }} />
+              <Btn onClick={addReminder} small>Save</Btn>
+              <Btn onClick={() => { setAdding(false); setNewDate(''); setNewNote('') }} small outline color={C.sub}>Cancel</Btn>
+            </div>
+          ) : (
+            <button onClick={() => setAdding(true)} style={{ marginTop: 6, padding: '6px 14px', borderRadius: 8, border: `1.5px dashed ${C.accent}44`, background: 'transparent', color: C.accent, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+              + Add Reminder
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── AI CHATBOX ────────────────────────────────────────────────────────────────
+function AIChatBox({ client }) {
+  const [open, setOpen] = useState(false)
+  const [messages, setMessages] = useState([])
+  const [input, setInput] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [clientData, setClientData] = useState(null)
+  const chatEndRef = useRef(null)
+
+  // Load ALL client data when chat opens
+  useEffect(() => {
+    if (!open || !client?.id) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const [workouts, weightLogs, program] = await Promise.all([
+          getWorkoutsForClient(client.id).catch(() => []),
+          getWeightLogsForClient(client.id).catch(() => []),
+          getProgramForClient(client.id).catch(() => null),
+        ])
+        if (!cancelled) setClientData({ workouts, weightLogs, program })
+      } catch {}
+    })()
+    return () => { cancelled = true }
+  }, [open, client?.id])
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, loading])
+
+  // Build FULL context about the client
+  const getClientContext = () => {
+    let ctx = `CLIENT PROFILE:\nName: ${client.name}\nGoal: ${client.goal || 'Not set'}\n`
+    if (client.dob) ctx += `DOB: ${client.dob}\n`
+    if (client.equipment) ctx += `Equipment: ${client.equipment}\n`
+
+    // Full intake data
+    let intake = null
+    try { intake = JSON.parse(client.trainerNotes || '{}') } catch {}
+    if (intake) {
+      ctx += '\nINTAKE FORM:\n'
+      const fields = [
+        ['Phone', intake.phone], ['Email', intake.email], ['Gender', intake.gender],
+        ['Occupation', intake.occupation], ['Fitness Level', intake.fitness_experience],
+        ['Activity Level', intake.activity_level],
+        ['Short-term Goals', intake.short_term_goals], ['Long-term Goals', intake.long_term_goals],
+        ['Medications', intake.medication_list], ['Conditions', intake.pre_existing_conditions],
+        ['Surgery', intake.surgery_description], ['Sleep', intake.sleep_hours],
+        ['Stress', intake.stress_rating ? `${intake.stress_rating}/10` : ''],
+        ['Nutrition', intake.nutrition_rating ? `${intake.nutrition_rating}/10` : ''],
+        ['Diet', intake.diet_description], ['Mental Health', intake.mental_health_challenges],
+        ['Commitment', intake.commitment_rating ? `${intake.commitment_rating}/10` : ''],
+        ['Motivation', intake.motivation], ['Training Methods', intake.training_methods],
+        ['Preferred Days', intake.preferred_days], ['Preferred Times', intake.preferred_times],
+      ]
+      fields.forEach(([k, v]) => { if (v) ctx += `  ${k}: ${Array.isArray(v) ? v.join(', ') : v}\n` })
+
+      // Pain areas
+      const painAreas = ['foot', 'knee', 'hip', 'back', 'shoulder', 'neck', 'migraines']
+      painAreas.forEach(area => {
+        const val = intake[`pain_${area}`]
+        if (val === 'Yes') ctx += `  ${area} pain: Yes (${intake[`pain_${area}_side`] || 'unspecified side'})\n`
+      })
+
+      // Reminders
+      const reminders = intake.reminders || []
+      if (reminders.length > 0) {
+        ctx += '\nREMINDERS:\n'
+        reminders.forEach(r => ctx += `  ${r.date}: ${r.note} [${r.done ? 'done' : 'pending'}]\n`)
+      }
+    }
+
+    // Full assessment data with all test results
+    const assessments = client.assessments || {}
+    const doneTypes = Object.keys(assessments)
+    if (doneTypes.length > 0) {
+      ctx += '\nASSESSMENT RESULTS:\n'
+      doneTypes.forEach(type => {
+        const a = assessments[type]
+        ctx += `\n  --- ${type.toUpperCase()} (completed ${a._completedAt ? new Date(a._completedAt).toLocaleDateString() : 'unknown'}) ---\n`
+        Object.entries(a).forEach(([k, v]) => {
+          if (k.startsWith('_')) return
+          const display = typeof v === 'object' ? JSON.stringify(v) : String(v)
+          ctx += `    ${k.replace(/_/g, ' ')}: ${display}\n`
+        })
+        if (a._summary) ctx += `    Summary: ${a._summary}\n`
+      })
+    }
+
+    // Workout history
+    if (clientData?.workouts?.length > 0) {
+      ctx += '\nWORKOUT HISTORY (most recent first):\n'
+      clientData.workouts.slice(0, 5).forEach((w, i) => {
+        ctx += `\n  --- Workout ${i + 1} (${new Date(w.generated_at).toLocaleDateString()}) ---\n`
+        if (w.prompt) ctx += `    Prompt: ${w.prompt}\n`
+        const content = typeof w.content === 'string' ? w.content : JSON.stringify(w.content)
+        ctx += `    Content: ${content.slice(0, 1500)}\n`
+      })
+    }
+
+    // Weight logs
+    if (clientData?.weightLogs?.length > 0) {
+      ctx += '\nWEIGHT TRACKING:\n'
+      clientData.weightLogs.slice(-10).forEach(l => {
+        ctx += `  ${new Date(l.logged_at).toLocaleDateString()}: `
+        if (l.weight) ctx += `Weight: ${l.weight}lbs `
+        if (l.body_fat) ctx += `BF: ${l.body_fat}% `
+        if (l.rating) ctx += `Rating: ${l.rating}/10 `
+        if (l.behavior_notes) ctx += `Notes: ${l.behavior_notes}`
+        ctx += '\n'
+      })
+    }
+
+    // Program
+    if (clientData?.program?.phases) {
+      ctx += '\nPROGRAM (current):\n'
+      const phases = clientData.program.phases
+      const programStr = typeof phases === 'string' ? phases : JSON.stringify(phases)
+      ctx += `  ${programStr.slice(0, 2000)}\n`
+    }
+
+    return ctx
+  }
+
+  const send = async () => {
+    if (!input.trim() || loading) return
+    const userMsg = input.trim()
+    setInput('')
+    setMessages(prev => [...prev, { role: 'user', content: userMsg }])
+    setLoading(true)
+    try {
+      const clientCtx = getClientContext()
+      const systemPrompt = `You are FreddyFit AI, an expert personal training assistant. You have COMPLETE access to all of this client's data including intake forms, assessment test results, workout history, weight logs, program details, and reminders.\n\nHere is everything on file:\n\n${clientCtx}\n\nAnswer any question about this client with specific data from their records. Reference actual test results, scores, and dates when relevant. Be concise and practical. If the trainer asks about assessments, cite the specific test answers. If asked about progress, reference weight logs and assessment history.`
+      const chatHistory = [...messages, { role: 'user', content: userMsg }].slice(-10)
+      const text = await callClaude([
+        { role: 'user', content: systemPrompt + '\n\nConversation:\n' + chatHistory.map(m => `${m.role === 'user' ? 'Trainer' : 'AI'}: ${m.content}`).join('\n') + '\n\nAI:' }
+      ], 2000)
+      setMessages(prev => [...prev, { role: 'assistant', content: text }])
+    } catch (err) {
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Error: ' + err.message }])
+    }
+    setLoading(false)
+  }
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} style={{
+        position: 'fixed', bottom: 20, right: 16, zIndex: 9999,
+        width: 52, height: 52, borderRadius: '50%',
+        background: C.accent, border: 'none', color: '#fff',
+        fontSize: 22, cursor: 'pointer',
+        boxShadow: '0 4px 16px rgba(43,170,223,0.35)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        🤖
+      </button>
+    )
+  }
+
+  return (
+    <div style={{
+      position: 'fixed', bottom: 16, right: 12, zIndex: 9999,
+      width: 340, maxWidth: 'calc(100vw - 24px)', height: 460, maxHeight: 'calc(100dvh - 100px)',
+      background: C.panel, borderRadius: 18,
+      border: `1.5px solid ${C.border}`, boxShadow: '0 8px 40px rgba(0,0,0,0.15)',
+      display: 'flex', flexDirection: 'column', fontFamily: 'Montserrat,sans-serif',
+      overflow: 'hidden',
+    }}>
+      {/* Header */}
+      <div style={{ padding: '12px 16px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: C.accent + '08', flexShrink: 0 }}>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: C.accent }}>🤖 FreddyFit AI</div>
+          <div style={{ fontSize: 10, color: C.sub }}>Ask about {client.name}</div>
+        </div>
+        <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: C.sub }}>✕</button>
+      </div>
+
+      {/* Messages */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {messages.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '30px 10px', color: C.sub, fontSize: 12 }}>
+            Ask anything about {client.name} — training ideas, assessment insights, programming suggestions...
+          </div>
+        )}
+        {messages.map((m, i) => (
+          <div key={i} style={{
+            alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
+            maxWidth: '85%', padding: '8px 12px', borderRadius: 12,
+            background: m.role === 'user' ? C.accent : C.faint,
+            color: m.role === 'user' ? '#fff' : C.text,
+            fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap',
+          }}>
+            {m.content}
+          </div>
+        ))}
+        {loading && (
+          <div style={{ alignSelf: 'flex-start', padding: '8px 12px', borderRadius: 12, background: C.faint, fontSize: 12, color: C.sub }}>
+            Thinking...
+          </div>
+        )}
+        <div ref={chatEndRef} />
+      </div>
+
+      {/* Input */}
+      <div style={{ padding: '10px 12px', borderTop: `1px solid ${C.border}`, display: 'flex', gap: 8, flexShrink: 0 }}>
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && send()}
+          placeholder="Ask about this client..."
+          style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', outline: 'none', background: C.faint }}
+        />
+        <button onClick={send} disabled={loading || !input.trim()} style={{
+          padding: '8px 14px', borderRadius: 8, border: 'none',
+          background: loading || !input.trim() ? '#CBD5E0' : C.accent,
+          color: '#fff', fontWeight: 700, fontSize: 12, cursor: loading ? 'not-allowed' : 'pointer',
+        }}>
+          Send
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── ASSESSMENT HISTORY MODAL ──────────────────────────────────────────────────
+function AssessmentHistoryModal({ assessment, client, onClose, onNewAssessment }) {
+  const history = (client.assessments?.[assessment.id]?._history || [])
+  if (history.length === 0) return null
+
+  const [compareIdx, setCompareIdx] = useState(history.length > 1 ? 1 : null)
+  const latest = history[0]
+  const compare = compareIdx !== null ? history[compareIdx] : null
+
+  // Get all answer keys across both versions
+  const allKeys = [...new Set([
+    ...Object.keys(latest?.answers || {}),
+    ...Object.keys(compare?.answers || {})
+  ])].filter(k => !k.startsWith('_'))
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 10001, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ background: C.panel, borderRadius: 18, maxWidth: 700, width: '100%', maxHeight: '85dvh', overflow: 'auto', boxShadow: '0 12px 40px rgba(0,0,0,0.2)', fontFamily: 'Montserrat,sans-serif' }}>
+        {/* Header */}
+        <div style={{ padding: '18px 22px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, background: C.panel, zIndex: 1, borderRadius: '18px 18px 0 0' }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 16, color: C.text }}>{assessment.icon} {assessment.name}</div>
+            <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>{history.length} version{history.length !== 1 ? 's' : ''} on file</div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <Btn onClick={onNewAssessment} small color={C.green}>+ New Assessment</Btn>
+            <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: C.sub }}>✕</button>
+          </div>
+        </div>
+
+        {/* Version selector */}
+        <div style={{ padding: '14px 22px', borderBottom: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>Assessment Timeline</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {history.map((h, i) => (
+              <button key={i} onClick={() => i > 0 && setCompareIdx(i)} style={{
+                padding: '6px 12px', borderRadius: 8,
+                border: `1.5px solid ${i === 0 ? C.accent : compareIdx === i ? C.orange : C.border}`,
+                background: i === 0 ? C.accent + '15' : compareIdx === i ? C.orange + '15' : 'transparent',
+                color: i === 0 ? C.accent : compareIdx === i ? C.orange : C.text,
+                fontWeight: 700, fontSize: 11, cursor: i === 0 ? 'default' : 'pointer',
+                fontFamily: 'Montserrat,sans-serif',
+              }}>
+                {i === 0 ? '★ Latest' : `v${history.length - i}`} — {new Date(h.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Comparison */}
+        <div style={{ padding: '14px 22px' }}>
+          {compare ? (
+            <>
+              <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+                <div style={{ flex: 1, fontSize: 10, fontWeight: 700, color: C.accent, letterSpacing: 1 }}>LATEST — {new Date(latest.completedAt).toLocaleDateString()}</div>
+                <div style={{ flex: 1, fontSize: 10, fontWeight: 700, color: C.orange, letterSpacing: 1 }}>PREVIOUS — {new Date(compare.completedAt).toLocaleDateString()}</div>
+              </div>
+              {allKeys.map(key => {
+                const curr = latest.answers?.[key]
+                const prev = compare.answers?.[key]
+                const changed = JSON.stringify(curr) !== JSON.stringify(prev)
+                const display = v => v === undefined || v === null || v === '' ? '—' : typeof v === 'object' ? JSON.stringify(v) : String(v)
+                return (
+                  <div key={key} style={{ display: 'flex', gap: 12, padding: '6px 0', borderBottom: `1px solid ${C.border}22`, background: changed ? C.accent + '06' : 'transparent' }}>
+                    <div style={{ width: 120, fontSize: 10, fontWeight: 600, color: C.sub, flexShrink: 0, paddingTop: 2 }}>{key.replace(/_/g, ' ')}</div>
+                    <div style={{ flex: 1, fontSize: 12, color: changed ? C.accent : C.text, fontWeight: changed ? 700 : 400 }}>{display(curr)}</div>
+                    <div style={{ flex: 1, fontSize: 12, color: changed ? C.orange : C.sub }}>{display(prev)}</div>
+                  </div>
+                )
+              })}
+            </>
+          ) : (
+            <div style={{ textAlign: 'center', padding: 20, color: C.sub, fontSize: 12 }}>
+              Only one version on file. Complete a new assessment to compare changes over time.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onSignInSheet, onWeightTracker, onBack, allClients = [], onSwitchClient }) {
   const assessmentsDone = Object.keys(client.assessments || {})
   const [showIntake, setShowIntake] = useState(false)
   const [showLinkMenu, setShowLinkMenu] = useState(false)
+  const [historyAssessment, setHistoryAssessment] = useState(null)
 
   // Parse intake data from trainerNotes JSON
   const intake = (() => {
@@ -4655,6 +5068,9 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
         </div>
       )}
 
+      {/* Client Reminders */}
+      <ClientReminders client={client} onUpdate={onUpdate} />
+
       {/* Program Uploads */}
       <ProgramUploads key={client.id} client={client} onUpdate={onUpdate} />
 
@@ -4664,14 +5080,30 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             {items.map(a => {
               const done = assessmentsDone.includes(a.id)
+              const historyCount = client.assessments?.[a.id]?._history?.length || 0
+              const completedAt = client.assessments?.[a.id]?._completedAt
               return (
-                <button key={a.id} onClick={() => !locked && onRunAssessment(a, client)} style={{ padding: '12px 16px', borderRadius: 12, border: `2px solid ${done ? a.color : C.border}`, background: done ? a.color + '12' : C.card, cursor: locked ? 'not-allowed' : 'pointer', textAlign: 'left', minWidth: 160, flex: '1 1 160px', maxWidth: 220, opacity: locked ? 0.45 : 1 }}>
-                  <div style={{ fontSize: 18, marginBottom: 4 }}>{a.icon}</div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: done ? a.color : C.text, marginBottom: 2 }}>{a.name}</div>
-                  {done && <div style={{ fontSize: 10, color: a.color, fontWeight: 600 }}>✓ Completed</div>}
-                  {!done && !locked && <div style={{ fontSize: 10, color: C.sub }}>Tap to start</div>}
-                  {locked && <div style={{ fontSize: 10, color: C.sub }}>🔒 Complete Phase 1 & 2 first</div>}
-                </button>
+                <div key={a.id} style={{ minWidth: 160, flex: '1 1 160px', maxWidth: 220 }}>
+                  <button onClick={() => !locked && onRunAssessment(a, client)} style={{ width: '100%', padding: '12px 16px', borderRadius: 12, border: `2px solid ${done ? a.color : C.border}`, background: done ? a.color + '12' : C.card, cursor: locked ? 'not-allowed' : 'pointer', textAlign: 'left', opacity: locked ? 0.45 : 1 }}>
+                    <div style={{ fontSize: 18, marginBottom: 4 }}>{a.icon}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: done ? a.color : C.text, marginBottom: 2 }}>{a.name}</div>
+                    {done && <div style={{ fontSize: 10, color: a.color, fontWeight: 600 }}>✓ Completed {completedAt ? new Date(completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</div>}
+                    {!done && !locked && <div style={{ fontSize: 10, color: C.sub }}>Tap to start</div>}
+                    {locked && <div style={{ fontSize: 10, color: C.sub }}>🔒 Complete Phase 1 & 2 first</div>}
+                  </button>
+                  {done && !locked && (
+                    <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                      {historyCount > 0 && (
+                        <button onClick={() => setHistoryAssessment(a)} style={{ flex: 1, padding: '4px 0', borderRadius: 6, border: `1px solid ${C.border}`, background: C.faint, color: C.sub, fontSize: 9, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+                          📊 History ({historyCount})
+                        </button>
+                      )}
+                      <button onClick={() => onRunAssessment(a, client, true)} style={{ flex: 1, padding: '4px 0', borderRadius: 6, border: `1px solid ${C.green}44`, background: C.green + '08', color: C.green, fontSize: 9, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+                        + New
+                      </button>
+                    </div>
+                  )}
+                </div>
               )
             })}
           </div>
@@ -4689,6 +5121,19 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
           </div>
         )
       })}
+
+      {/* AI ChatBox */}
+      <AIChatBox client={client} />
+
+      {/* Assessment History Modal */}
+      {historyAssessment && (
+        <AssessmentHistoryModal
+          assessment={historyAssessment}
+          client={client}
+          onClose={() => setHistoryAssessment(null)}
+          onNewAssessment={() => { setHistoryAssessment(null); onRunAssessment(historyAssessment, client, true) }}
+        />
+      )}
     </div>
   )
 }
@@ -4779,24 +5224,79 @@ function ClientRoster({ onSelectClient, onNewClient }) {
         </div>
       )}
 
+      {/* All Reminders Dashboard */}
+      {!loading && (() => {
+        const today = new Date().toISOString().split('T')[0]
+        const allReminders = clients.flatMap(c => {
+          let intake = null
+          try { intake = JSON.parse(c.trainerNotes || c.trainer_notes || '{}') } catch {}
+          const reminders = intake?.reminders || []
+          return reminders.filter(r => !r.done).map(r => ({ ...r, clientName: c.name, clientId: c.id }))
+        }).sort((a, b) => new Date(a.date) - new Date(b.date))
+        const overdue = allReminders.filter(r => r.date < today)
+        const upcoming = allReminders.filter(r => r.date >= today).slice(0, 5)
+        if (allReminders.length === 0) return null
+        return (
+          <div style={{ background: C.card, border: `1px solid ${overdue.length > 0 ? C.red + '44' : C.accent + '33'}`, borderRadius: 14, padding: '18px 22px', marginBottom: 20 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: overdue.length > 0 ? C.red : C.accent, textTransform: 'uppercase', marginBottom: 14 }}>
+              📌 Client Reminders {overdue.length > 0 && <span style={{ fontSize: 10, background: C.red + '18', color: C.red, borderRadius: 10, padding: '2px 8px', fontWeight: 700, marginLeft: 6 }}>{overdue.length} overdue</span>}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {overdue.map(r => (
+                <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: C.red + '08', borderRadius: 8, border: `1px solid ${C.red}22` }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: C.red }}>{r.clientName}: {r.note}</div>
+                    <div style={{ fontSize: 10, color: C.red + 'AA' }}>⚠️ Overdue — {new Date(r.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+                  </div>
+                </div>
+              ))}
+              {upcoming.map(r => (
+                <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: C.faint, borderRadius: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{r.clientName}: {r.note}</div>
+                    <div style={{ fontSize: 10, color: C.sub }}>{new Date(r.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
+
       {loading ? <Spinner /> : filtered.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 60, color: C.sub, fontSize: 14 }}>{clients.length === 0 ? 'No clients yet. Add your first client above.' : 'No clients match your search.'}</div>
       ) : filtered.map(c => {
         const count = Object.keys(c.assessments || {}).length
+        let intake = null
+        try { intake = JSON.parse(c.trainerNotes || c.trainer_notes || '{}') } catch {}
+        const reminders = (intake?.reminders || []).filter(r => !r.done)
+        const today = new Date().toISOString().split('T')[0]
+        const overdueCount = reminders.filter(r => r.date < today).length
+        const nextReminder = reminders.sort((a, b) => new Date(a.date) - new Date(b.date))[0]
         return (
-          <div key={c.id} onClick={() => onSelectClient(c)} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 20px', marginBottom: 10, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'border-color .15s' }}
+          <div key={c.id} onClick={() => onSelectClient(c)} style={{ background: C.card, border: `1px solid ${overdueCount > 0 ? C.red + '44' : C.border}`, borderRadius: 12, padding: '16px 20px', marginBottom: 10, cursor: 'pointer', transition: 'border-color .15s' }}
             onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
-            onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 16, color: C.text }}>{c.name}</div>
-              <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-                {c.goal && <span>{c.goal} · </span>}
-                <span>{count} assessment{count !== 1 ? 's' : ''} on file</span>
+            onMouseLeave={e => e.currentTarget.style.borderColor = overdueCount > 0 ? C.red + '44' : C.border}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 16, color: C.text }}>{c.name}</div>
+                <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
+                  {c.goal && <span>{c.goal} · </span>}
+                  <span>{count} assessment{count !== 1 ? 's' : ''} on file</span>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                {overdueCount > 0 && <span style={{ fontSize: 10, background: C.red + '18', color: C.red, borderRadius: 10, padding: '3px 10px', fontWeight: 700 }}>⚠️ {overdueCount}</span>}
+                {count > 0 && <span style={{ fontSize: 10, background: C.accent + '15', color: C.accent, borderRadius: 10, padding: '3px 10px', fontWeight: 700 }}>{count} assessments</span>}
+                <button onClick={e => removeClient(c.id, e)} style={{ background: 'none', border: 'none', color: C.sub, cursor: 'pointer', fontSize: 16, padding: '4px 8px', borderRadius: 6 }}>✕</button>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              {count > 0 && <span style={{ fontSize: 10, background: C.accent + '15', color: C.accent, borderRadius: 10, padding: '3px 10px', fontWeight: 700 }}>{count} assessments</span>}
-              <button onClick={e => removeClient(c.id, e)} style={{ background: 'none', border: 'none', color: C.sub, cursor: 'pointer', fontSize: 16, padding: '4px 8px', borderRadius: 6 }}>✕</button>
+            {/* Key info badges */}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+              {intake?.fitness_experience && <span style={{ fontSize: 9, background: C.accent + '10', color: C.accent, borderRadius: 8, padding: '2px 8px', fontWeight: 700 }}>{intake.fitness_experience}</span>}
+              {intake?.activity_level && <span style={{ fontSize: 9, background: C.teal + '10', color: C.teal, borderRadius: 8, padding: '2px 8px', fontWeight: 700 }}>{intake.activity_level.split('(')[0].trim()}</span>}
+              {intake?.pre_existing_conditions && intake.pre_existing_conditions !== 'No' && <span style={{ fontSize: 9, background: C.orange + '10', color: C.orange, borderRadius: 8, padding: '2px 8px', fontWeight: 700 }}>⚕️ Conditions</span>}
+              {nextReminder && <span style={{ fontSize: 9, background: nextReminder.date < today ? C.red + '10' : C.faint, color: nextReminder.date < today ? C.red : C.sub, borderRadius: 8, padding: '2px 8px', fontWeight: 700 }}>📌 {nextReminder.note.slice(0, 25)}{nextReminder.note.length > 25 ? '...' : ''}</span>}
             </div>
           </div>
         )
@@ -4914,9 +5414,12 @@ export default function App() {
   const openIntake = () => { setClient(null); setView('intake') }
   const openEditClient = (c) => { setClient(c); setView('editClient') }
 
-  const runAssessment = (a, c) => {
+  const [forceNewAssessment, setForceNewAssessment] = useState(false)
+
+  const runAssessment = (a, c, forceNew = false) => {
     setAssessment(a)
     setClient(c)
+    setForceNewAssessment(!!forceNew)
     setView('assessment')
   }
 
@@ -4976,6 +5479,7 @@ export default function App() {
             client={client}
             onComplete={completeAssessment}
             onBack={() => setView('client')}
+            forceNew={forceNewAssessment}
           />
         )}
         {view === 'program' && client && (
