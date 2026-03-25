@@ -4965,7 +4965,7 @@ function AssessmentHistoryModal({ assessment, client, onClose, onNewAssessment }
   )
 }
 
-function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onSignInSheet, onWeightTracker, onBack, allClients = [], onSwitchClient }) {
+function ClientProfile({ client, onUpdate, onRunAssessment, onProtocolAdvisor, onEditClient, onSignInSheet, onWeightTracker, onBack, allClients = [], onSwitchClient }) {
   const assessmentsDone = Object.keys(client.assessments || {})
   const [showIntake, setShowIntake] = useState(false)
   const [showLinkMenu, setShowLinkMenu] = useState(false)
@@ -5085,8 +5085,6 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
           <Btn onClick={() => onWeightTracker(client)} small color={C.teal}>⚖️ Weight</Btn>
           <Btn onClick={() => onSignInSheet(client)} small color={C.green}>📋 Sign-In Sheet</Btn>
           <Btn onClick={() => onProtocolAdvisor(client)} small color={C.orange}>🩺 Protocols</Btn>
-          <Btn onClick={() => onGenerateWorkout(client)} small>💪 Workout</Btn>
-          <Btn onClick={() => onBuildProgram(client)} small>📋 Program</Btn>
           <Btn onClick={() => onEditClient(client)} outline small color={C.sub}>✏️ Edit</Btn>
         </div>
       </div>
@@ -5563,7 +5561,7 @@ export default function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {view !== 'roster' && (
             <div style={{ fontSize: 12, color: C.sub }}>
-              {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : view === 'signin' ? 'Sign-In Sheet' : view === 'weightTracker' ? 'Weight Tracker' : view === 'editClient' ? 'Edit Client' : client?.name}
+              {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'protocols' ? 'Protocol Advisor' : view === 'signin' ? 'Sign-In Sheet' : view === 'weightTracker' ? 'Weight Tracker' : view === 'editClient' ? 'Edit Client' : client?.name}
             </div>
           )}
           <button onClick={async () => { await fetch('/api/auth', { method: 'DELETE' }); setAuthed(false) }} style={{ padding: '4px 10px', borderRadius: 6, border: `1px solid ${C.border}`, background: 'transparent', color: C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
@@ -5586,8 +5584,6 @@ export default function App() {
             client={client}
             onUpdate={updateClient}
             onRunAssessment={runAssessment}
-            onBuildProgram={c => { setClient(c); setView('program') }}
-            onGenerateWorkout={c => { setClient(c); setView('workout') }}
             onProtocolAdvisor={c => { setClient(c); setView('protocols') }}
             onSignInSheet={c => { setClient(c); setView('signin') }}
             onWeightTracker={c => { setClient(c); setView('weightTracker') }}
@@ -5604,19 +5600,6 @@ export default function App() {
             onComplete={completeAssessment}
             onBack={() => setView('client')}
             forceNew={forceNewAssessment}
-          />
-        )}
-        {view === 'program' && client && (
-          <ProgramBuilder
-            client={client}
-            onBack={() => setView('client')}
-            onSave={updateClient}
-          />
-        )}
-        {view === 'workout' && client && (
-          <WorkoutGenerator
-            client={client}
-            onBack={() => setView('client')}
           />
         )}
         {view === 'protocols' && client && (
