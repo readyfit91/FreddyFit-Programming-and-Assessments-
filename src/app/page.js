@@ -4551,6 +4551,41 @@ function WeightTracker({ client, onBack }) {
   )
 }
 
+// ── TRAINER SESSION NOTES ─────────────────────────────────────────────────────
+function TrainerSessionNotes({ client, onUpdate }) {
+  const parseNotes = () => { try { return JSON.parse(client.trainerNotes || '{}') } catch { return {} } }
+  const [text, setText] = useState(() => parseNotes().session_notes || '')
+  const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const save = async () => {
+    setSaving(true)
+    const base = parseNotes()
+    const updatedClient = { ...client, trainerNotes: JSON.stringify({ ...base, session_notes: text }) }
+    await saveClient(updatedClient)
+    onUpdate(updatedClient)
+    setSaving(false)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
+      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 10 }}>📝 Trainer Notes</div>
+      <textarea
+        value={text}
+        onChange={e => { setText(e.target.value); setSaved(false) }}
+        rows={6}
+        placeholder="Session notes, observations, notes imported from a previous system…"
+        style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 14px', color: C.text, fontSize: 12, fontFamily: 'Montserrat,sans-serif', lineHeight: 1.7, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}
+      />
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+        <Btn onClick={save} small disabled={saving}>{saved ? '✓ Saved' : saving ? 'Saving…' : 'Save Notes'}</Btn>
+      </div>
+    </div>
+  )
+}
+
 // ── CLIENT REMINDERS ──────────────────────────────────────────────────────────
 function ClientReminders({ client, onUpdate }) {
   const [open, setOpen] = useState(true)
@@ -4727,6 +4762,42 @@ function AIChatBox({ client }) {
         ctx += '\nREMINDERS:\n'
         reminders.forEach(r => ctx += `  ${r.date}: ${r.note} [${r.done ? 'done' : 'pending'}]\n`)
       }
+
+      // Trainer session notes
+      if (intake.session_notes && intake.session_notes.trim()) {
+        ctx += '\nTRAINER SESSION NOTES:\n'
+        ctx += intake.session_notes + '\n'
+      }
+
+      // Sign-in sheet data
+      if (intake.sign_in_package) {
+        ctx += '\nSIGN-IN PACKAGE: ' + intake.sign_in_package + '\n'
+        const entries = intake.sign_in_entries || []
+        if (entries.length > 0) {
+          ctx += 'SIGN-IN ENTRIES:\n'
+          entries.forEach(e => {
+            if (e.date) ctx += `  ${e.date}: session ${e.session_num || '?'}${e.note ? ' — ' + e.note : ''}\n`
+          })
+        }
+      }
+
+      // Program journal summary
+      const journal = intake.program_journal || {}
+      const journalKeys = Object.keys(journal).filter(k => !k.endsWith('_weekorder'))
+      if (journalKeys.length > 0) {
+        ctx += '\nPROGRAM JOURNAL SUMMARY:\n'
+        journalKeys.slice(0, 20).forEach(key => {
+          const week = journal[key]
+          if (!week?.days) return
+          ctx += `  [${key}]`
+          week.days.forEach(day => {
+            if (!day?.exercises?.length) return
+            const exNames = day.exercises.map(e => e.name).filter(Boolean).join(', ')
+            if (exNames) ctx += ` Day ${day.dayNum}: ${exNames};`
+          })
+          ctx += '\n'
+        })
+      }
     }
 
     // Full assessment data with all test results
@@ -4788,7 +4859,7 @@ function AIChatBox({ client }) {
     setMessages(prev => [...prev, { role: 'user', content: userMsg }])
     setLoading(true)
     try {
-      const clientCtx = getClientContext().slice(0, 12000)
+      const clientCtx = getClientContext().slice(0, 20000)
       const systemPrompt = `You are FreddyFit AI, an expert personal training assistant. You have COMPLETE access to all of this client's data including intake forms, assessment test results, workout history, weight logs, program details, and reminders.\n\nHere is everything on file:\n\n${clientCtx}\n\nAnswer any question about this client with specific data from their records. Reference actual test results, scores, and dates when relevant. Be concise and practical. If the trainer asks about assessments, cite the specific test answers. If asked about progress, reference weight logs and assessment history.`
       let chatHistory = [...messages, { role: 'user', content: userMsg }].slice(-10)
       // Ensure messages start with 'user' (Anthropic requirement)
@@ -5187,6 +5258,9 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onProtocolAdvisor, o
           <Btn onClick={() => onEditClient(client)} small outline color={C.sub}>Fill Out Intake Form</Btn>
         </div>
       )}
+
+      {/* Trainer Session Notes */}
+      <TrainerSessionNotes client={client} onUpdate={onUpdate} />
 
       {/* Client Reminders */}
       <ClientReminders client={client} onUpdate={onUpdate} />
