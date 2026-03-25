@@ -8,11 +8,11 @@ import { QRCodeCanvas } from 'qrcode.react'
 const makeId = () => Math.random().toString(36).slice(2,10)
 
 // ── HELPERS ──────────────────────────────────────────────────────────────────
-async function callClaude(messages, maxTokens = 1000) {
+async function callClaude(messages, maxTokens = 1000, system = null) {
   const res = await fetch('/api/claude', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ messages, maxTokens })
+    body: JSON.stringify({ messages, maxTokens, system })
   })
   const data = await res.json()
   if (data.error) throw new Error(data.error)
@@ -4788,12 +4788,14 @@ function AIChatBox({ client }) {
     setMessages(prev => [...prev, { role: 'user', content: userMsg }])
     setLoading(true)
     try {
-      const clientCtx = getClientContext()
+      const clientCtx = getClientContext().slice(0, 12000)
       const systemPrompt = `You are FreddyFit AI, an expert personal training assistant. You have COMPLETE access to all of this client's data including intake forms, assessment test results, workout history, weight logs, program details, and reminders.\n\nHere is everything on file:\n\n${clientCtx}\n\nAnswer any question about this client with specific data from their records. Reference actual test results, scores, and dates when relevant. Be concise and practical. If the trainer asks about assessments, cite the specific test answers. If asked about progress, reference weight logs and assessment history.`
-      const chatHistory = [...messages, { role: 'user', content: userMsg }].slice(-10)
-      const text = await callClaude([
-        { role: 'user', content: systemPrompt + '\n\nConversation:\n' + chatHistory.map(m => `${m.role === 'user' ? 'Trainer' : 'AI'}: ${m.content}`).join('\n') + '\n\nAI:' }
-      ], 2000)
+      let chatHistory = [...messages, { role: 'user', content: userMsg }].slice(-10)
+      // Ensure messages start with 'user' (Anthropic requirement)
+      while (chatHistory.length > 0 && chatHistory[0].role !== 'user') {
+        chatHistory = chatHistory.slice(1)
+      }
+      const text = await callClaude(chatHistory, 2000, systemPrompt)
       setMessages(prev => [...prev, { role: 'assistant', content: text }])
     } catch (err) {
       setMessages(prev => [...prev, { role: 'assistant', content: 'Error: ' + err.message }])
