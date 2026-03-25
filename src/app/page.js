@@ -4859,7 +4859,7 @@ function AIChatBox({ client }) {
     setMessages(prev => [...prev, { role: 'user', content: userMsg }])
     setLoading(true)
     try {
-      const clientCtx = getClientContext().slice(0, 20000)
+      const clientCtx = getClientContext().slice(0, 100000)
       const systemPrompt = `You are FreddyFit AI, an expert personal training assistant. You have COMPLETE access to all of this client's data including intake forms, assessment test results, workout history, weight logs, program details, and reminders.\n\nHere is everything on file:\n\n${clientCtx}\n\nAnswer any question about this client with specific data from their records. Reference actual test results, scores, and dates when relevant. Be concise and practical. If the trainer asks about assessments, cite the specific test answers. If asked about progress, reference weight logs and assessment history.`
       let chatHistory = [...messages, { role: 'user', content: userMsg }].slice(-10)
       // Ensure messages start with 'user' (Anthropic requirement)
