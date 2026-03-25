@@ -21,6 +21,15 @@ export async function POST(request) {
     return Response.json({ text })
   } catch (error) {
     console.error('Claude API error:', error)
-    return Response.json({ error: error.message }, { status: 500 })
+
+    const status = error.status ?? 500
+    let message = error.message
+
+    // Surface a clear message for billing errors
+    if (status === 400 && message?.includes('credit balance')) {
+      message = 'AI features are temporarily unavailable — the Anthropic API credit balance is too low. Please add credits at console.anthropic.com.'
+    }
+
+    return Response.json({ error: message }, { status })
   }
 }
