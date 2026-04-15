@@ -3687,10 +3687,28 @@ function ProgramUploads({ client, onUpdate }) {
         const parts = [ex.circuit ? `[Circuit ${ex.circuit}]` : '', ex.exercise]
         if (ex.sets) parts.push(`${ex.sets} ${ex.setsType === 'rounds' ? 'rounds' : 'sets'}`)
         if (ex.reps) parts.push(`x ${ex.reps} ${ex.repsType === 'time' ? 'sec' : 'reps'}`)
+        if (ex.weight) parts.push(`${ex.weight} lbs`)
         if (ex.tempo) parts.push(`@ ${ex.tempo}`)
         if (ex.rpe) parts.push(`RPE ${ex.rpe}`)
         if (ex.notes) parts.push(`— ${ex.notes}`)
         lines.push(parts.filter(Boolean).join(' '))
+        // Per-set weight breakdown
+        const setsNum = parseInt(ex.sets) || 0
+        const setLogs = ex.setLogs || []
+        const hasSetData = setLogs.some(s => s && (s.weight || s.reps))
+        if (setsNum >= 1 && hasSetData) {
+          for (let si = 0; si < setsNum; si++) {
+            const log = setLogs[si] || {}
+            if (!log.weight && !log.reps && !log.rpe && !log.tempo && !log.notes) continue
+            const setParts = [`  Set ${si + 1}:`]
+            if (log.weight) setParts.push(`${log.weight} lbs`)
+            if (log.reps) setParts.push(`x ${log.reps} ${ex.repsType === 'time' ? 'sec' : 'reps'}`)
+            if (log.rpe) setParts.push(`RPE ${log.rpe}`)
+            if (log.tempo) setParts.push(`@ ${log.tempo}`)
+            if (log.notes) setParts.push(`— ${log.notes}`)
+            lines.push(setParts.join(' '))
+          }
+        }
       })
       if (day.dayNotes?.trim()) lines.push(`Notes: ${day.dayNotes.trim()}`)
       lines.push('')
