@@ -4748,6 +4748,54 @@ function ClientReminders({ client, onUpdate }) {
   )
 }
 
+// ── CLIENT NOTES ──────────────────────────────────────────────────────────────
+function ClientNotes({ client, onUpdate }) {
+  const intake = (() => { try { return JSON.parse(client.trainerNotes || '{}') } catch { return {} } })()
+  const [notes, setNotes] = useState(intake.clientNotes || '')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  const save = async (value) => {
+    setSaving(true)
+    try {
+      const updated = { ...intake, clientNotes: value }
+      const updatedClient = { ...client, trainerNotes: JSON.stringify(updated) }
+      await saveClient(updatedClient)
+      onUpdate(updatedClient)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch (e) { alert('Error saving notes: ' + e.message) }
+    setSaving(false)
+  }
+
+  return (
+    <div style={{ background: C.card, border: `1.5px solid ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase' }}>📝 Client Notes</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 10, color: C.sub }}>{notes.length.toLocaleString()} chars</span>
+          <button
+            onClick={() => save(notes)}
+            disabled={saving}
+            style={{ padding: '4px 14px', borderRadius: 7, border: 'none', background: saved ? C.green : C.accent, color: saved ? '#fff' : '#000', fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', transition: 'all .2s' }}
+          >
+            {saving ? 'Saving...' : saved ? '✓ Saved!' : 'Save'}
+          </button>
+        </div>
+      </div>
+      <textarea
+        value={notes}
+        onChange={e => setNotes(e.target.value)}
+        onBlur={() => save(notes)}
+        rows={6}
+        placeholder={`Running notes for ${client.name}...\n\nUse this for session observations, progress notes, behavioral patterns, outside source references, or anything you want the AI to always know about this client.`}
+        style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', color: C.text, background: C.faint, resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.7 }}
+      />
+      <div style={{ fontSize: 10, color: C.sub, marginTop: 6 }}>Auto-saves when you click away · Full history always sent to AI</div>
+    </div>
+  )
+}
+
 // ── AI CHATBOX ────────────────────────────────────────────────────────────────
 function AIChatBox({ client }) {
   const [open, setOpen] = useState(false)
@@ -4817,6 +4865,17 @@ function AIChatBox({ client }) {
       if (reminders.length > 0) {
         ctx += '\nREMINDERS:\n'
         reminders.forEach(r => ctx += `  ${r.date}: ${r.note} [${r.done ? 'done' : 'pending'}]\n`)
+      }
+
+      // Client notes — always include most recent content, oldest truncated if very long
+      if (intake.clientNotes) {
+        ctx += '\nCLIENT NOTES (trainer running log):\n'
+        const MAX = 8000
+        if (intake.clientNotes.length <= MAX) {
+          ctx += intake.clientNotes + '\n'
+        } else {
+          ctx += '[older notes truncated]\n...' + intake.clientNotes.slice(-MAX) + '\n'
+        }
       }
     }
 
@@ -5281,6 +5340,9 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
 
       {/* Client Reminders */}
       <ClientReminders client={client} onUpdate={onUpdate} />
+
+      {/* Client Notes */}
+      <ClientNotes client={client} onUpdate={onUpdate} />
 
       {/* Program Uploads */}
       <ProgramUploads key={client.id} client={client} onUpdate={onUpdate} />
