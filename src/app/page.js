@@ -3457,6 +3457,8 @@ function ProgramUploads({ client, onUpdate }) {
 
   const journalKey = `y${selYear}_${selPhase}_${selWeek}`
   const weekData = journal[journalKey] || { days: [emptyDay(1), emptyDay(2)] }
+  const phaseNotesKey = `y${selYear}_${selPhase}_phaseNotes`
+  const phaseNotes = journal[phaseNotesKey] || ''
 
   const persist = async (updates) => {
     setSaving(true)
@@ -3477,11 +3479,21 @@ function ProgramUploads({ client, onUpdate }) {
   const [expandedSetLogs, setExpandedSetLogs] = useState(new Set())
   const [weekNotesUnsaved, setWeekNotesUnsaved] = useState(false)
   const [weekNotesSaved, setWeekNotesSaved] = useState(false)
+  const [phaseNotesUnsaved, setPhaseNotesUnsaved] = useState(false)
+  const [phaseNotesSaved, setPhaseNotesSaved] = useState(false)
+  const journalRef = useRef(journal)
 
   useEffect(() => {
     setWeekNotesUnsaved(false)
     setWeekNotesSaved(false)
   }, [journalKey])
+
+  useEffect(() => {
+    setPhaseNotesUnsaved(false)
+    setPhaseNotesSaved(false)
+  }, [phaseNotesKey])
+
+  useEffect(() => { journalRef.current = journal }, [journal])
 
   // Update locally only — no persist
   const updateWeekDataLocal = (newDays, changedDayIdx) => {
@@ -3601,10 +3613,24 @@ function ProgramUploads({ client, onUpdate }) {
   }
 
   const saveWeekNotes = () => {
-    persist({ program_journal: journal })
+    persist({ program_journal: journalRef.current })
     setWeekNotesUnsaved(false)
     setWeekNotesSaved(true)
     setTimeout(() => setWeekNotesSaved(false), 2000)
+  }
+
+  const updatePhaseNotesLocal = (value) => {
+    const updated = { ...journal, [phaseNotesKey]: value }
+    setJournal(updated)
+    setPhaseNotesUnsaved(true)
+    setPhaseNotesSaved(false)
+  }
+
+  const savePhaseNotes = () => {
+    persist({ program_journal: journalRef.current })
+    setPhaseNotesUnsaved(false)
+    setPhaseNotesSaved(true)
+    setTimeout(() => setPhaseNotesSaved(false), 2000)
   }
 
   const addDay = () => {
@@ -3869,6 +3895,27 @@ function ProgramUploads({ client, onUpdate }) {
           DELOAD WEEK — Reduced volume &amp; intensity
         </div>
       )}
+
+      {/* Main Notes — phase-level, persists across all weeks */}
+      <div style={{ marginBottom: 12, padding: '12px 14px', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <span style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Notes</span>
+          <button
+            onClick={savePhaseNotes}
+            disabled={saving || (!phaseNotesUnsaved && !phaseNotesSaved)}
+            style={{ marginLeft: 'auto', padding: '4px 14px', borderRadius: 7, border: 'none', background: phaseNotesSaved ? C.green : phaseNotesUnsaved ? C.accent : C.border, color: phaseNotesSaved ? '#fff' : phaseNotesUnsaved ? '#000' : C.sub, fontSize: 10, fontWeight: 700, cursor: phaseNotesUnsaved ? 'pointer' : 'default', fontFamily: 'Montserrat,sans-serif', letterSpacing: 0.5, transition: 'all .2s' }}
+          >
+            {saving ? 'Saving...' : phaseNotesSaved ? '✓ Saved!' : phaseNotesUnsaved ? 'Save Notes' : 'Saved'}
+          </button>
+        </div>
+        <textarea
+          value={phaseNotes}
+          onChange={e => updatePhaseNotesLocal(e.target.value)}
+          rows={4}
+          placeholder="Add notes from an outside source, program details, or general phase notes..."
+          style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', color: C.text, background: '#fff', resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.5 }}
+        />
+      </div>
 
       {/* Week Notes — for pasting notes from an outside source */}
       <div style={{ marginBottom: 16, padding: '12px 14px', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10 }}>
