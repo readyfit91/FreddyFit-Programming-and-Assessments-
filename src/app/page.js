@@ -3475,10 +3475,17 @@ function ProgramUploads({ client, onUpdate }) {
   const [collapsedNotes, setCollapsedNotes] = useState(new Set())
   const [collapsedDays, setCollapsedDays] = useState(new Set())
   const [expandedSetLogs, setExpandedSetLogs] = useState(new Set())
+  const [weekNotesUnsaved, setWeekNotesUnsaved] = useState(false)
+  const [weekNotesSaved, setWeekNotesSaved] = useState(false)
+
+  useEffect(() => {
+    setWeekNotesUnsaved(false)
+    setWeekNotesSaved(false)
+  }, [journalKey])
 
   // Update locally only — no persist
   const updateWeekDataLocal = (newDays, changedDayIdx) => {
-    const updated = { ...journal, [journalKey]: { days: newDays } }
+    const updated = { ...journal, [journalKey]: { ...weekData, days: newDays } }
     setJournal(updated)
     if (changedDayIdx !== undefined) {
       setUnsavedDays(prev => new Set(prev).add(changedDayIdx))
@@ -3488,14 +3495,14 @@ function ProgramUploads({ client, onUpdate }) {
 
   // Persist entire week to database
   const updateWeekData = (newDays) => {
-    const updated = { ...journal, [journalKey]: { days: newDays } }
+    const updated = { ...journal, [journalKey]: { ...weekData, days: newDays } }
     setJournal(updated)
     persist({ program_journal: updated })
   }
 
   // Save a specific day (persists the whole week since that's the storage unit)
   const saveDay = (dayIdx) => {
-    const updated = { ...journal, [journalKey]: { days: weekData.days } }
+    const updated = { ...journal, [journalKey]: weekData }
     persist({ program_journal: updated })
     setUnsavedDays(prev => { const n = new Set(prev); n.delete(dayIdx); return n })
     setSavedDays(prev => new Set(prev).add(dayIdx))
@@ -3583,6 +3590,21 @@ function ProgramUploads({ client, onUpdate }) {
   const updateDayNotes = (dayIdx, value) => {
     const days = weekData.days.map((d, di) => di === dayIdx ? { ...d, dayNotes: value } : d)
     updateWeekDataLocal(days, dayIdx)
+  }
+
+  const updateWeekNotesLocal = (value) => {
+    const updatedWeek = { ...weekData, weekNotes: value }
+    const updated = { ...journal, [journalKey]: updatedWeek }
+    setJournal(updated)
+    setWeekNotesUnsaved(true)
+    setWeekNotesSaved(false)
+  }
+
+  const saveWeekNotes = () => {
+    persist({ program_journal: journal })
+    setWeekNotesUnsaved(false)
+    setWeekNotesSaved(true)
+    setTimeout(() => setWeekNotesSaved(false), 2000)
   }
 
   const addDay = () => {
@@ -3847,6 +3869,28 @@ function ProgramUploads({ client, onUpdate }) {
           DELOAD WEEK — Reduced volume &amp; intensity
         </div>
       )}
+
+      {/* Week Notes — for pasting notes from an outside source */}
+      <div style={{ marginBottom: 16, padding: '12px 14px', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <span style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Week Notes</span>
+          <span style={{ fontSize: 10, color: C.sub, fontStyle: 'italic' }}>/ Outside Source</span>
+          <button
+            onClick={saveWeekNotes}
+            disabled={saving || (!weekNotesUnsaved && !weekNotesSaved)}
+            style={{ marginLeft: 'auto', padding: '4px 14px', borderRadius: 7, border: 'none', background: weekNotesSaved ? C.green : weekNotesUnsaved ? C.accent : C.border, color: weekNotesSaved ? '#fff' : weekNotesUnsaved ? '#000' : C.sub, fontSize: 10, fontWeight: 700, cursor: weekNotesUnsaved ? 'pointer' : 'default', fontFamily: 'Montserrat,sans-serif', letterSpacing: 0.5, transition: 'all .2s' }}
+          >
+            {saving ? 'Saving...' : weekNotesSaved ? '✓ Saved!' : weekNotesUnsaved ? 'Save Notes' : 'Saved'}
+          </button>
+        </div>
+        <textarea
+          value={weekData.weekNotes || ''}
+          onChange={e => updateWeekNotesLocal(e.target.value)}
+          rows={3}
+          placeholder="Paste notes from an outside source, coach's program, or external reference..."
+          style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', color: C.text, background: '#fff', resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.5 }}
+        />
+      </div>
 
       {/* Days */}
       {weekData.days.map((day, dayIdx) => (
