@@ -3405,23 +3405,24 @@ function getCalendarMonth(startDateStr, subMonth) {
 function SubscriptionTracker({ client, onBack, onUpdate }) {
   const localKey = `ff_sub_${client.id}`
 
-  const initialData = (() => {
+  const loadInitialData = () => {
     try { const l = localStorage.getItem(localKey); if (l) return JSON.parse(l) } catch {}
     if (!client.trainerNotes) return {}
     try { return JSON.parse(client.trainerNotes) } catch { return {} }
-  })()
+  }
 
-  const [packageType, setPackageType] = useState(initialData.sub_pkg || '')
-  const [startDate, setStartDate] = useState(initialData.sub_start || '')
-  const [entries, setEntries] = useState(initialData.sub_entries || [])
-  const [packageLocked, setPackageLocked] = useState(!!initialData.sub_pkg)
+  const [packageType, setPackageType] = useState(() => { const d = loadInitialData(); return d.sub_pkg || '' })
+  const [startDate, setStartDate] = useState(() => { const d = loadInitialData(); return d.sub_start || '' })
+  const [entries, setEntries] = useState(() => { const d = loadInitialData(); return Array.isArray(d.sub_entries) ? d.sub_entries : [] })
+  const [packageLocked, setPackageLocked] = useState(() => { const d = loadInitialData(); return !!d.sub_pkg })
   const [saving, setSaving] = useState(false)
-  const [pendingSync, setPendingSync] = useState(!!localStorage.getItem(localKey + '_pending'))
+  const [pendingSync, setPendingSync] = useState(() => { try { return !!localStorage.getItem(localKey + '_pending') } catch { return false } })
   const [online, setOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
   const [showPopup, setShowPopup] = useState(null)
   const [selected, setSelected] = useState(new Set())
   const [deleteConfirm, setDeleteConfirm] = useState(0)
   const [showAllMonths, setShowAllMonths] = useState(false)
+  const [resetConfirm, setResetConfirm] = useState(false)
 
   const pkg = SUB_PACKAGES.find(p => p.label === packageType)
   const monthlyLimit = pkg?.monthly || 0
@@ -3548,11 +3549,20 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
                   Started {startDate ? new Date(startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—'}
                   {' · '}Month {currentSubMonth} of 12
                 </div>
-                <button
-                  onClick={() => { if (window.confirm('Reset subscription? All coaching session history will be cleared.')) { setPackageType(''); setStartDate(''); setEntries([]); setPackageLocked(false); saveData('', '', []) } }}
-                  style={{ marginTop: 10, background: 'none', border: 'none', color: C.red, fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: 0, fontFamily: 'Montserrat,sans-serif' }}>
-                  Reset Subscription
-                </button>
+                {resetConfirm ? (
+                  <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 11, color: C.sub }}>Are you sure? This clears all history.</span>
+                    <button onClick={() => { setPackageType(''); setStartDate(''); setEntries([]); setPackageLocked(false); setResetConfirm(false); saveData('', '', []) }}
+                      style={{ background: C.red, color: '#fff', border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Yes, Reset</button>
+                    <button onClick={() => setResetConfirm(false)}
+                      style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Cancel</button>
+                  </div>
+                ) : (
+                  <button onClick={() => setResetConfirm(true)}
+                    style={{ marginTop: 10, background: 'none', border: 'none', color: C.red, fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: 0, fontFamily: 'Montserrat,sans-serif' }}>
+                    Reset Subscription
+                  </button>
+                )}
               </div>
             ) : (
               <select value={packageType} onChange={e => handlePackageSelect(e.target.value)}
