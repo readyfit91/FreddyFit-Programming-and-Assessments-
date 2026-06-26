@@ -3723,8 +3723,8 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
                     style={{ padding: '4px 8px', borderRadius: 7, border: `1.5px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, color: C.text, background: C.card, outline: 'none', cursor: 'pointer' }}
                   >
                     <option value="">— not set —</option>
-                    {Array.from({ length: 28 }, (_, i) => i + 1).map(d => (
-                      <option key={d} value={d}>{d}{d === 1 ? 'st' : d === 2 ? 'nd' : d === 3 ? 'rd' : 'th'} of each month</option>
+                    {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                      <option key={d} value={d}>{d}{d === 1 ? 'st' : d === 2 ? 'nd' : d === 3 ? 'rd' : 'th'} of each month{d === 29 ? ' (Feb→28th)' : d === 30 ? ' (Feb→28/29th)' : d === 31 ? ' (short months→last day)' : ''}</option>
                     ))}
                   </select>
                   {draftDay && (
