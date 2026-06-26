@@ -3358,13 +3358,17 @@ const SUB_PACKAGES = [
   { label: 'Classic (In-Home)', monthly: 4 },
 ]
 
-// Period = calendar month. Period 2 starts the 1st of the next calendar month.
+// Period advances on the same day-of-month as start date each month.
+// e.g. start Feb 15 → Period 1: Feb 15–Mar 14, Period 2: Mar 15–Apr 14
 function getSubPeriod(startDateStr) {
   if (!startDateStr) return 1
   const start = new Date(startDateStr + 'T00:00:00')
   const now = new Date()
-  const diff = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth())
-  return Math.min(6, Math.max(1, diff + 1))
+  for (let p = 6; p >= 1; p--) {
+    const periodStart = new Date(start.getFullYear(), start.getMonth() + (p - 1), start.getDate())
+    if (now >= periodStart) return p
+  }
+  return 1
 }
 
 function calcPeriodData(entries, periodLimit) {
@@ -3391,28 +3395,29 @@ function calcPeriodData(entries, periodLimit) {
 }
 
 // Jan,Mar,May,Jul,Aug,Oct,Dec have 5 weeks
-const FIVE_WEEK_MONTHS = new Set([1, 3, 5, 7, 8, 10, 12])
+const LONG_MONTH = ['January','February','March','April','May','June','July','August','September','October','November','December']
+const SHORT_MONTH = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
-// Returns the calendar month grid for a given period (1-6)
+// Period spans from start-day of month N to start-day-1 of month N+1.
+// e.g. start Feb 15 → P1: Feb 15–Mar 14, P2: Mar 15–Apr 14
+// Shows calendar of the month in which the period starts; shades days outside the period.
 function getPeriodCalendarData(startDateStr, period) {
   if (!startDateStr) return null
   const start = new Date(startDateStr + 'T00:00:00')
-  const totalOff = start.getMonth() + (period - 1)
-  const calYear = start.getFullYear() + Math.floor(totalOff / 12)
-  const calMonth0 = totalOff % 12
+
+  const periodStart = new Date(start.getFullYear(), start.getMonth() + (period - 1), start.getDate())
+  const periodEnd = new Date(start.getFullYear(), start.getMonth() + period, start.getDate() - 1)
+
+  const calYear = periodStart.getFullYear()
+  const calMonth0 = periodStart.getMonth()
   const calMonth1 = calMonth0 + 1
-
   const daysInMonth = new Date(calYear, calMonth1, 0).getDate()
-  const firstDow = new Date(calYear, calMonth0, 1).getDay() // 0=Sun
+  const firstDow = new Date(calYear, calMonth0, 1).getDay()
 
-  const NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
-  const SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const today = new Date()
+  const isCurrentCalMonth = today.getFullYear() === calYear && today.getMonth() === calMonth0
+  const todayDate = isCurrentCalMonth ? today.getDate() : null
 
-  const todayMs = new Date(new Date().toDateString()).getTime()
-  const isCurrentCalMonth = new Date().getFullYear() === calYear && new Date().getMonth() === calMonth0
-  const todayDate = isCurrentCalMonth ? new Date().getDate() : null
-
-  // Build week rows (standard calendar grid, Sun-Sat)
   const weeks = []
   let week = Array(firstDow).fill(null)
   for (let d = 1; d <= daysInMonth; d++) {
@@ -3425,20 +3430,31 @@ function getPeriodCalendarData(startDateStr, period) {
   if (todayDate) weeks.forEach((w, i) => { if (w.includes(todayDate)) currentWeekIdx = i })
 
   const fiveWeeks = weeks.length >= 5
+  const fmt = (d) => `${SHORT_MONTH[d.getMonth()]} ${d.getDate()}`
+
+  // Days in this calendar month that belong to this period
+  const inPeriodStart = periodStart.getDate()
+  // Period end may fall in the next calendar month; cap display at end of this month
+  const inPeriodEnd = (periodEnd.getFullYear() === calYear && periodEnd.getMonth() === calMonth0)
+    ? periodEnd.getDate() : daysInMonth
 
   return {
-    label: `${NAMES[calMonth0]} ${calYear}`,
-    shortLabel: `${SHORT[calMonth0]} ${calYear}`,
+    label: `${LONG_MONTH[calMonth0]} ${calYear}`,
+    shortLabel: `${SHORT_MONTH[calMonth0]} ${calYear}`,
+    periodLabel: `${fmt(periodStart)} – ${fmt(periodEnd)}`,
     calYear, calMonth1,
     weeks, todayDate, currentWeekIdx,
     totalWeeks: weeks.length,
-    fiveWeeks
+    fiveWeeks,
+    inPeriodStart,
+    inPeriodEnd
   }
 }
 
 function MiniCalendar({ calData }) {
   if (!calData) return null
   const DOW = ['Su','Mo','Tu','We','Th','Fr','Sa']
+  const { inPeriodStart = 1, inPeriodEnd = 31 } = calData
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '18px 20px', marginBottom: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -3449,41 +3465,47 @@ function MiniCalendar({ calData }) {
           </div>
         )}
       </div>
-      <div style={{ fontWeight: 800, fontSize: 15, color: C.text, marginBottom: calData.fiveWeeks ? 6 : 10 }}>{calData.label}</div>
+      <div style={{ fontWeight: 800, fontSize: 15, color: C.text, marginBottom: 2 }}>{calData.label}</div>
+      {calData.periodLabel && (
+        <div style={{ fontSize: 10, color: C.accent, fontWeight: 700, marginBottom: calData.fiveWeeks ? 6 : 10 }}>
+          Period: {calData.periodLabel}
+        </div>
+      )}
       {calData.fiveWeeks && (
         <div style={{ marginBottom: 8, display: 'inline-block', background: C.orange + '18', color: C.orange, borderRadius: 5, padding: '2px 8px', fontSize: 9, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase' }}>
           5-Week Month — cap stays at {calData.periodLimit || 'limit'}
         </div>
       )}
-      {/* Day-of-week headers */}
       <div style={{ display: 'grid', gridTemplateColumns: '28px repeat(7, 1fr)', gap: 1, marginBottom: 2 }}>
         <div />
         {DOW.map(d => <div key={d} style={{ textAlign: 'center', fontSize: 9, fontWeight: 700, color: C.sub, padding: '2px 0' }}>{d}</div>)}
       </div>
       {calData.weeks.map((week, wi) => {
         const isCurrentWeek = wi === calData.currentWeekIdx
-        const isFifthWeek = wi === 4
         return (
-          <div key={wi} style={{ display: 'grid', gridTemplateColumns: '28px repeat(7, 1fr)', gap: 1, background: isCurrentWeek ? C.accent + '14' : isFifthWeek ? C.orange + '08' : 'transparent', borderRadius: 6, marginBottom: 1, padding: '1px 0', alignItems: 'center' }}>
-            <div style={{ fontSize: 8, fontWeight: 800, color: isCurrentWeek ? C.accent : isFifthWeek ? C.orange : C.sub, textAlign: 'center' }}>
-              {isFifthWeek ? 'W5' : `W${wi + 1}`}
-            </div>
-            {week.map((day, di) => (
-              <div key={di} style={{
-                textAlign: 'center', fontSize: 12, padding: '5px 2px', borderRadius: 5,
-                fontWeight: day === calData.todayDate ? 800 : 500,
-                color: day === calData.todayDate ? '#fff' : day ? (isCurrentWeek ? C.text : C.sub) : 'transparent',
-                background: day === calData.todayDate ? C.accent : 'transparent',
-              }}>
-                {day || ''}
-              </div>
-            ))}
+          <div key={wi} style={{ display: 'grid', gridTemplateColumns: '28px repeat(7, 1fr)', gap: 1, background: isCurrentWeek ? C.accent + '14' : 'transparent', borderRadius: 6, marginBottom: 1, padding: '1px 0', alignItems: 'center' }}>
+            <div style={{ fontSize: 8, fontWeight: 800, color: isCurrentWeek ? C.accent : C.sub, textAlign: 'center' }}>W{wi + 1}</div>
+            {week.map((day, di) => {
+              const inPeriod = day !== null && day >= inPeriodStart && day <= inPeriodEnd
+              const isToday = day === calData.todayDate
+              return (
+                <div key={di} style={{
+                  textAlign: 'center', fontSize: 12, padding: '5px 2px', borderRadius: 5,
+                  fontWeight: isToday ? 800 : 500,
+                  opacity: day && !inPeriod ? 0.25 : 1,
+                  color: isToday ? '#fff' : day ? (isCurrentWeek && inPeriod ? C.text : C.sub) : 'transparent',
+                  background: isToday ? C.accent : 'transparent',
+                }}>
+                  {day || ''}
+                </div>
+              )
+            })}
           </div>
         )
       })}
       {calData.fiveWeeks && (
         <div style={{ marginTop: 6, fontSize: 9, color: C.sub, fontStyle: 'italic' }}>
-          5th week is part of this period — no extra sessions.
+          5th week — no extra sessions added.
         </div>
       )}
     </div>
@@ -3739,7 +3761,7 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
                       return (
                         <tr key={p} style={{ background: isCurrent ? C.accent + '12' : 'transparent', borderLeft: isCurrent ? `3px solid ${C.accent}` : '3px solid transparent', opacity: isFuture ? 0.4 : 1 }}>
                           <td style={{ padding: '7px 6px', fontWeight: isCurrent ? 800 : 600, color: isCurrent ? C.accent : C.text, whiteSpace: 'nowrap' }}>P{p}</td>
-                          <td style={{ padding: '7px 6px', fontSize: 9, color: C.sub, whiteSpace: 'nowrap' }}>{calInfo?.label || '—'}</td>
+                          <td style={{ padding: '7px 6px', fontSize: 9, color: C.sub, whiteSpace: 'nowrap' }}>{calInfo?.periodLabel || calInfo?.shortLabel || '—'}</td>
                           <td style={{ textAlign: 'center', padding: '7px 4px', color: C.sub }}>{pd.base}</td>
                           <td style={{ textAlign: 'center', padding: '7px 4px', color: pd.rolloverIn > 0 ? C.sky : C.sub }}>{pd.rolloverIn > 0 ? `+${pd.rolloverIn}` : '—'}</td>
                           <td style={{ textAlign: 'center', padding: '7px 4px', fontWeight: 700, color: C.text }}>{pd.total}</td>
