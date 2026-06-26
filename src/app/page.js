@@ -3358,14 +3358,15 @@ const SUB_PACKAGES = [
   { label: 'Classic (In-Home)', monthly: 4 },
 ]
 
-// Period advances on the same day-of-month as start date each month.
+// Period advances on the same day-of-month as start date each month (or draftDay if set).
 // e.g. start Feb 15 → Period 1: Feb 15–Mar 14, Period 2: Mar 15–Apr 14
-function getSubPeriod(startDateStr) {
+function getSubPeriod(startDateStr, draftDay) {
   if (!startDateStr) return 1
   const start = new Date(startDateStr + 'T00:00:00')
+  const anchorDay = draftDay || start.getDate()
   const now = new Date()
   for (let p = 6; p >= 1; p--) {
-    const periodStart = new Date(start.getFullYear(), start.getMonth() + (p - 1), start.getDate())
+    const periodStart = new Date(start.getFullYear(), start.getMonth() + (p - 1), anchorDay)
     if (now >= periodStart) return p
   }
   return 1
@@ -3401,12 +3402,13 @@ const SHORT_MONTH = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct'
 // Period spans from start-day of month N to start-day-1 of month N+1.
 // e.g. start Feb 15 → P1: Feb 15–Mar 14, P2: Mar 15–Apr 14
 // Shows calendar of the month in which the period starts; shades days outside the period.
-function getPeriodCalendarData(startDateStr, period) {
+function getPeriodCalendarData(startDateStr, period, draftDay) {
   if (!startDateStr) return null
   const start = new Date(startDateStr + 'T00:00:00')
+  const anchorDay = draftDay || start.getDate()
 
-  const periodStart = new Date(start.getFullYear(), start.getMonth() + (period - 1), start.getDate())
-  const periodEnd = new Date(start.getFullYear(), start.getMonth() + period, start.getDate() - 1)
+  const periodStart = new Date(start.getFullYear(), start.getMonth() + (period - 1), anchorDay)
+  const periodEnd = new Date(start.getFullYear(), start.getMonth() + period, anchorDay - 1)
 
   const calYear = periodStart.getFullYear()
   const calMonth0 = periodStart.getMonth()
@@ -3548,6 +3550,7 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
 
   const [packageType, setPackageType] = useState(() => { const d = loadInitialData(); return d.sub_pkg || '' })
   const [startDate, setStartDate] = useState(() => { const d = loadInitialData(); return d.sub_start || '' })
+  const [draftDay, setDraftDay] = useState(() => { const d = loadInitialData(); return d.sub_draft_day || null })
   const [entries, setEntries] = useState(() => { const d = loadInitialData(); return Array.isArray(d.sub_entries) ? d.sub_entries : [] })
   const [plans, setPlans] = useState(() => { const d = loadInitialData(); return d.sub_plans || {} })
   const [packageLocked, setPackageLocked] = useState(() => { const d = loadInitialData(); return !!d.sub_pkg })
@@ -3562,23 +3565,23 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
 
   const pkg = SUB_PACKAGES.find(p => p.label === packageType)
   const periodLimit = pkg?.monthly || 0
-  const currentPeriod = getSubPeriod(startDate)
+  const currentPeriod = getSubPeriod(startDate, draftDay)
   const periodData = calcPeriodData(entries, periodLimit)
   const currentPeriodData = periodData[currentPeriod - 1] || { total: 0, used: 0, rolloverIn: 0, forfeited: 0, rolloverOut: 0 }
   const totalForfeited = periodData.reduce((s, m) => s + m.forfeited, 0)
   const totalUsed = entries.length
-  const currentCalInfo = getPeriodCalendarData(startDate, currentPeriod)
+  const currentCalInfo = getPeriodCalendarData(startDate, currentPeriod, draftDay)
   const sessionsAvailableThisPeriod = Math.max(0, currentPeriodData.total - currentPeriodData.used)
 
-  const saveLocal = (p, sd, ents, pls) => {
-    try { localStorage.setItem(localKey, JSON.stringify({ sub_pkg: p, sub_start: sd, sub_entries: ents, sub_plans: pls })) } catch {}
+  const saveLocal = (p, sd, ents, pls, dd) => {
+    try { localStorage.setItem(localKey, JSON.stringify({ sub_pkg: p, sub_start: sd, sub_entries: ents, sub_plans: pls, sub_draft_day: dd ?? draftDay })) } catch {}
   }
 
-  const syncToSupabase = async (p, sd, ents, pls) => {
+  const syncToSupabase = async (p, sd, ents, pls, dd) => {
     try {
       let base = {}
       try { base = JSON.parse(client.trainerNotes || '{}') } catch {}
-      const updatedNotes = { ...base, sub_pkg: p, sub_start: sd, sub_entries: ents, sub_plans: pls }
+      const updatedNotes = { ...base, sub_pkg: p, sub_start: sd, sub_entries: ents, sub_plans: pls, sub_draft_day: dd ?? draftDay }
       const updatedClient = { ...client, trainerNotes: JSON.stringify(updatedNotes) }
       await saveClient(updatedClient)
       onUpdate(updatedClient)
@@ -3589,10 +3592,10 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
     } catch { return false }
   }
 
-  const saveData = async (p, sd, ents, pls) => {
+  const saveData = async (p, sd, ents, pls, dd) => {
     setSaving(true)
-    saveLocal(p, sd, ents, pls)
-    const ok = await syncToSupabase(p, sd, ents, pls)
+    saveLocal(p, sd, ents, pls, dd)
+    const ok = await syncToSupabase(p, sd, ents, pls, dd)
     if (!ok) { localStorage.setItem(localKey + '_pending', '1'); setPendingSync(true) }
     setSaving(false)
   }
@@ -3602,7 +3605,7 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
       setOnline(true)
       if (localStorage.getItem(localKey + '_pending')) {
         const d = (() => { try { return JSON.parse(localStorage.getItem(localKey)) } catch { return null } })()
-        if (d) syncToSupabase(d.sub_pkg, d.sub_start, d.sub_entries, d.sub_plans || {})
+        if (d) syncToSupabase(d.sub_pkg, d.sub_start, d.sub_entries, d.sub_plans || {}, d.sub_draft_day ?? draftDay)
       }
     }
     const goOffline = () => setOnline(false)
@@ -3691,10 +3694,32 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
                   Started {startDate ? new Date(startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—'}
                   {' · '}Billing Period {currentPeriod} of 6
                 </div>
+                <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: C.sub }}>Monthly Draft Date:</span>
+                  <select
+                    value={draftDay || ''}
+                    onChange={e => {
+                      const val = e.target.value ? parseInt(e.target.value) : null
+                      setDraftDay(val)
+                      saveData(packageType, startDate, entries, plans, val)
+                    }}
+                    style={{ padding: '4px 8px', borderRadius: 7, border: `1.5px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, color: C.text, background: C.card, outline: 'none', cursor: 'pointer' }}
+                  >
+                    <option value="">— not set —</option>
+                    {Array.from({ length: 28 }, (_, i) => i + 1).map(d => (
+                      <option key={d} value={d}>{d}{d === 1 ? 'st' : d === 2 ? 'nd' : d === 3 ? 'rd' : 'th'} of each month</option>
+                    ))}
+                  </select>
+                  {draftDay && (
+                    <span style={{ fontSize: 10, color: C.accent, fontWeight: 700 }}>
+                      Periods flip on the {draftDay}{draftDay === 1 ? 'st' : draftDay === 2 ? 'nd' : draftDay === 3 ? 'rd' : 'th'}
+                    </span>
+                  )}
+                </div>
                 {resetConfirm ? (
                   <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 11, color: C.sub }}>Are you sure? This clears all history.</span>
-                    <button onClick={() => { setPackageType(''); setStartDate(''); setEntries([]); setPlans({}); setPackageLocked(false); setResetConfirm(false); saveData('', '', [], {}) }}
+                    <button onClick={() => { setPackageType(''); setStartDate(''); setDraftDay(null); setEntries([]); setPlans({}); setPackageLocked(false); setResetConfirm(false); saveData('', '', [], {}, null) }}
                       style={{ background: C.red, color: '#fff', border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Yes, Reset</button>
                     <button onClick={() => setResetConfirm(false)}
                       style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Cancel</button>
@@ -3756,7 +3781,7 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
                       const p = i + 1
                       const isCurrent = p === currentPeriod
                       const isFuture = p > currentPeriod
-                      const calInfo = getPeriodCalendarData(startDate, p)
+                      const calInfo = getPeriodCalendarData(startDate, p, draftDay)
                       const available = Math.max(0, pd.total - pd.used)
                       return (
                         <tr key={p} style={{ background: isCurrent ? C.accent + '12' : 'transparent', borderLeft: isCurrent ? `3px solid ${C.accent}` : '3px solid transparent', opacity: isFuture ? 0.4 : 1 }}>
