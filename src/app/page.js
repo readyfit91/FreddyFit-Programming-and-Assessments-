@@ -6123,6 +6123,15 @@ export default function App() {
   const [client, setClient] = useState(null)
   const [assessment, setAssessment] = useState(null)
   const [allClients, setAllClients] = useState([])
+  const [globalError, setGlobalError] = useState(null)
+
+  useEffect(() => {
+    const onErr = (e) => setGlobalError(e.message + '\n' + (e.error?.stack || ''))
+    const onRej = (e) => setGlobalError('Unhandled rejection: ' + (e.reason?.message || String(e.reason)) + '\n' + (e.reason?.stack || ''))
+    window.addEventListener('error', onErr)
+    window.addEventListener('unhandledrejection', onRej)
+    return () => { window.removeEventListener('error', onErr); window.removeEventListener('unhandledrejection', onRej) }
+  }, [])
 
   // Load all clients for linked-client switching
   const refreshAllClients = useCallback(async () => {
@@ -6186,6 +6195,13 @@ export default function App() {
 
   return (
     <div style={{ minHeight: '100dvh', background: C.bg, display: 'flex', flexDirection: 'column' }}>
+      {globalError && (
+        <div style={{ background: '#fef2f2', border: '2px solid #ef4444', borderRadius: 10, margin: 12, padding: 16, fontFamily: 'Montserrat,sans-serif', zIndex: 9999 }}>
+          <div style={{ fontWeight: 800, color: '#ef4444', marginBottom: 8, fontSize: 14 }}>JavaScript Error Detected</div>
+          <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-all', color: '#7f1d1d', margin: 0 }}>{globalError}</pre>
+          <button onClick={() => setGlobalError(null)} style={{ marginTop: 10, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12 }}>Dismiss</button>
+        </div>
+      )}
       {/* Header */}
       <div style={{ padding: '12px 24px', borderBottom: `1px solid ${C.border}`, background: C.panel, display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', flexShrink: 0 }} className="no-print">
         <button onClick={() => setView('roster')} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10 }}>
