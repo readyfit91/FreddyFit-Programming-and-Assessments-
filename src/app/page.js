@@ -4780,7 +4780,7 @@ function ProgramUploads({ client, onUpdate }) {
 
 // ── CLIENT PROFILE ────────────────────────────────────────────────────────────
 // ── WEIGHT & BODY FAT TRACKER ────────────────────────────────────────────────
-function WeightTracker({ client, onBack }) {
+function WeightTracker({ client, onBack, onUpdate }) {
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -4791,6 +4791,10 @@ function WeightTracker({ client, onBack }) {
   const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0])
   const [showHistory, setShowHistory] = useState(false)
   const [showJourneyModal, setShowJourneyModal] = useState(false)
+  const [showBulkImport, setShowBulkImport] = useState(false)
+  const [bulkText, setBulkText] = useState('')
+  const [bulkSaving, setBulkSaving] = useState(false)
+  const [pdfUploading, setPdfUploading] = useState(false)
   const chartRef = useRef(null)
   const modalChartRef = useRef(null)
 
@@ -4826,6 +4830,72 @@ function WeightTracker({ client, onBack }) {
     if (!confirm('Delete this weigh-in?')) return
     try { await deleteWeightLog(id); await load() } catch (e) { alert('Error: ' + e.message) }
   }
+
+  // PDF upload — stored as base64 in trainerNotes
+  const handlePdfUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) { alert('PDF too large (max 5 MB). Consider compressing it first.'); return }
+    setPdfUploading(true)
+    try {
+      const reader = new FileReader()
+      reader.onload = async (ev) => {
+        const base64 = ev.target.result
+        let base = {}
+        try { base = JSON.parse(client.trainerNotes || '{}') } catch {}
+        const updatedClient = { ...client, trainerNotes: JSON.stringify({ ...base, weight_pdf: base64, weight_pdf_name: file.name }) }
+        await saveClient(updatedClient)
+        if (onUpdate) onUpdate(updatedClient)
+        setPdfUploading(false)
+      }
+      reader.onerror = () => { alert('Error reading file.'); setPdfUploading(false) }
+      reader.readAsDataURL(file)
+    } catch (e) { alert('Error: ' + e.message); setPdfUploading(false) }
+  }
+
+  const handlePdfRemove = async () => {
+    if (!confirm('Remove the uploaded PDF?')) return
+    let base = {}
+    try { base = JSON.parse(client.trainerNotes || '{}') } catch {}
+    delete base.weight_pdf; delete base.weight_pdf_name
+    const updatedClient = { ...client, trainerNotes: JSON.stringify(base) }
+    await saveClient(updatedClient)
+    if (onUpdate) onUpdate(updatedClient)
+  }
+
+  // Bulk import: parse lines of "MM/DD/YYYY, weight, bodyFat%" or "MM/DD/YYYY, weight"
+  const handleBulkImport = async () => {
+    const lines = bulkText.split('\n').map(l => l.trim()).filter(Boolean)
+    if (!lines.length) return
+    setBulkSaving(true)
+    let imported = 0, failed = 0
+    for (const line of lines) {
+      const parts = line.split(/[,\t]+/).map(p => p.trim())
+      if (parts.length < 2) { failed++; continue }
+      const [dateStr, wStr, fatStr] = parts
+      const parsed = new Date(dateStr)
+      if (isNaN(parsed.getTime())) { failed++; continue }
+      const w = parseFloat(wStr)
+      const bf = fatStr ? parseFloat(fatStr) : null
+      if (isNaN(w) && isNaN(bf)) { failed++; continue }
+      try {
+        await saveWeightLog(client.id, {
+          weight: isNaN(w) ? null : w,
+          bodyFat: (bf !== null && !isNaN(bf)) ? bf : null,
+          rating: null, behaviorNotes: '',
+          loggedAt: new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 12).toISOString()
+        })
+        imported++
+      } catch { failed++ }
+    }
+    await load()
+    setBulkText('')
+    setShowBulkImport(false)
+    setBulkSaving(false)
+    alert(`Imported ${imported} entries.${failed ? ` ${failed} lines skipped (bad format).` : ''}`)
+  }
+
+  const pdfData = (() => { try { const d = JSON.parse(client.trainerNotes || '{}'); return { url: d.weight_pdf, name: d.weight_pdf_name } } catch { return {} } })()
 
   // Shared chart drawing function
   const drawChart = useCallback((canvas, showBehavior) => {
@@ -5145,6 +5215,61 @@ function WeightTracker({ client, onBack }) {
           )}
         </div>
       )}
+
+      {/* PDF Upload + Bulk Import */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 20px', marginBottom: 24, marginTop: 16 }}>
+        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 14 }}>Historical Data</div>
+
+        {/* PDF Upload */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>Reference PDF (optional)</div>
+          {pdfData.url ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: C.faint, borderRadius: 10, border: `1px solid ${C.border}` }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: C.text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📄 {pdfData.name || 'Uploaded PDF'}</span>
+              <a href={pdfData.url} download={pdfData.name || 'weight-data.pdf'} style={{ fontSize: 11, fontWeight: 700, color: C.accent, textDecoration: 'none' }}>Download</a>
+              <a href={pdfData.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, fontWeight: 700, color: C.teal, textDecoration: 'none' }}>View</a>
+              <button onClick={handlePdfRemove} style={{ background: 'none', border: 'none', color: C.red + '88', fontSize: 16, cursor: 'pointer', padding: '0 2px', lineHeight: 1 }}>×</button>
+            </div>
+          ) : (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: C.faint, borderRadius: 10, border: `1.5px dashed ${C.border}`, cursor: 'pointer' }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: C.sub }}>{pdfUploading ? 'Uploading...' : '📄 Upload PDF (max 5 MB)'}</span>
+              <input type="file" accept=".pdf" onChange={handlePdfUpload} style={{ display: 'none' }} disabled={pdfUploading} />
+            </label>
+          )}
+          <div style={{ fontSize: 10, color: C.sub, marginTop: 5 }}>Upload your existing weight history PDF for reference. To plot it on the chart, use the import tool below.</div>
+        </div>
+
+        {/* Bulk Import */}
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Plot Historical Data on Chart</div>
+            <button onClick={() => setShowBulkImport(!showBulkImport)} style={{ background: 'none', border: `1px solid ${C.accent}44`, borderRadius: 6, padding: '2px 10px', fontSize: 10, fontWeight: 700, color: C.accent, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+              {showBulkImport ? 'Cancel' : '+ Enter Data'}
+            </button>
+          </div>
+          {showBulkImport && (
+            <div>
+              <div style={{ fontSize: 11, color: C.sub, marginBottom: 8, lineHeight: 1.6 }}>
+                One entry per line: <strong>MM/DD/YYYY, weight, body fat%</strong> (body fat optional)<br />
+                Example: <code style={{ fontSize: 11, background: C.faint, padding: '1px 5px', borderRadius: 4 }}>01/15/2025, 192.4, 24.1</code>
+              </div>
+              <textarea
+                value={bulkText}
+                onChange={e => setBulkText(e.target.value)}
+                rows={8}
+                placeholder={'01/01/2025, 195.0, 25.2\n01/08/2025, 193.5\n01/15/2025, 192.0, 24.8'}
+                style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 12, color: C.text, background: C.faint, resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.7 }}
+              />
+              <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+                <Btn onClick={handleBulkImport} disabled={bulkSaving || !bulkText.trim()}>
+                  {bulkSaving ? 'Importing...' : 'Import & Plot'}
+                </Btn>
+                <span style={{ fontSize: 10, color: C.sub, alignSelf: 'center' }}>Each row will appear on the chart alongside new entries.</span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Journey Modal */}
       {showJourneyModal && (
@@ -6532,6 +6657,7 @@ export default function App() {
           <WeightTracker
             client={client}
             onBack={() => setView('client')}
+            onUpdate={updateClient}
           />
         )}
         {view === 'signin' && client && (
