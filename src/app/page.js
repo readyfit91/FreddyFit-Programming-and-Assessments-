@@ -3685,11 +3685,11 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
             {packageLocked ? (
               <div>
                 <div style={{ padding: '12px 14px', borderRadius: 10, border: `2px solid ${C.accent}`, fontSize: 14, fontWeight: 700, color: C.text, background: C.faint, marginBottom: 8 }}>
-                  {packageType} — {periodLimit} sessions/4-week period
+                  {packageType} — {periodLimit} sessions/billing period
                 </div>
                 <div style={{ fontSize: 11, color: C.sub }}>
                   Started {startDate ? new Date(startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—'}
-                  {' · '}Period {currentPeriod} of 6
+                  {' · '}Billing Period {currentPeriod} of 6
                 </div>
                 {resetConfirm ? (
                   <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -3719,7 +3719,7 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
           {packageType && (
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>6-Period Overview</div>
+                <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>6 Billing Periods</div>
                 <button onClick={() => setShowAllPeriods(!showAllPeriods)} style={{ background: 'none', border: 'none', color: C.accent, fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: 0, fontFamily: 'Montserrat,sans-serif' }}>
                   {showAllPeriods ? 'Show Less' : 'Show All 6'}
                 </button>
@@ -3746,8 +3746,8 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                   <thead>
                     <tr style={{ borderBottom: `2px solid ${C.border}` }}>
-                      {['Period','Dates','Base','+Roll','Cap','Used','Left','↩','Lost'].map(h => (
-                        <th key={h} style={{ textAlign: h === 'Period' || h === 'Dates' ? 'left' : 'center', padding: '6px 4px', fontWeight: 800, color: h === 'Lost' ? C.red : C.sub, letterSpacing: 1, textTransform: 'uppercase', fontSize: 9 }}>{h}</th>
+                      {['Billing','Dates','Base','+Roll','Cap','Used','Left','↩','Lost'].map(h => (
+                        <th key={h} style={{ textAlign: h === 'Billing' || h === 'Dates' ? 'left' : 'center', padding: '6px 4px', fontWeight: 800, color: h === 'Lost' ? C.red : C.sub, letterSpacing: 1, textTransform: 'uppercase', fontSize: 9 }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -3784,7 +3784,7 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
 
               {/* Rollover Legend */}
               <div style={{ marginTop: 14, padding: '10px 14px', background: C.faint, borderRadius: 8, fontSize: 10, color: C.sub, lineHeight: 1.6 }}>
-                <span style={{ color: C.sky, fontWeight: 700 }}>↩ Roll</span> — unused from Period 1 carries to P2, P3→P4, P5→P6.{' '}
+                <span style={{ color: C.sky, fontWeight: 700 }}>↩ Roll</span> — unused sessions from billing period 1 carry to P2, P3→P4, P5→P6.{' '}
                 <span style={{ color: C.red, fontWeight: 700 }}>Lost</span> — unused in even period, forfeited.
               </div>
             </div>
@@ -3808,7 +3808,7 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
               {/* Current Period Card */}
               <div style={{ background: C.card, border: `2px solid ${C.accent}33`, borderRadius: 14, padding: '20px 24px', marginBottom: 16 }}>
                 <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 2 }}>
-                  Period {currentPeriod} of 6
+                  Billing Period {currentPeriod} of 6
                 </div>
                 <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
                   <div style={{ flex: 1, background: C.faint, borderRadius: 10, padding: '10px', textAlign: 'center' }}>
@@ -3844,7 +3844,7 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
                 return (
                   <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '18px 20px', marginBottom: 16 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                      <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>Period {currentPeriod} Plans</div>
+                      <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>Billing Period {currentPeriod} Plans</div>
                       {allDone && <div style={{ fontSize: 9, fontWeight: 800, color: C.green, letterSpacing: 1 }}>✓ All Set</div>}
                     </div>
                     {PLAN_ITEMS.map(item => {
@@ -3875,7 +3875,7 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
                   </div>
                 ) : (
                   <div style={{ background: C.orange + '10', border: `2px solid ${C.orange}44`, borderRadius: 14, padding: '20px 24px', marginBottom: 16, textAlign: 'center' }}>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: C.orange, marginBottom: 4 }}>Period {currentPeriod} Full</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: C.orange, marginBottom: 4 }}>Billing Period {currentPeriod} Full</div>
                     <div style={{ fontSize: 13, color: C.sub }}>All {currentPeriodData.total} sessions used for this period.</div>
                     {currentPeriod < 6 && (
                       <div style={{ fontSize: 12, color: C.sub, marginTop: 8 }}>
@@ -3897,7 +3897,7 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
               {currentPeriodEntries.length > 0 && (
                 <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 16 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                    <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>This Period</div>
+                    <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>This Billing Period</div>
                     {selected.size > 0 && (
                       <button onClick={handleBulkDelete} style={{ background: deleteConfirm === 0 ? C.red : deleteConfirm === 1 ? '#b91c1c' : '#7f1d1d', color: '#fff', border: 'none', borderRadius: 8, padding: '5px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
                         {deleteConfirm === 0 ? `Delete ${selected.size}` : deleteConfirm === 1 ? 'Confirm? (1/2)' : 'Final confirm (2/2)'}
@@ -3932,7 +3932,7 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
                   </summary>
                   <div style={{ marginTop: 12 }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '36px 28px 1fr 60px 50px', fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', padding: '0 0 6px', borderBottom: `1px solid ${C.border}`, alignItems: 'center' }}>
-                      <div>Per</div><div>#</div><div>Date</div><div>Time</div><div>Sig</div>
+                      <div>Pd</div><div>#</div><div>Date</div><div>Time</div><div>Sig</div>
                     </div>
                     {[...entries].reverse().map((entry, i) => (
                       <div key={i} style={{ display: 'grid', gridTemplateColumns: '36px 28px 1fr 60px 50px', alignItems: 'center', padding: '6px 0', borderBottom: `1px solid ${C.border}11` }}>
@@ -3960,7 +3960,7 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
             <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 4 }}>
               {showPopup.available === 0 ? 'Period complete!' : `Session${showPopup.available === 1 ? '' : 's'} left this period`}
             </div>
-            <div style={{ fontSize: 11, color: C.sub, marginBottom: 24 }}>Period {showPopup.period} · Cap of {showPopup.total}</div>
+            <div style={{ fontSize: 11, color: C.sub, marginBottom: 24 }}>Billing Period {showPopup.period} · Cap: {showPopup.total} sessions</div>
             {showPopup.available <= 2 && showPopup.available > 0 && (
               <div style={{ background: C.orange + '15', border: `1px solid ${C.orange}33`, borderRadius: 10, padding: '10px 14px', marginBottom: 20, fontSize: 12, color: C.orange, fontWeight: 700 }}>
                 Almost at this period's limit!
