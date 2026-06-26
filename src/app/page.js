@@ -4791,10 +4791,6 @@ function WeightTracker({ client, onBack, onUpdate }) {
   const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0])
   const [showHistory, setShowHistory] = useState(false)
   const [showJourneyModal, setShowJourneyModal] = useState(false)
-  const [showBulkImport, setShowBulkImport] = useState(false)
-  const [bulkText, setBulkText] = useState('')
-  const [bulkSaving, setBulkSaving] = useState(false)
-  const [pdfUploading, setPdfUploading] = useState(false)
   const chartRef = useRef(null)
   const modalChartRef = useRef(null)
 
@@ -4831,71 +4827,91 @@ function WeightTracker({ client, onBack, onUpdate }) {
     try { await deleteWeightLog(id); await load() } catch (e) { alert('Error: ' + e.message) }
   }
 
-  // PDF upload — stored as base64 in trainerNotes
-  const handlePdfUpload = async (e) => {
+  // CSV import — reads file, auto-detects columns, shows preview, then bulk-saves
+  const [csvPreview, setCsvPreview] = useState(null) // { rows, dateCol, weightCol, fatCol, fileName }
+  const [csvImporting, setCsvImporting] = useState(false)
+
+  const parseDate = (s) => {
+    if (!s) return null
+    // Try common formats: MM/DD/YYYY, YYYY-MM-DD, M/D/YY, etc.
+    const d = new Date(s)
+    if (!isNaN(d.getTime())) return d
+    // Try MM/DD/YY
+    const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/)
+    if (m) {
+      let yr = parseInt(m[3]); if (yr < 100) yr += yr < 50 ? 2000 : 1900
+      return new Date(yr, parseInt(m[1]) - 1, parseInt(m[2]))
+    }
+    return null
+  }
+
+  const handleCsvUpload = (e) => {
     const file = e.target.files?.[0]
+    e.target.value = ''
     if (!file) return
-    if (file.size > 5 * 1024 * 1024) { alert('PDF too large (max 5 MB). Consider compressing it first.'); return }
-    setPdfUploading(true)
-    try {
-      const reader = new FileReader()
-      reader.onload = async (ev) => {
-        const base64 = ev.target.result
-        let base = {}
-        try { base = JSON.parse(client.trainerNotes || '{}') } catch {}
-        const updatedClient = { ...client, trainerNotes: JSON.stringify({ ...base, weight_pdf: base64, weight_pdf_name: file.name }) }
-        await saveClient(updatedClient)
-        if (onUpdate) onUpdate(updatedClient)
-        setPdfUploading(false)
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const text = ev.target.result
+      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+      if (lines.length < 2) { alert('CSV appears empty or has only a header row.'); return }
+
+      // Detect delimiter
+      const delim = lines[0].includes('\t') ? '\t' : ','
+      const headers = lines[0].split(delim).map(h => h.replace(/^"|"$/g, '').trim().toLowerCase())
+      const dataRows = lines.slice(1).map(l => l.split(delim).map(c => c.replace(/^"|"$/g, '').trim()))
+
+      // Auto-detect columns by header name
+      const findCol = (...terms) => headers.findIndex(h => terms.some(t => h.includes(t)))
+      let dateCol = findCol('date', 'day', 'time', 'logged')
+      let weightCol = findCol('weight', 'lbs', 'lb', 'kg', 'mass')
+      let fatCol = findCol('fat', 'bf', 'body')
+
+      // Fallback: if no header match, try to detect by content of first data row
+      if (dateCol < 0) {
+        dataRows[0].forEach((val, i) => { if (dateCol < 0 && parseDate(val)) dateCol = i })
       }
-      reader.onerror = () => { alert('Error reading file.'); setPdfUploading(false) }
-      reader.readAsDataURL(file)
-    } catch (e) { alert('Error: ' + e.message); setPdfUploading(false) }
+      if (weightCol < 0) {
+        dataRows[0].forEach((val, i) => { if (i !== dateCol && weightCol < 0 && !isNaN(parseFloat(val))) weightCol = i })
+      }
+
+      // Build preview rows
+      const rows = dataRows.slice(0, 200).map(cols => ({
+        raw: cols,
+        date: dateCol >= 0 ? cols[dateCol] : '',
+        weight: weightCol >= 0 ? cols[weightCol] : '',
+        fat: fatCol >= 0 ? cols[fatCol] : '',
+      })).filter(r => parseDate(r.date) && (!isNaN(parseFloat(r.weight)) || !isNaN(parseFloat(r.fat))))
+
+      if (!rows.length) { alert('No valid rows found. Make sure your CSV has a date column and at least a weight or body fat column.'); return }
+      setCsvPreview({ rows, headers, dateCol, weightCol, fatCol, fileName: file.name, totalLines: dataRows.length })
+    }
+    reader.readAsText(file)
   }
 
-  const handlePdfRemove = async () => {
-    if (!confirm('Remove the uploaded PDF?')) return
-    let base = {}
-    try { base = JSON.parse(client.trainerNotes || '{}') } catch {}
-    delete base.weight_pdf; delete base.weight_pdf_name
-    const updatedClient = { ...client, trainerNotes: JSON.stringify(base) }
-    await saveClient(updatedClient)
-    if (onUpdate) onUpdate(updatedClient)
-  }
-
-  // Bulk import: parse lines of "MM/DD/YYYY, weight, bodyFat%" or "MM/DD/YYYY, weight"
-  const handleBulkImport = async () => {
-    const lines = bulkText.split('\n').map(l => l.trim()).filter(Boolean)
-    if (!lines.length) return
-    setBulkSaving(true)
+  const handleCsvImport = async () => {
+    if (!csvPreview) return
+    setCsvImporting(true)
     let imported = 0, failed = 0
-    for (const line of lines) {
-      const parts = line.split(/[,\t]+/).map(p => p.trim())
-      if (parts.length < 2) { failed++; continue }
-      const [dateStr, wStr, fatStr] = parts
-      const parsed = new Date(dateStr)
-      if (isNaN(parsed.getTime())) { failed++; continue }
-      const w = parseFloat(wStr)
-      const bf = fatStr ? parseFloat(fatStr) : null
-      if (isNaN(w) && isNaN(bf)) { failed++; continue }
+    for (const row of csvPreview.rows) {
+      const d = parseDate(row.date)
+      const w = parseFloat(row.weight)
+      const bf = parseFloat(row.fat)
+      if (!d) { failed++; continue }
       try {
         await saveWeightLog(client.id, {
           weight: isNaN(w) ? null : w,
-          bodyFat: (bf !== null && !isNaN(bf)) ? bf : null,
+          bodyFat: isNaN(bf) ? null : bf,
           rating: null, behaviorNotes: '',
-          loggedAt: new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 12).toISOString()
+          loggedAt: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12).toISOString()
         })
         imported++
       } catch { failed++ }
     }
     await load()
-    setBulkText('')
-    setShowBulkImport(false)
-    setBulkSaving(false)
-    alert(`Imported ${imported} entries.${failed ? ` ${failed} lines skipped (bad format).` : ''}`)
+    setCsvImporting(false)
+    setCsvPreview(null)
+    alert(`Imported ${imported} entries — now plotted on the chart.${failed ? ` ${failed} rows skipped.` : ''}`)
   }
-
-  const pdfData = (() => { try { const d = JSON.parse(client.trainerNotes || '{}'); return { url: d.weight_pdf, name: d.weight_pdf_name } } catch { return {} } })()
 
   // Shared chart drawing function
   const drawChart = useCallback((canvas, showBehavior) => {
@@ -5216,59 +5232,74 @@ function WeightTracker({ client, onBack, onUpdate }) {
         </div>
       )}
 
-      {/* PDF Upload + Bulk Import */}
+      {/* CSV Import */}
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 20px', marginBottom: 24, marginTop: 16 }}>
-        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 14 }}>Historical Data</div>
+        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>Import Historical Data</div>
+        <div style={{ fontSize: 11, color: C.sub, marginBottom: 14, lineHeight: 1.5 }}>Upload a CSV file — columns are auto-detected. Date + weight required; body fat optional.</div>
 
-        {/* PDF Upload */}
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>Reference PDF (optional)</div>
-          {pdfData.url ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: C.faint, borderRadius: 10, border: `1px solid ${C.border}` }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: C.text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📄 {pdfData.name || 'Uploaded PDF'}</span>
-              <a href={pdfData.url} download={pdfData.name || 'weight-data.pdf'} style={{ fontSize: 11, fontWeight: 700, color: C.accent, textDecoration: 'none' }}>Download</a>
-              <a href={pdfData.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, fontWeight: 700, color: C.teal, textDecoration: 'none' }}>View</a>
-              <button onClick={handlePdfRemove} style={{ background: 'none', border: 'none', color: C.red + '88', fontSize: 16, cursor: 'pointer', padding: '0 2px', lineHeight: 1 }}>×</button>
-            </div>
-          ) : (
-            <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: C.faint, borderRadius: 10, border: `1.5px dashed ${C.border}`, cursor: 'pointer' }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: C.sub }}>{pdfUploading ? 'Uploading...' : '📄 Upload PDF (max 5 MB)'}</span>
-              <input type="file" accept=".pdf" onChange={handlePdfUpload} style={{ display: 'none' }} disabled={pdfUploading} />
-            </label>
-          )}
-          <div style={{ fontSize: 10, color: C.sub, marginTop: 5 }}>Upload your existing weight history PDF for reference. To plot it on the chart, use the import tool below.</div>
-        </div>
-
-        {/* Bulk Import */}
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Plot Historical Data on Chart</div>
-            <button onClick={() => setShowBulkImport(!showBulkImport)} style={{ background: 'none', border: `1px solid ${C.accent}44`, borderRadius: 6, padding: '2px 10px', fontSize: 10, fontWeight: 700, color: C.accent, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
-              {showBulkImport ? 'Cancel' : '+ Enter Data'}
-            </button>
-          </div>
-          {showBulkImport && (
+        {!csvPreview ? (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', background: C.faint, borderRadius: 10, border: `2px dashed ${C.accent}44`, cursor: 'pointer', transition: 'border-color .15s' }}
+            onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
+            onMouseLeave={e => e.currentTarget.style.borderColor = C.accent + '44'}>
+            <span style={{ fontSize: 22 }}>📊</span>
             <div>
-              <div style={{ fontSize: 11, color: C.sub, marginBottom: 8, lineHeight: 1.6 }}>
-                One entry per line: <strong>MM/DD/YYYY, weight, body fat%</strong> (body fat optional)<br />
-                Example: <code style={{ fontSize: 11, background: C.faint, padding: '1px 5px', borderRadius: 4 }}>01/15/2025, 192.4, 24.1</code>
-              </div>
-              <textarea
-                value={bulkText}
-                onChange={e => setBulkText(e.target.value)}
-                rows={8}
-                placeholder={'01/01/2025, 195.0, 25.2\n01/08/2025, 193.5\n01/15/2025, 192.0, 24.8'}
-                style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 12, color: C.text, background: C.faint, resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.7 }}
-              />
-              <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
-                <Btn onClick={handleBulkImport} disabled={bulkSaving || !bulkText.trim()}>
-                  {bulkSaving ? 'Importing...' : 'Import & Plot'}
-                </Btn>
-                <span style={{ fontSize: 10, color: C.sub, alignSelf: 'center' }}>Each row will appear on the chart alongside new entries.</span>
-              </div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>Choose CSV File</div>
+              <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>Accepts any CSV with date + weight columns</div>
             </div>
-          )}
-        </div>
+            <input type="file" accept=".csv,text/csv" onChange={handleCsvUpload} style={{ display: 'none' }} />
+          </label>
+        ) : (
+          <div>
+            {/* Preview header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>📊 {csvPreview.fileName}</span>
+              <span style={{ fontSize: 11, color: C.green, fontWeight: 700 }}>{csvPreview.rows.length} valid rows detected</span>
+              {csvPreview.totalLines > csvPreview.rows.length && (
+                <span style={{ fontSize: 10, color: C.sub }}>({csvPreview.totalLines - csvPreview.rows.length} skipped)</span>
+              )}
+              <button onClick={() => setCsvPreview(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: C.sub, fontSize: 18, cursor: 'pointer', lineHeight: 1 }}>×</button>
+            </div>
+
+            {/* Column mapping */}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+              {csvPreview.dateCol >= 0 && <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 8, background: C.accent + '15', color: C.accent }}>Date → col "{csvPreview.headers[csvPreview.dateCol]}"</span>}
+              {csvPreview.weightCol >= 0 && <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 8, background: C.teal + '15', color: C.teal }}>Weight → col "{csvPreview.headers[csvPreview.weightCol]}"</span>}
+              {csvPreview.fatCol >= 0 && <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 8, background: C.orange + '15', color: C.orange }}>Body Fat → col "{csvPreview.headers[csvPreview.fatCol]}"</span>}
+            </div>
+
+            {/* Preview table */}
+            <div style={{ overflowX: 'auto', marginBottom: 14, maxHeight: 220, overflowY: 'auto', borderRadius: 8, border: `1px solid ${C.border}` }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: 'Montserrat,sans-serif' }}>
+                <thead>
+                  <tr style={{ background: C.faint }}>
+                    <th style={{ padding: '7px 12px', textAlign: 'left', fontWeight: 800, color: C.sub, borderBottom: `1px solid ${C.border}` }}>Date</th>
+                    <th style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 800, color: C.accent, borderBottom: `1px solid ${C.border}` }}>Weight (lbs)</th>
+                    <th style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 800, color: C.orange, borderBottom: `1px solid ${C.border}` }}>Body Fat %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {csvPreview.rows.slice(0, 50).map((row, i) => (
+                    <tr key={i} style={{ borderBottom: `1px solid ${C.border}22` }}>
+                      <td style={{ padding: '6px 12px', color: C.text }}>{row.date}</td>
+                      <td style={{ padding: '6px 12px', textAlign: 'right', color: C.accent, fontWeight: 700 }}>{row.weight || '—'}</td>
+                      <td style={{ padding: '6px 12px', textAlign: 'right', color: C.orange, fontWeight: 700 }}>{row.fat || '—'}</td>
+                    </tr>
+                  ))}
+                  {csvPreview.rows.length > 50 && (
+                    <tr><td colSpan={3} style={{ padding: '8px 12px', color: C.sub, fontSize: 10, textAlign: 'center' }}>…and {csvPreview.rows.length - 50} more rows</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <Btn onClick={handleCsvImport} disabled={csvImporting}>
+                {csvImporting ? 'Importing...' : `Import ${csvPreview.rows.length} Rows & Plot`}
+              </Btn>
+              <button onClick={() => setCsvPreview(null)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 14px', fontSize: 11, fontWeight: 700, color: C.sub, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Cancel</button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Journey Modal */}
