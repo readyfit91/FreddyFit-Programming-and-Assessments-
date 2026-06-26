@@ -3358,13 +3358,13 @@ const SUB_PACKAGES = [
   { label: 'Classic (In-Home)', monthly: 4 },
 ]
 
-// Each subscription period = 28 days (4 weeks), regardless of start day
+// Period = calendar month. Period 2 starts the 1st of the next calendar month.
 function getSubPeriod(startDateStr) {
   if (!startDateStr) return 1
   const start = new Date(startDateStr + 'T00:00:00')
   const now = new Date()
-  const daysDiff = Math.floor((now - start) / 86400000)
-  return Math.min(6, Math.max(1, Math.floor(daysDiff / 28) + 1))
+  const diff = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth())
+  return Math.min(6, Math.max(1, diff + 1))
 }
 
 function calcPeriodData(entries, periodLimit) {
@@ -3390,87 +3390,102 @@ function calcPeriodData(entries, periodLimit) {
   return periods
 }
 
-// Returns the 4-week grid for a given period (1-6) based on start date
+// Jan,Mar,May,Jul,Aug,Oct,Dec have 5 weeks
+const FIVE_WEEK_MONTHS = new Set([1, 3, 5, 7, 8, 10, 12])
+
+// Returns the calendar month grid for a given period (1-6)
 function getPeriodCalendarData(startDateStr, period) {
   if (!startDateStr) return null
   const start = new Date(startDateStr + 'T00:00:00')
-  const periodStart = new Date(start)
-  periodStart.setDate(start.getDate() + (period - 1) * 28)
+  const totalOff = start.getMonth() + (period - 1)
+  const calYear = start.getFullYear() + Math.floor(totalOff / 12)
+  const calMonth0 = totalOff % 12
+  const calMonth1 = calMonth0 + 1
+
+  const daysInMonth = new Date(calYear, calMonth1, 0).getDate()
+  const firstDow = new Date(calYear, calMonth0, 1).getDay() // 0=Sun
+
+  const NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
+  const SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
   const todayMs = new Date(new Date().toDateString()).getTime()
+  const isCurrentCalMonth = new Date().getFullYear() === calYear && new Date().getMonth() === calMonth0
+  const todayDate = isCurrentCalMonth ? new Date().getDate() : null
 
-  const SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-  const fmt = (d) => `${SHORT[d.getMonth()]} ${d.getDate()}`
-
+  // Build week rows (standard calendar grid, Sun-Sat)
   const weeks = []
-  let currentWeekIdx = null
-  for (let w = 0; w < 4; w++) {
-    const week = []
-    for (let d = 0; d < 7; d++) {
-      const date = new Date(periodStart)
-      date.setDate(periodStart.getDate() + w * 7 + d)
-      week.push(date)
-      if (date.getTime() === todayMs) currentWeekIdx = w
-    }
-    weeks.push(week)
+  let week = Array(firstDow).fill(null)
+  for (let d = 1; d <= daysInMonth; d++) {
+    week.push(d)
+    if (week.length === 7) { weeks.push(week); week = [] }
   }
+  if (week.length > 0) { while (week.length < 7) week.push(null); weeks.push(week) }
 
-  const periodEnd = new Date(periodStart)
-  periodEnd.setDate(periodStart.getDate() + 27)
+  let currentWeekIdx = null
+  if (todayDate) weeks.forEach((w, i) => { if (w.includes(todayDate)) currentWeekIdx = i })
+
+  const fiveWeeks = weeks.length >= 5
 
   return {
-    label: `${fmt(periodStart)} – ${fmt(periodEnd)}`,
-    shortLabel: `${fmt(periodStart)} – ${fmt(periodEnd)}`,
-    weeks,
-    todayMs,
-    currentWeekIdx,
-    periodStart,
-    periodEnd
+    label: `${NAMES[calMonth0]} ${calYear}`,
+    shortLabel: `${SHORT[calMonth0]} ${calYear}`,
+    calYear, calMonth1,
+    weeks, todayDate, currentWeekIdx,
+    totalWeeks: weeks.length,
+    fiveWeeks
   }
 }
 
 function MiniCalendar({ calData }) {
   if (!calData) return null
   const DOW = ['Su','Mo','Tu','We','Th','Fr','Sa']
-  const SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '18px 20px', marginBottom: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>4-Week Period</div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>Calendar</div>
         {calData.currentWeekIdx !== null && (
           <div style={{ background: C.accent + '18', color: C.accent, borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 800 }}>
-            Week {calData.currentWeekIdx + 1} of 4
+            Week {calData.currentWeekIdx + 1} of {calData.totalWeeks}
           </div>
         )}
       </div>
-      <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 12 }}>{calData.label}</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '44px repeat(7, 1fr)', gap: 1, marginBottom: 3 }}>
-        <div style={{ fontSize: 9, fontWeight: 700, color: C.sub }}></div>
+      <div style={{ fontWeight: 800, fontSize: 15, color: C.text, marginBottom: calData.fiveWeeks ? 6 : 10 }}>{calData.label}</div>
+      {calData.fiveWeeks && (
+        <div style={{ marginBottom: 8, display: 'inline-block', background: C.orange + '18', color: C.orange, borderRadius: 5, padding: '2px 8px', fontSize: 9, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase' }}>
+          5-Week Month — cap stays at {calData.periodLimit || 'limit'}
+        </div>
+      )}
+      {/* Day-of-week headers */}
+      <div style={{ display: 'grid', gridTemplateColumns: '28px repeat(7, 1fr)', gap: 1, marginBottom: 2 }}>
+        <div />
         {DOW.map(d => <div key={d} style={{ textAlign: 'center', fontSize: 9, fontWeight: 700, color: C.sub, padding: '2px 0' }}>{d}</div>)}
       </div>
       {calData.weeks.map((week, wi) => {
         const isCurrentWeek = wi === calData.currentWeekIdx
+        const isFifthWeek = wi === 4
         return (
-          <div key={wi} style={{ display: 'grid', gridTemplateColumns: '44px repeat(7, 1fr)', gap: 1, background: isCurrentWeek ? C.accent + '14' : 'transparent', borderRadius: 6, marginBottom: 2, padding: '1px 0', alignItems: 'center' }}>
-            <div style={{ fontSize: 9, fontWeight: 800, color: isCurrentWeek ? C.accent : C.sub, paddingLeft: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>Wk {wi + 1}</div>
-            {week.map((date, di) => {
-              const isToday = date.getTime() === calData.todayMs
-              const mo = SHORT[date.getMonth()]
-              const dayNum = date.getDate()
-              const showMo = di === 0 || dayNum === 1
-              return (
-                <div key={di} style={{
-                  textAlign: 'center', padding: '5px 1px', borderRadius: 5,
-                  background: isToday ? C.accent : 'transparent',
-                }}>
-                  {showMo && <div style={{ fontSize: 7, fontWeight: 700, color: isToday ? '#fff' : C.sub, lineHeight: 1, marginBottom: 1 }}>{mo}</div>}
-                  <div style={{ fontSize: 12, fontWeight: isToday ? 800 : 500, color: isToday ? '#fff' : isCurrentWeek ? C.text : C.sub, lineHeight: 1 }}>{dayNum}</div>
-                </div>
-              )
-            })}
+          <div key={wi} style={{ display: 'grid', gridTemplateColumns: '28px repeat(7, 1fr)', gap: 1, background: isCurrentWeek ? C.accent + '14' : isFifthWeek ? C.orange + '08' : 'transparent', borderRadius: 6, marginBottom: 1, padding: '1px 0', alignItems: 'center' }}>
+            <div style={{ fontSize: 8, fontWeight: 800, color: isCurrentWeek ? C.accent : isFifthWeek ? C.orange : C.sub, textAlign: 'center' }}>
+              {isFifthWeek ? 'W5' : `W${wi + 1}`}
+            </div>
+            {week.map((day, di) => (
+              <div key={di} style={{
+                textAlign: 'center', fontSize: 12, padding: '5px 2px', borderRadius: 5,
+                fontWeight: day === calData.todayDate ? 800 : 500,
+                color: day === calData.todayDate ? '#fff' : day ? (isCurrentWeek ? C.text : C.sub) : 'transparent',
+                background: day === calData.todayDate ? C.accent : 'transparent',
+              }}>
+                {day || ''}
+              </div>
+            ))}
           </div>
         )
       })}
+      {calData.fiveWeeks && (
+        <div style={{ marginTop: 6, fontSize: 9, color: C.sub, fontStyle: 'italic' }}>
+          5th week is part of this period — no extra sessions.
+        </div>
+      )}
     </div>
   )
 }
@@ -3766,7 +3781,7 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
           {packageType && (
             <>
               {/* Calendar Widget */}
-              <MiniCalendar calData={currentCalInfo} />
+              <MiniCalendar calData={currentCalInfo ? { ...currentCalInfo, periodLimit } : null} />
 
               {/* Current Period Card */}
               <div style={{ background: C.card, border: `2px solid ${C.accent}33`, borderRadius: 14, padding: '20px 24px', marginBottom: 16 }}>
