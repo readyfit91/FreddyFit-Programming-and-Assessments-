@@ -3348,6 +3348,454 @@ function SignInPad({ onSign, saving }) {
   )
 }
 
+// ── SUBSCRIPTION TRACKER ─────────────────────────────────────────────────────
+const SUB_PACKAGES = [
+  { label: 'Signature', monthly: 8 },
+  { label: 'Distinct', monthly: 8 },
+  { label: 'Classic', monthly: 4 },
+  { label: 'Signature (In-Home)', monthly: 8 },
+  { label: 'Distinct (In-Home)', monthly: 6 },
+  { label: 'Classic (In-Home)', monthly: 4 },
+]
+
+function getSubMonth(startDateStr) {
+  if (!startDateStr) return 1
+  const start = new Date(startDateStr + 'T00:00:00')
+  const now = new Date()
+  const diff = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth())
+  return Math.min(12, Math.max(1, diff + 1))
+}
+
+function calcMonthlyData(entries, monthlyLimit) {
+  const byMonth = {}
+  entries.forEach(e => { const m = e.subMonth || 1; byMonth[m] = (byMonth[m] || 0) + 1 })
+  const months = []
+  let rolloverIn = 0
+  for (let m = 1; m <= 12; m++) {
+    const used = byMonth[m] || 0
+    const isOdd = m % 2 === 1
+    if (isOdd) {
+      const total = monthlyLimit
+      const rolloverOut = Math.max(0, total - used)
+      months.push({ month: m, base: monthlyLimit, rolloverIn: 0, total, used, rolloverOut, forfeited: 0 })
+      rolloverIn = rolloverOut
+    } else {
+      const total = monthlyLimit + rolloverIn
+      const forfeited = Math.max(0, total - used)
+      months.push({ month: m, base: monthlyLimit, rolloverIn, total, used, rolloverOut: 0, forfeited })
+      rolloverIn = 0
+    }
+  }
+  return months
+}
+
+function getCalendarMonth(startDateStr, subMonth) {
+  if (!startDateStr) return { label: '', fiveWeeks: false }
+  const start = new Date(startDateStr + 'T00:00:00')
+  const totalMonths = start.getMonth() + (subMonth - 1)
+  const calYear = start.getFullYear() + Math.floor(totalMonths / 12)
+  const calMonth = (totalMonths % 12) + 1
+  const daysInMonth = new Date(calYear, calMonth, 0).getDate()
+  const firstDay = new Date(calYear, calMonth - 1, 1).getDay()
+  const fiveWeeks = firstDay + daysInMonth > 35
+  const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  return { label: `${names[calMonth - 1]} ${calYear}`, fiveWeeks }
+}
+
+function SubscriptionTracker({ client, onBack, onUpdate }) {
+  const localKey = `ff_sub_${client.id}`
+
+  const initialData = (() => {
+    try { const l = localStorage.getItem(localKey); if (l) return JSON.parse(l) } catch {}
+    if (!client.trainerNotes) return {}
+    try { return JSON.parse(client.trainerNotes) } catch { return {} }
+  })()
+
+  const [packageType, setPackageType] = useState(initialData.sub_pkg || '')
+  const [startDate, setStartDate] = useState(initialData.sub_start || '')
+  const [entries, setEntries] = useState(initialData.sub_entries || [])
+  const [packageLocked, setPackageLocked] = useState(!!initialData.sub_pkg)
+  const [saving, setSaving] = useState(false)
+  const [pendingSync, setPendingSync] = useState(!!localStorage.getItem(localKey + '_pending'))
+  const [online, setOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
+  const [showPopup, setShowPopup] = useState(null)
+  const [selected, setSelected] = useState(new Set())
+  const [deleteConfirm, setDeleteConfirm] = useState(0)
+  const [showAllMonths, setShowAllMonths] = useState(false)
+
+  const pkg = SUB_PACKAGES.find(p => p.label === packageType)
+  const monthlyLimit = pkg?.monthly || 0
+  const currentSubMonth = getSubMonth(startDate)
+  const monthlyData = calcMonthlyData(entries, monthlyLimit)
+  const currentMonthData = monthlyData[currentSubMonth - 1] || { total: 0, used: 0, rolloverIn: 0, forfeited: 0, rolloverOut: 0 }
+  const totalForfeited = monthlyData.reduce((s, m) => s + m.forfeited, 0)
+  const totalUsed = entries.length
+  const currentCalInfo = getCalendarMonth(startDate, currentSubMonth)
+  const sessionsAvailableThisMonth = Math.max(0, currentMonthData.total - currentMonthData.used)
+
+  const saveLocal = (p, sd, ents) => {
+    try { localStorage.setItem(localKey, JSON.stringify({ sub_pkg: p, sub_start: sd, sub_entries: ents })) } catch {}
+  }
+
+  const syncToSupabase = async (p, sd, ents) => {
+    try {
+      let base = {}
+      try { base = JSON.parse(client.trainerNotes || '{}') } catch {}
+      const updatedNotes = { ...base, sub_pkg: p, sub_start: sd, sub_entries: ents }
+      const updatedClient = { ...client, trainerNotes: JSON.stringify(updatedNotes) }
+      await saveClient(updatedClient)
+      onUpdate(updatedClient)
+      localStorage.removeItem(localKey + '_pending')
+      localStorage.removeItem(localKey)
+      setPendingSync(false)
+      return true
+    } catch { return false }
+  }
+
+  const saveData = async (p, sd, ents) => {
+    setSaving(true)
+    saveLocal(p, sd, ents)
+    const ok = await syncToSupabase(p, sd, ents)
+    if (!ok) { localStorage.setItem(localKey + '_pending', '1'); setPendingSync(true) }
+    setSaving(false)
+  }
+
+  useEffect(() => {
+    const goOnline = () => {
+      setOnline(true)
+      if (localStorage.getItem(localKey + '_pending')) {
+        const d = (() => { try { return JSON.parse(localStorage.getItem(localKey)) } catch { return null } })()
+        if (d) syncToSupabase(d.sub_pkg, d.sub_start, d.sub_entries)
+      }
+    }
+    const goOffline = () => setOnline(false)
+    window.addEventListener('online', goOnline)
+    window.addEventListener('offline', goOffline)
+    goOnline()
+    return () => { window.removeEventListener('online', goOnline); window.removeEventListener('offline', goOffline) }
+  }, [])
+
+  const handlePackageSelect = (val) => {
+    if (!val) return
+    const today = new Date().toISOString().split('T')[0]
+    setPackageType(val)
+    setStartDate(today)
+    setPackageLocked(true)
+    saveData(val, today, entries)
+  }
+
+  const handleSign = (signature) => {
+    const now = new Date()
+    const date = now.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+    const time = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+    const sessionNum = entries.length + 1
+    const newEntry = { session: sessionNum, date, time, signature, subMonth: currentSubMonth }
+    const newEntries = [...entries, newEntry]
+    setEntries(newEntries)
+    saveData(packageType, startDate, newEntries)
+    const newMD = calcMonthlyData(newEntries, monthlyLimit)[currentSubMonth - 1]
+    setShowPopup({ session: sessionNum, month: currentSubMonth, available: Math.max(0, newMD.total - newMD.used), total: newMD.total })
+  }
+
+  const toggleSelect = (idx) => {
+    setSelected(prev => { const n = new Set(prev); n.has(idx) ? n.delete(idx) : n.add(idx); return n })
+    setDeleteConfirm(0)
+  }
+
+  const handleBulkDelete = () => {
+    if (deleteConfirm < 2) { setDeleteConfirm(deleteConfirm + 1); return }
+    const newEntries = entries.filter((_, i) => !selected.has(i)).map((e, i) => ({ ...e, session: i + 1 }))
+    setEntries(newEntries)
+    setSelected(new Set())
+    setDeleteConfirm(0)
+    saveData(packageType, startDate, newEntries)
+  }
+
+  const currentMonthEntries = entries.filter(e => (e.subMonth || 1) === currentSubMonth)
+  const visibleMonths = showAllMonths ? 12 : Math.min(12, Math.max(currentSubMonth + 1, 3))
+
+  return (
+    <div style={{ maxWidth: 1020, margin: '0 auto', padding: '0 24px 32px' }}>
+      <LogoHeader />
+      <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 24 }}>← Back to Profile</button>
+
+      <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 3, color: C.text, marginBottom: 4 }}>Coaching Sessions</div>
+      <div style={{ fontSize: 14, color: C.sub, marginBottom: (!online || pendingSync) ? 12 : 24 }}>{client.name}</div>
+
+      {(!online || pendingSync) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', marginBottom: 16, borderRadius: 10, fontSize: 12, fontWeight: 700, background: !online ? C.orange + '12' : C.sky + '12', border: `1.5px solid ${!online ? C.orange + '44' : C.sky + '44'}`, color: !online ? C.orange : C.sky }}>
+          <span>{!online ? '⚡' : '↻'}</span>
+          {!online ? "You're offline — saved locally, will sync when reconnected" : 'Syncing to cloud...'}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+
+        {/* LEFT: Subscription Dashboard */}
+        <div style={{ flex: '1 1 340px', minWidth: 0 }}>
+
+          {/* Package Selector */}
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 16 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 10 }}>
+              {packageLocked ? 'Package' : 'Select Package'}
+            </div>
+            {packageLocked ? (
+              <div>
+                <div style={{ padding: '12px 14px', borderRadius: 10, border: `2px solid ${C.accent}`, fontSize: 14, fontWeight: 700, color: C.text, background: C.faint, marginBottom: 8 }}>
+                  {packageType} — {monthlyLimit} sessions/month
+                </div>
+                <div style={{ fontSize: 11, color: C.sub }}>
+                  Started {startDate ? new Date(startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—'}
+                  {' · '}Month {currentSubMonth} of 12
+                </div>
+                <button
+                  onClick={() => { if (window.confirm('Reset subscription? All coaching session history will be cleared.')) { setPackageType(''); setStartDate(''); setEntries([]); setPackageLocked(false); saveData('', '', []) } }}
+                  style={{ marginTop: 10, background: 'none', border: 'none', color: C.red, fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: 0, fontFamily: 'Montserrat,sans-serif' }}>
+                  Reset Subscription
+                </button>
+              </div>
+            ) : (
+              <select value={packageType} onChange={e => handlePackageSelect(e.target.value)}
+                style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: `2px solid ${C.border}`, fontSize: 14, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, color: C.text, background: C.card, outline: 'none', cursor: 'pointer', appearance: 'auto' }}>
+                <option value="">— Choose a package —</option>
+                {SUB_PACKAGES.map(p => <option key={p.label} value={p.label}>{p.label} ({p.monthly} sessions/month)</option>)}
+              </select>
+            )}
+          </div>
+
+          {/* 52-Week Distribution Grid */}
+          {packageType && (
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>52-Week Distribution</div>
+                <button onClick={() => setShowAllMonths(!showAllMonths)} style={{ background: 'none', border: 'none', color: C.accent, fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: 0, fontFamily: 'Montserrat,sans-serif' }}>
+                  {showAllMonths ? 'Show Less' : 'Show All 12'}
+                </button>
+              </div>
+
+              {/* Year Totals */}
+              <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+                <div style={{ flex: 1, background: C.faint, borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: C.accent }}>{totalUsed}</div>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Used</div>
+                </div>
+                <div style={{ flex: 1, background: totalForfeited > 0 ? C.red + '10' : C.faint, borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: totalForfeited > 0 ? C.red : C.text }}>{totalForfeited}</div>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Forfeited</div>
+                </div>
+                <div style={{ flex: 1, background: C.faint, borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: C.text }}>{monthlyLimit * 12}</div>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Year Cap</div>
+                </div>
+              </div>
+
+              {/* Month Table */}
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                  <thead>
+                    <tr style={{ borderBottom: `2px solid ${C.border}` }}>
+                      {['Month','Base','+Roll','Cap','Used','Left','↩','Lost'].map(h => (
+                        <th key={h} style={{ textAlign: h === 'Month' ? 'left' : 'center', padding: '6px 4px', fontWeight: 800, color: h === 'Lost' ? C.red : C.sub, letterSpacing: 1, textTransform: 'uppercase', fontSize: 9 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthlyData.slice(0, visibleMonths).map((md, i) => {
+                      const subM = i + 1
+                      const isCurrent = subM === currentSubMonth
+                      const isFuture = subM > currentSubMonth
+                      const calInfo = getCalendarMonth(startDate, subM)
+                      const available = Math.max(0, md.total - md.used)
+                      return (
+                        <tr key={subM} style={{ background: isCurrent ? C.accent + '12' : 'transparent', borderLeft: isCurrent ? `3px solid ${C.accent}` : '3px solid transparent', opacity: isFuture ? 0.4 : 1 }}>
+                          <td style={{ padding: '7px 8px', fontWeight: isCurrent ? 800 : 600, color: isCurrent ? C.accent : C.text, whiteSpace: 'nowrap' }}>
+                            M{subM}
+                            {calInfo.label && <span style={{ display: 'block', fontSize: 9, color: C.sub, fontWeight: 600 }}>{calInfo.label}</span>}
+                            {calInfo.fiveWeeks && <span style={{ display: 'block', fontSize: 8, color: C.orange, fontWeight: 800, letterSpacing: 0.5 }}>5 WKS</span>}
+                          </td>
+                          <td style={{ textAlign: 'center', padding: '7px 4px', color: C.sub }}>{md.base}</td>
+                          <td style={{ textAlign: 'center', padding: '7px 4px', color: md.rolloverIn > 0 ? C.sky : C.sub }}>{md.rolloverIn > 0 ? `+${md.rolloverIn}` : '—'}</td>
+                          <td style={{ textAlign: 'center', padding: '7px 4px', fontWeight: 700, color: C.text }}>{md.total}</td>
+                          <td style={{ textAlign: 'center', padding: '7px 4px', fontWeight: 700, color: md.used > 0 ? C.green : C.sub }}>{md.used || '—'}</td>
+                          <td style={{ textAlign: 'center', padding: '7px 4px', fontWeight: 700, color: available > 0 ? (isCurrent ? C.accent : C.sub) : C.sub }}>{available > 0 ? available : '—'}</td>
+                          <td style={{ textAlign: 'center', padding: '7px 4px', color: md.rolloverOut > 0 ? C.sky : C.sub }}>{md.rolloverOut > 0 ? md.rolloverOut : '—'}</td>
+                          <td style={{ textAlign: 'center', padding: '7px 4px', fontWeight: md.forfeited > 0 ? 800 : 400, color: md.forfeited > 0 ? C.red : C.sub }}>{md.forfeited > 0 ? md.forfeited : '—'}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {!showAllMonths && currentSubMonth < 11 && (
+                <div style={{ textAlign: 'center', marginTop: 10, fontSize: 10, color: C.sub }}>
+                  Showing through Month {visibleMonths} ·{' '}
+                  <button onClick={() => setShowAllMonths(true)} style={{ background: 'none', border: 'none', color: C.accent, fontSize: 10, fontWeight: 700, cursor: 'pointer', padding: 0, fontFamily: 'Montserrat,sans-serif' }}>Show all 12</button>
+                </div>
+              )}
+
+              {/* Rollover Legend */}
+              <div style={{ marginTop: 14, padding: '10px 14px', background: C.faint, borderRadius: 8, fontSize: 10, color: C.sub, lineHeight: 1.6 }}>
+                <span style={{ color: C.sky, fontWeight: 700 }}>↩ Roll</span> — unused from odd month carries to next even month.{' '}
+                <span style={{ color: C.red, fontWeight: 700 }}>Lost</span> — not used in rollover month, forfeited.
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* RIGHT: Sign-In */}
+        <div style={{ flex: '1 1 280px', minWidth: 0 }}>
+          {!packageType && (
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '32px 24px', textAlign: 'center' }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>📅</div>
+              <div style={{ fontSize: 14, color: C.sub }}>Select a package on the left to begin tracking coaching sessions.</div>
+            </div>
+          )}
+
+          {packageType && (
+            <>
+              {/* Current Month Card */}
+              <div style={{ background: C.card, border: `2px solid ${C.accent}33`, borderRadius: 14, padding: '20px 24px', marginBottom: 16 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 2 }}>
+                  Month {currentSubMonth}{currentCalInfo.label ? ` · ${currentCalInfo.label}` : ''}
+                </div>
+                {currentCalInfo.fiveWeeks && (
+                  <div style={{ display: 'inline-block', marginBottom: 10, background: C.orange + '20', color: C.orange, borderRadius: 5, padding: '2px 8px', fontSize: 9, fontWeight: 800, letterSpacing: 1 }}>
+                    5-WEEK MONTH — cap stays at {currentMonthData.total}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+                  <div style={{ flex: 1, background: C.faint, borderRadius: 10, padding: '10px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 26, fontWeight: 800, color: C.green }}>{currentMonthData.used}</div>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, textTransform: 'uppercase', letterSpacing: 1 }}>Used</div>
+                  </div>
+                  {currentMonthData.rolloverIn > 0 && (
+                    <div style={{ flex: 1, background: C.sky + '15', borderRadius: 10, padding: '10px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 26, fontWeight: 800, color: C.sky }}>+{currentMonthData.rolloverIn}</div>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, textTransform: 'uppercase', letterSpacing: 1 }}>Rollover</div>
+                    </div>
+                  )}
+                  <div style={{ flex: 1, background: sessionsAvailableThisMonth > 0 ? C.accent + '12' : C.faint, borderRadius: 10, padding: '10px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 26, fontWeight: 800, color: sessionsAvailableThisMonth > 0 ? C.accent : C.sub }}>{sessionsAvailableThisMonth}</div>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, textTransform: 'uppercase', letterSpacing: 1 }}>Available</div>
+                  </div>
+                  <div style={{ flex: 1, background: C.faint, borderRadius: 10, padding: '10px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 26, fontWeight: 800, color: C.text }}>{currentMonthData.total}</div>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, textTransform: 'uppercase', letterSpacing: 1 }}>Cap</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sign-In Pad */}
+              {currentSubMonth <= 12 ? (
+                sessionsAvailableThisMonth > 0 ? (
+                  <div style={{ background: C.card, border: `2px solid ${C.accent}44`, borderRadius: 14, padding: '20px 24px', marginBottom: 16 }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 4 }}>
+                      Session {currentMonthData.used + 1} of {currentMonthData.total} this month
+                    </div>
+                    <div style={{ fontSize: 13, color: C.sub, marginBottom: 12 }}>Sign below — date &amp; time recorded automatically</div>
+                    <SignInPad onSign={handleSign} saving={saving} />
+                  </div>
+                ) : (
+                  <div style={{ background: C.orange + '10', border: `2px solid ${C.orange}44`, borderRadius: 14, padding: '20px 24px', marginBottom: 16, textAlign: 'center' }}>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: C.orange, marginBottom: 4 }}>Month {currentSubMonth} Full</div>
+                    <div style={{ fontSize: 13, color: C.sub }}>All {currentMonthData.total} sessions used for this month.</div>
+                    {currentSubMonth < 12 && (
+                      <div style={{ fontSize: 12, color: C.sub, marginTop: 8 }}>
+                        {currentSubMonth % 2 === 1
+                          ? `Any unused sessions will roll to Month ${currentSubMonth + 1}.`
+                          : `Month ${currentSubMonth + 1} starts fresh with ${monthlyLimit} sessions.`}
+                      </div>
+                    )}
+                  </div>
+                )
+              ) : (
+                <div style={{ background: C.orange + '10', border: `2px solid ${C.orange}44`, borderRadius: 14, padding: '24px', marginBottom: 16, textAlign: 'center' }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: C.orange }}>Subscription Complete</div>
+                  <div style={{ fontSize: 13, color: C.sub, marginTop: 6 }}>All 12 months complete. Reset to start a new subscription.</div>
+                </div>
+              )}
+
+              {/* This Month's Sign-In History */}
+              {currentMonthEntries.length > 0 && (
+                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 24px', marginBottom: 16 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>This Month</div>
+                    {selected.size > 0 && (
+                      <button onClick={handleBulkDelete} style={{ background: deleteConfirm === 0 ? C.red : deleteConfirm === 1 ? '#b91c1c' : '#7f1d1d', color: '#fff', border: 'none', borderRadius: 8, padding: '5px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+                        {deleteConfirm === 0 ? `Delete ${selected.size}` : deleteConfirm === 1 ? 'Confirm? (1/2)' : 'Final confirm (2/2)'}
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '28px 36px 1fr 60px 50px', fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', padding: '0 0 6px', borderBottom: `1px solid ${C.border}`, alignItems: 'center' }}>
+                    <div />
+                    <div>#</div><div>Date</div><div>Time</div><div>Sig</div>
+                  </div>
+                  {[...currentMonthEntries].reverse().map((entry, i) => {
+                    const realIdx = entries.indexOf(entry)
+                    const isSel = selected.has(realIdx)
+                    return (
+                      <div key={i} style={{ display: 'grid', gridTemplateColumns: '28px 36px 1fr 60px 50px', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${C.border}11`, background: isSel ? C.red + '08' : 'transparent' }}>
+                        <div><input type="checkbox" checked={isSel} onChange={() => toggleSelect(realIdx)} style={{ width: 14, height: 14, cursor: 'pointer', accentColor: C.accent }} /></div>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: C.accent }}>{entry.session}</div>
+                        <div style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>{entry.date}</div>
+                        <div style={{ fontSize: 11, color: C.sub }}>{entry.time || '—'}</div>
+                        <div>{entry.signature && <img src={entry.signature} alt="sig" style={{ height: 24, borderRadius: 4, border: `1px solid ${C.border}` }} />}</div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* All Sessions (collapsed) */}
+              {entries.length > currentMonthEntries.length && (
+                <details style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px' }}>
+                  <summary style={{ cursor: 'pointer', fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', listStyle: 'none', userSelect: 'none' }}>
+                    ▼ All Sessions ({entries.length} total)
+                  </summary>
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '36px 28px 1fr 60px 50px', fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', padding: '0 0 6px', borderBottom: `1px solid ${C.border}`, alignItems: 'center' }}>
+                      <div>Mo</div><div>#</div><div>Date</div><div>Time</div><div>Sig</div>
+                    </div>
+                    {[...entries].reverse().map((entry, i) => (
+                      <div key={i} style={{ display: 'grid', gridTemplateColumns: '36px 28px 1fr 60px 50px', alignItems: 'center', padding: '6px 0', borderBottom: `1px solid ${C.border}11` }}>
+                        <div style={{ fontSize: 9, color: C.sub, fontWeight: 700 }}>M{entry.subMonth || 1}</div>
+                        <div style={{ fontSize: 12, fontWeight: 800, color: C.accent }}>{entry.session}</div>
+                        <div style={{ fontSize: 11, color: C.text, fontWeight: 600 }}>{entry.date}</div>
+                        <div style={{ fontSize: 10, color: C.sub }}>{entry.time || '—'}</div>
+                        <div>{entry.signature && <img src={entry.signature} alt="sig" style={{ height: 22, borderRadius: 4, border: `1px solid ${C.border}` }} />}</div>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Check-In Popup */}
+      {showPopup && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }} onClick={() => setShowPopup(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: C.card, borderRadius: 20, padding: '40px 36px', textAlign: 'center', maxWidth: 340, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 6 }}>Session {showPopup.session} Signed In ✓</div>
+            <div style={{ fontSize: 52, fontWeight: 800, color: showPopup.available <= 2 ? C.orange : C.green, lineHeight: 1, margin: '16px 0' }}>{showPopup.available}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 4 }}>
+              {showPopup.available === 0 ? 'Month complete!' : `Session${showPopup.available === 1 ? '' : 's'} left this month`}
+            </div>
+            <div style={{ fontSize: 11, color: C.sub, marginBottom: 24 }}>Month {showPopup.month} · Cap of {showPopup.total}</div>
+            {showPopup.available <= 2 && showPopup.available > 0 && (
+              <div style={{ background: C.orange + '15', border: `1px solid ${C.orange}33`, borderRadius: 10, padding: '10px 14px', marginBottom: 20, fontSize: 12, color: C.orange, fontWeight: 700 }}>
+                Almost at this month's limit!
+              </div>
+            )}
+            <Btn onClick={() => setShowPopup(null)}>Got It</Btn>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── PDF VIEWER (renders all pages for iPad compatibility) ────────────────────
 function PdfViewer({ dataUrl, name }) {
   const containerRef = useRef(null)
@@ -5113,7 +5561,7 @@ function AssessmentHistoryModal({ assessment, client, onClose, onNewAssessment }
   )
 }
 
-function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onSignInSheet, onWeightTracker, onBack, allClients = [], onSwitchClient }) {
+function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onSignInSheet, onWeightTracker, onSubscription, onBack, allClients = [], onSwitchClient }) {
   const assessmentsDone = Object.keys(client.assessments || {})
   const [showIntake, setShowIntake] = useState(false)
   const [showLinkMenu, setShowLinkMenu] = useState(false)
@@ -5232,6 +5680,7 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Btn onClick={() => onWeightTracker(client)} small color={C.teal}>⚖️ Weight</Btn>
           <Btn onClick={() => onSignInSheet(client)} small color={C.green}>📋 Sign-In Sheet</Btn>
+          <Btn onClick={() => onSubscription(client)} small color={C.indigo}>📅 Subscription</Btn>
           <Btn onClick={() => onProtocolAdvisor(client)} small color={C.orange}>🩺 Protocols</Btn>
           <Btn onClick={() => onGenerateWorkout(client)} small>💪 Workout</Btn>
           <Btn onClick={() => onBuildProgram(client)} small>📋 Program</Btn>
@@ -5715,7 +6164,7 @@ export default function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {view !== 'roster' && (
             <div style={{ fontSize: 12, color: C.sub }}>
-              {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : view === 'signin' ? 'Sign-In Sheet' : view === 'weightTracker' ? 'Weight Tracker' : view === 'editClient' ? 'Edit Client' : client?.name}
+              {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : view === 'signin' ? 'Sign-In Sheet' : view === 'subscription' ? 'Coaching Sessions' : view === 'weightTracker' ? 'Weight Tracker' : view === 'editClient' ? 'Edit Client' : client?.name}
             </div>
           )}
           <button onClick={async () => { await fetch('/api/auth', { method: 'DELETE' }); setAuthed(false) }} style={{ padding: '4px 10px', borderRadius: 6, border: `1px solid ${C.border}`, background: 'transparent', color: C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
@@ -5742,6 +6191,7 @@ export default function App() {
             onGenerateWorkout={c => { setClient(c); setView('workout') }}
             onProtocolAdvisor={c => { setClient(c); setView('protocols') }}
             onSignInSheet={c => { setClient(c); setView('signin') }}
+            onSubscription={c => { setClient(c); setView('subscription') }}
             onWeightTracker={c => { setClient(c); setView('weightTracker') }}
             onEditClient={openEditClient}
             onBack={() => setView('roster')}
@@ -5785,6 +6235,13 @@ export default function App() {
         )}
         {view === 'signin' && client && (
           <SignInSheet
+            client={client}
+            onUpdate={updateClient}
+            onBack={() => setView('client')}
+          />
+        )}
+        {view === 'subscription' && client && (
+          <SubscriptionTracker
             client={client}
             onUpdate={updateClient}
             onBack={() => setView('client')}
