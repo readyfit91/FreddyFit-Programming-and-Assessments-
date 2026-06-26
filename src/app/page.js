@@ -4147,21 +4147,29 @@ function ProgramUploads({ client, onUpdate }) {
   const [expandedSetLogs, setExpandedSetLogs] = useState(new Set())
   const [weekNotesUnsaved, setWeekNotesUnsaved] = useState(false)
   const [weekNotesSaved, setWeekNotesSaved] = useState(false)
-  const [phaseNotesUnsaved, setPhaseNotesUnsaved] = useState(false)
-  const [phaseNotesSaved, setPhaseNotesSaved] = useState(false)
+  const [autoSaved, setAutoSaved] = useState(false)
   const journalRef = useRef(journal)
+  const autosaveTimer = useRef(null)
+  const isFirstRender = useRef(true)
 
   useEffect(() => {
     setWeekNotesUnsaved(false)
     setWeekNotesSaved(false)
   }, [journalKey])
 
-  useEffect(() => {
-    setPhaseNotesUnsaved(false)
-    setPhaseNotesSaved(false)
-  }, [phaseNotesKey])
-
   useEffect(() => { journalRef.current = journal }, [journal])
+
+  // Autosave 1 second after any journal change
+  useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return }
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current)
+    autosaveTimer.current = setTimeout(async () => {
+      await persist({ program_journal: journalRef.current })
+      setAutoSaved(true)
+      setTimeout(() => setAutoSaved(false), 2000)
+    }, 1000)
+    return () => { if (autosaveTimer.current) clearTimeout(autosaveTimer.current) }
+  }, [journal])
 
   // Update locally only — no persist
   const updateWeekDataLocal = (newDays, changedDayIdx) => {
@@ -4564,39 +4572,13 @@ function ProgramUploads({ client, onUpdate }) {
         </div>
       )}
 
-      {/* Main Notes — phase-level, persists across all weeks */}
-      <div style={{ marginBottom: 12, padding: '12px 14px', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-          <span style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Notes</span>
-          <button
-            onClick={savePhaseNotes}
-            disabled={saving || (!phaseNotesUnsaved && !phaseNotesSaved)}
-            style={{ marginLeft: 'auto', padding: '4px 14px', borderRadius: 7, border: 'none', background: phaseNotesSaved ? C.green : phaseNotesUnsaved ? C.accent : C.border, color: phaseNotesSaved ? '#fff' : phaseNotesUnsaved ? '#000' : C.sub, fontSize: 10, fontWeight: 700, cursor: phaseNotesUnsaved ? 'pointer' : 'default', fontFamily: 'Montserrat,sans-serif', letterSpacing: 0.5, transition: 'all .2s' }}
-          >
-            {saving ? 'Saving...' : phaseNotesSaved ? '✓ Saved!' : phaseNotesUnsaved ? 'Save Notes' : 'Saved'}
-          </button>
-        </div>
-        <textarea
-          value={phaseNotes}
-          onChange={e => updatePhaseNotesLocal(e.target.value)}
-          rows={4}
-          placeholder="Add notes from an outside source, program details, or general phase notes..."
-          style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', color: C.text, background: '#fff', resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.5 }}
-        />
-      </div>
-
       {/* Week Notes — for pasting notes from an outside source */}
       <div style={{ marginBottom: 16, padding: '12px 14px', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <span style={{ fontSize: 9, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Week Notes</span>
           <span style={{ fontSize: 10, color: C.sub, fontStyle: 'italic' }}>/ Outside Source</span>
-          <button
-            onClick={saveWeekNotes}
-            disabled={saving || (!weekNotesUnsaved && !weekNotesSaved)}
-            style={{ marginLeft: 'auto', padding: '4px 14px', borderRadius: 7, border: 'none', background: weekNotesSaved ? C.green : weekNotesUnsaved ? C.accent : C.border, color: weekNotesSaved ? '#fff' : weekNotesUnsaved ? '#000' : C.sub, fontSize: 10, fontWeight: 700, cursor: weekNotesUnsaved ? 'pointer' : 'default', fontFamily: 'Montserrat,sans-serif', letterSpacing: 0.5, transition: 'all .2s' }}
-          >
-            {saving ? 'Saving...' : weekNotesSaved ? '✓ Saved!' : weekNotesUnsaved ? 'Save Notes' : 'Saved'}
-          </button>
+          {saving && <span style={{ marginLeft: 'auto', fontSize: 10, color: C.sub, fontWeight: 700 }}>Saving...</span>}
+          {!saving && autoSaved && <span style={{ marginLeft: 'auto', fontSize: 10, color: C.green, fontWeight: 700 }}>✓ Saved</span>}
         </div>
         <textarea
           value={weekData.weekNotes || ''}
@@ -4776,22 +4758,14 @@ function ProgramUploads({ client, onUpdate }) {
             )}
           </div>
 
-          {/* Save Day button */}
-          <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
-            <button
-              onClick={() => saveDay(dayIdx)}
-              disabled={saving || (!unsavedDays.has(dayIdx) && !savedDays.has(dayIdx))}
-              style={{
-                padding: '6px 20px', borderRadius: 7, border: 'none',
-                background: savedDays.has(dayIdx) ? C.green : unsavedDays.has(dayIdx) ? C.accent : C.border,
-                color: savedDays.has(dayIdx) ? '#fff' : unsavedDays.has(dayIdx) ? '#000' : C.sub,
-                fontSize: 11, fontWeight: 700, cursor: unsavedDays.has(dayIdx) ? 'pointer' : 'default',
-                fontFamily: 'Montserrat,sans-serif', letterSpacing: 0.5, transition: 'all .2s'
-              }}
-            >
-              {saving ? 'Saving...' : savedDays.has(dayIdx) ? '✓ Saved!' : unsavedDays.has(dayIdx) ? 'Save Day' : 'Saved'}
-            </button>
-          </div>
+          {/* Autosave indicator */}
+          {(saving || (autoSaved && unsavedDays.has(dayIdx) === false)) && (
+            <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: saving ? C.sub : C.green }}>
+                {saving ? 'Saving...' : '✓ Saved'}
+              </span>
+            </div>
+          )}
           </>}
         </div>
       ))}
