@@ -3363,7 +3363,7 @@ function getSubMonth(startDateStr) {
   const start = new Date(startDateStr + 'T00:00:00')
   const now = new Date()
   const diff = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth())
-  return Math.min(12, Math.max(1, diff + 1))
+  return Math.min(6, Math.max(1, diff + 1))
 }
 
 function calcMonthlyData(entries, monthlyLimit) {
@@ -3371,7 +3371,7 @@ function calcMonthlyData(entries, monthlyLimit) {
   entries.forEach(e => { const m = e.subMonth || 1; byMonth[m] = (byMonth[m] || 0) + 1 })
   const months = []
   let rolloverIn = 0
-  for (let m = 1; m <= 12; m++) {
+  for (let m = 1; m <= 6; m++) {
     const used = byMonth[m] || 0
     const isOdd = m % 2 === 1
     if (isOdd) {
@@ -3389,17 +3389,90 @@ function calcMonthlyData(entries, monthlyLimit) {
   return months
 }
 
-function getCalendarMonth(startDateStr, subMonth) {
-  if (!startDateStr) return { label: '', fiveWeeks: false }
+// Jan=1,Mar=3,May=5,Jul=7,Aug=8,Oct=10,Dec=12 always have 5 weeks per trainer spec
+const FIVE_WEEK_MONTHS = new Set([1, 3, 5, 7, 8, 10, 12])
+
+function getCalendarData(startDateStr, subMonth) {
+  if (!startDateStr) return null
   const start = new Date(startDateStr + 'T00:00:00')
-  const totalMonths = start.getMonth() + (subMonth - 1)
-  const calYear = start.getFullYear() + Math.floor(totalMonths / 12)
-  const calMonth = (totalMonths % 12) + 1
-  const daysInMonth = new Date(calYear, calMonth, 0).getDate()
-  const firstDay = new Date(calYear, calMonth - 1, 1).getDay()
-  const fiveWeeks = firstDay + daysInMonth > 35
-  const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-  return { label: `${names[calMonth - 1]} ${calYear}`, fiveWeeks }
+  const totalMonthsOff = start.getMonth() + (subMonth - 1)
+  const calYear = start.getFullYear() + Math.floor(totalMonthsOff / 12)
+  const calMonth0 = totalMonthsOff % 12 // 0-based
+  const calMonth1 = calMonth0 + 1 // 1-based
+  const daysInMonth = new Date(calYear, calMonth1, 0).getDate()
+  const firstDow = new Date(calYear, calMonth0, 1).getDay()
+  const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
+  const SHORT_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const today = new Date()
+  const isCurrentCalMonth = today.getFullYear() === calYear && today.getMonth() === calMonth0
+  const todayDate = isCurrentCalMonth ? today.getDate() : null
+
+  // Build week rows
+  const weeks = []
+  let week = []
+  for (let i = 0; i < firstDow; i++) week.push(null)
+  for (let d = 1; d <= daysInMonth; d++) {
+    week.push(d)
+    if (week.length === 7) { weeks.push(week); week = [] }
+  }
+  if (week.length > 0) { while (week.length < 7) week.push(null); weeks.push(week) }
+
+  let currentWeekIdx = null
+  if (todayDate) weeks.forEach((w, i) => { if (w.includes(todayDate)) currentWeekIdx = i })
+
+  const fiveWeeks = FIVE_WEEK_MONTHS.has(calMonth1)
+
+  return {
+    label: `${MONTH_NAMES[calMonth0]} ${calYear}`,
+    shortLabel: `${SHORT_NAMES[calMonth0]} ${calYear}`,
+    calYear, calMonth1,
+    weeks, todayDate, currentWeekIdx,
+    totalWeeks: weeks.length,
+    fiveWeeks
+  }
+}
+
+function MiniCalendar({ calData }) {
+  if (!calData) return null
+  const DOW = ['Su','Mo','Tu','We','Th','Fr','Sa']
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '18px 20px', marginBottom: 16 }}>
+      <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>Calendar</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>{calData.label}</div>
+        {calData.currentWeekIdx !== null && (
+          <div style={{ background: C.accent + '18', color: C.accent, borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 800 }}>
+            Week {calData.currentWeekIdx + 1} of {calData.totalWeeks}
+          </div>
+        )}
+      </div>
+      {calData.fiveWeeks && (
+        <div style={{ marginBottom: 8, display: 'inline-block', background: C.orange + '18', color: C.orange, borderRadius: 5, padding: '2px 8px', fontSize: 9, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase' }}>
+          5-Week Month
+        </div>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, marginBottom: 3 }}>
+        {DOW.map(d => <div key={d} style={{ textAlign: 'center', fontSize: 9, fontWeight: 700, color: C.sub, padding: '2px 0' }}>{d}</div>)}
+      </div>
+      {calData.weeks.map((week, wi) => {
+        const isCurrentWeek = wi === calData.currentWeekIdx
+        return (
+          <div key={wi} style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, background: isCurrentWeek ? C.accent + '14' : 'transparent', borderRadius: 6, marginBottom: 1, padding: '1px 0' }}>
+            {week.map((day, di) => (
+              <div key={di} style={{
+                textAlign: 'center', fontSize: 12, padding: '5px 2px', borderRadius: 5,
+                fontWeight: day === calData.todayDate ? 800 : 500,
+                color: day === calData.todayDate ? '#fff' : day ? (isCurrentWeek ? C.text : C.sub) : 'transparent',
+                background: day === calData.todayDate ? C.accent : 'transparent',
+              }}>
+                {day || ''}
+              </div>
+            ))}
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 class SubscriptionErrorBoundary extends React.Component {
@@ -3456,7 +3529,7 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
   const currentMonthData = monthlyData[currentSubMonth - 1] || { total: 0, used: 0, rolloverIn: 0, forfeited: 0, rolloverOut: 0 }
   const totalForfeited = monthlyData.reduce((s, m) => s + m.forfeited, 0)
   const totalUsed = entries.length
-  const currentCalInfo = getCalendarMonth(startDate, currentSubMonth)
+  const currentCalInfo = getCalendarData(startDate, currentSubMonth)
   const sessionsAvailableThisMonth = Math.max(0, currentMonthData.total - currentMonthData.used)
 
   const saveLocal = (p, sd, ents) => {
@@ -3538,7 +3611,7 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
   }
 
   const currentMonthEntries = entries.filter(e => (e.subMonth || 1) === currentSubMonth)
-  const visibleMonths = showAllMonths ? 12 : Math.min(12, Math.max(currentSubMonth + 1, 3))
+  const visibleMonths = showAllMonths ? 6 : Math.min(6, Math.max(currentSubMonth + 1, 3))
 
   return (
     <div style={{ maxWidth: 1020, margin: '0 auto', padding: '0 24px 32px' }}>
@@ -3572,7 +3645,7 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
                 </div>
                 <div style={{ fontSize: 11, color: C.sub }}>
                   Started {startDate ? new Date(startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—'}
-                  {' · '}Month {currentSubMonth} of 12
+                  {' · '}Month {currentSubMonth} of 6
                 </div>
                 {resetConfirm ? (
                   <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -3604,7 +3677,7 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                 <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>52-Week Distribution</div>
                 <button onClick={() => setShowAllMonths(!showAllMonths)} style={{ background: 'none', border: 'none', color: C.accent, fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: 0, fontFamily: 'Montserrat,sans-serif' }}>
-                  {showAllMonths ? 'Show Less' : 'Show All 12'}
+                  {showAllMonths ? 'Show Less' : 'Show All 6'}
                 </button>
               </div>
 
@@ -3619,8 +3692,8 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
                   <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Forfeited</div>
                 </div>
                 <div style={{ flex: 1, background: C.faint, borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: C.text }}>{monthlyLimit * 12}</div>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Year Cap</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: C.text }}>{monthlyLimit * 6}</div>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>6-Mo Cap</div>
                 </div>
               </div>
 
@@ -3639,14 +3712,14 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
                       const subM = i + 1
                       const isCurrent = subM === currentSubMonth
                       const isFuture = subM > currentSubMonth
-                      const calInfo = getCalendarMonth(startDate, subM)
+                      const calInfo = getCalendarData(startDate, subM)
                       const available = Math.max(0, md.total - md.used)
                       return (
                         <tr key={subM} style={{ background: isCurrent ? C.accent + '12' : 'transparent', borderLeft: isCurrent ? `3px solid ${C.accent}` : '3px solid transparent', opacity: isFuture ? 0.4 : 1 }}>
                           <td style={{ padding: '7px 8px', fontWeight: isCurrent ? 800 : 600, color: isCurrent ? C.accent : C.text, whiteSpace: 'nowrap' }}>
                             M{subM}
-                            {calInfo.label && <span style={{ display: 'block', fontSize: 9, color: C.sub, fontWeight: 600 }}>{calInfo.label}</span>}
-                            {calInfo.fiveWeeks && <span style={{ display: 'block', fontSize: 8, color: C.orange, fontWeight: 800, letterSpacing: 0.5 }}>5 WKS</span>}
+                            {calInfo?.shortLabel && <span style={{ display: 'block', fontSize: 9, color: C.sub, fontWeight: 600 }}>{calInfo.shortLabel}</span>}
+                            {calInfo?.fiveWeeks && <span style={{ display: 'block', fontSize: 8, color: C.orange, fontWeight: 800, letterSpacing: 0.5 }}>5 WKS</span>}
                           </td>
                           <td style={{ textAlign: 'center', padding: '7px 4px', color: C.sub }}>{md.base}</td>
                           <td style={{ textAlign: 'center', padding: '7px 4px', color: md.rolloverIn > 0 ? C.sky : C.sub }}>{md.rolloverIn > 0 ? `+${md.rolloverIn}` : '—'}</td>
@@ -3661,10 +3734,10 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
                   </tbody>
                 </table>
               </div>
-              {!showAllMonths && currentSubMonth < 11 && (
+              {!showAllMonths && currentSubMonth < 5 && (
                 <div style={{ textAlign: 'center', marginTop: 10, fontSize: 10, color: C.sub }}>
                   Showing through Month {visibleMonths} ·{' '}
-                  <button onClick={() => setShowAllMonths(true)} style={{ background: 'none', border: 'none', color: C.accent, fontSize: 10, fontWeight: 700, cursor: 'pointer', padding: 0, fontFamily: 'Montserrat,sans-serif' }}>Show all 12</button>
+                  <button onClick={() => setShowAllMonths(true)} style={{ background: 'none', border: 'none', color: C.accent, fontSize: 10, fontWeight: 700, cursor: 'pointer', padding: 0, fontFamily: 'Montserrat,sans-serif' }}>Show all 6</button>
                 </div>
               )}
 
@@ -3688,12 +3761,15 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
 
           {packageType && (
             <>
+              {/* Calendar Widget */}
+              <MiniCalendar calData={currentCalInfo} />
+
               {/* Current Month Card */}
               <div style={{ background: C.card, border: `2px solid ${C.accent}33`, borderRadius: 14, padding: '20px 24px', marginBottom: 16 }}>
                 <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 2 }}>
-                  Month {currentSubMonth}{currentCalInfo.label ? ` · ${currentCalInfo.label}` : ''}
+                  Month {currentSubMonth}{currentCalInfo?.shortLabel ? ` · ${currentCalInfo.shortLabel}` : ''}
                 </div>
-                {currentCalInfo.fiveWeeks && (
+                {currentCalInfo?.fiveWeeks && (
                   <div style={{ display: 'inline-block', marginBottom: 10, background: C.orange + '20', color: C.orange, borderRadius: 5, padding: '2px 8px', fontSize: 9, fontWeight: 800, letterSpacing: 1 }}>
                     5-WEEK MONTH — cap stays at {currentMonthData.total}
                   </div>
@@ -3721,7 +3797,7 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
               </div>
 
               {/* Sign-In Pad */}
-              {currentSubMonth <= 12 ? (
+              {currentSubMonth <= 6 ? (
                 sessionsAvailableThisMonth > 0 ? (
                   <div style={{ background: C.card, border: `2px solid ${C.accent}44`, borderRadius: 14, padding: '20px 24px', marginBottom: 16 }}>
                     <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 4 }}>
@@ -3734,7 +3810,7 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
                   <div style={{ background: C.orange + '10', border: `2px solid ${C.orange}44`, borderRadius: 14, padding: '20px 24px', marginBottom: 16, textAlign: 'center' }}>
                     <div style={{ fontSize: 18, fontWeight: 800, color: C.orange, marginBottom: 4 }}>Month {currentSubMonth} Full</div>
                     <div style={{ fontSize: 13, color: C.sub }}>All {currentMonthData.total} sessions used for this month.</div>
-                    {currentSubMonth < 12 && (
+                    {currentSubMonth < 6 && (
                       <div style={{ fontSize: 12, color: C.sub, marginTop: 8 }}>
                         {currentSubMonth % 2 === 1
                           ? `Any unused sessions will roll to Month ${currentSubMonth + 1}.`
@@ -3746,7 +3822,7 @@ function SubscriptionTracker({ client, onBack, onUpdate }) {
               ) : (
                 <div style={{ background: C.orange + '10', border: `2px solid ${C.orange}44`, borderRadius: 14, padding: '24px', marginBottom: 16, textAlign: 'center' }}>
                   <div style={{ fontSize: 18, fontWeight: 800, color: C.orange }}>Subscription Complete</div>
-                  <div style={{ fontSize: 13, color: C.sub, marginTop: 6 }}>All 12 months complete. Reset to start a new subscription.</div>
+                  <div style={{ fontSize: 13, color: C.sub, marginTop: 6 }}>All 6 months complete. Reset to start a new subscription.</div>
                 </div>
               )}
 
