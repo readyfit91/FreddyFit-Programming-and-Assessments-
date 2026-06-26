@@ -5390,6 +5390,95 @@ function ClientReminders({ client, onUpdate }) {
   )
 }
 
+// ── WEIGH-IN REMINDER ─────────────────────────────────────────────────────────
+const WEIGH_FREQS = [
+  { value: 'every_session', label: 'Every Session' },
+  { value: 'weekly',        label: 'Weekly' },
+  { value: 'biweekly',      label: 'Biweekly' },
+  { value: 'monthly',       label: 'Monthly' },
+]
+
+function addDays(dateStr, n) {
+  const d = new Date(dateStr + 'T00:00:00')
+  d.setDate(d.getDate() + n)
+  return d.toISOString().split('T')[0]
+}
+
+function nextWeighIn(lastDate, freq) {
+  if (!lastDate || !freq) return null
+  const days = { every_session: 0, weekly: 7, biweekly: 14, monthly: 30 }
+  return addDays(lastDate, days[freq] || 7)
+}
+
+function WeighInReminder({ client, onUpdate }) {
+  const parse = () => { try { return JSON.parse(client.trainerNotes || '{}') } catch { return {} } }
+  const d = parse()
+  const [lastDate, setLastDate] = useState(d.wi_last_date || '')
+  const [freq, setFreq] = useState(d.wi_freq || '')
+  const [saving, setSaving] = useState(false)
+
+  const save = async (ld, fr) => {
+    setSaving(true)
+    try {
+      const base = parse()
+      const updatedClient = { ...client, trainerNotes: JSON.stringify({ ...base, wi_last_date: ld, wi_freq: fr }) }
+      await saveClient(updatedClient)
+      onUpdate(updatedClient)
+    } catch (e) { alert('Error: ' + e.message) }
+    setSaving(false)
+  }
+
+  const next = nextWeighIn(lastDate, freq)
+  const today = new Date().toISOString().split('T')[0]
+  const overdue = next && next <= today
+  const daysUntil = next ? Math.ceil((new Date(next + 'T00:00:00') - new Date(today + 'T00:00:00')) / 86400000) : null
+  const fmtDate = (s) => s ? new Date(s + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
+
+  return (
+    <div style={{ background: C.card, border: `1.5px solid ${overdue ? C.orange + '88' : C.border}`, borderRadius: 14, padding: '14px 18px', marginBottom: 16 }}>
+      <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: overdue ? C.orange : C.sub, textTransform: 'uppercase', marginBottom: 10 }}>
+        ⚖️ Weigh-In Tracker
+      </div>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, marginBottom: 4 }}>Last / Initial Weigh-In</div>
+          <input
+            type="date"
+            value={lastDate}
+            onChange={e => { setLastDate(e.target.value); save(e.target.value, freq) }}
+            style={{ padding: '6px 10px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', color: C.text, background: '#fff', outline: 'none' }}
+          />
+        </div>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, marginBottom: 4 }}>Frequency</div>
+          <select
+            value={freq}
+            onChange={e => { setFreq(e.target.value); save(lastDate, e.target.value) }}
+            style={{ padding: '6px 10px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, color: freq ? C.text : C.sub, background: '#fff', outline: 'none', cursor: 'pointer' }}
+          >
+            <option value="">— select —</option>
+            {WEIGH_FREQS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+          </select>
+        </div>
+        {next && (
+          <div style={{ padding: '6px 14px', borderRadius: 10, background: overdue ? C.orange + '15' : C.faint, border: `1.5px solid ${overdue ? C.orange + '55' : C.border}` }}>
+            <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: 1, color: overdue ? C.orange : C.sub, textTransform: 'uppercase', marginBottom: 2 }}>
+              {overdue ? '⚠ Overdue' : 'Next Weigh-In'}
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: overdue ? C.orange : C.text }}>{fmtDate(next)}</div>
+            {daysUntil !== null && (
+              <div style={{ fontSize: 10, color: overdue ? C.orange : C.sub, fontWeight: 600, marginTop: 1 }}>
+                {overdue ? `${Math.abs(daysUntil)} day${Math.abs(daysUntil) !== 1 ? 's' : ''} overdue` : daysUntil === 0 ? 'Today!' : `in ${daysUntil} day${daysUntil !== 1 ? 's' : ''}`}
+              </div>
+            )}
+          </div>
+        )}
+        {saving && <span style={{ fontSize: 10, color: C.sub, fontWeight: 700 }}>Saving...</span>}
+      </div>
+    </div>
+  )
+}
+
 // ── CLIENT NOTES ──────────────────────────────────────────────────────────────
 function ClientNotes({ client, onUpdate }) {
   const intake = (() => { try { return JSON.parse(client.trainerNotes || '{}') } catch { return {} } })()
@@ -5983,6 +6072,9 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
 
       {/* Client Reminders */}
       <ClientReminders client={client} onUpdate={onUpdate} />
+
+      {/* Weigh-In Reminder */}
+      <WeighInReminder client={client} onUpdate={onUpdate} />
 
       {/* Client Notes */}
       <ClientNotes client={client} onUpdate={onUpdate} />
