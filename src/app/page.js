@@ -4780,19 +4780,37 @@ function ProgramUploads({ client, onUpdate }) {
 
 // ── CLIENT PROFILE ────────────────────────────────────────────────────────────
 // ── WEIGHT & BODY FAT TRACKER ────────────────────────────────────────────────
+const BEHAVIOR_TAGS = [
+  { key: 'hormonal',       label: 'Hormonal',                color: '#9B59B6' },
+  { key: 'eating_out',     label: 'Eating Out',              color: '#E67E22' },
+  { key: 'lazy',           label: 'Lazy',                    color: '#E74C3C' },
+  { key: 'traveling',      label: 'Traveling',               color: '#3498DB' },
+  { key: 'late_night',     label: 'Late Night Snacking',     color: '#1ABC9C' },
+  { key: 'failing_plan',   label: 'Failing to Plan',         color: '#E91E63' },
+  { key: 'no_accountability', label: 'No Accountability',    color: '#FF9800' },
+]
+
+function parseTags(raw) {
+  if (!raw) return []
+  try { const p = JSON.parse(raw); return Array.isArray(p) ? p : [] } catch { return [] }
+}
+
 function WeightTracker({ client, onBack, onUpdate }) {
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [weight, setWeight] = useState('')
+  const [bmi, setBmi] = useState('')
   const [bodyFat, setBodyFat] = useState('')
   const [rating, setRating] = useState('')
+  const [selectedTags, setSelectedTags] = useState([])
   const [behaviorNotes, setBehaviorNotes] = useState('')
   const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0])
   const [showHistory, setShowHistory] = useState(false)
   const [showJourneyModal, setShowJourneyModal] = useState(false)
   const chartRef = useRef(null)
   const modalChartRef = useRef(null)
+  const pieRef = useRef(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -4809,14 +4827,17 @@ function WeightTracker({ client, onBack, onUpdate }) {
     if (!weight && !bodyFat) return alert('Enter at least weight or body fat %.')
     setSaving(true)
     try {
+      const tagsJson = selectedTags.length ? JSON.stringify(selectedTags) : (behaviorNotes || null)
       await saveWeightLog(client.id, {
         weight: weight ? parseFloat(weight) : null,
+        bmi: bmi ? parseFloat(bmi) : null,
         bodyFat: bodyFat ? parseFloat(bodyFat) : null,
         rating: rating || null,
-        behaviorNotes,
+        behaviorNotes: tagsJson,
         loggedAt: new Date(logDate + 'T12:00:00').toISOString()
       })
-      setWeight(''); setBodyFat(''); setRating(''); setBehaviorNotes(''); setLogDate(new Date().toISOString().split('T')[0])
+      setWeight(''); setBmi(''); setBodyFat(''); setRating(''); setSelectedTags([]); setBehaviorNotes('')
+      setLogDate(new Date().toISOString().split('T')[0])
       await load()
     } catch (e) { alert('Error saving: ' + e.message) }
     setSaving(false)
@@ -4855,35 +4876,19 @@ function WeightTracker({ client, onBack, onUpdate }) {
       const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
       if (lines.length < 2) { alert('CSV appears empty or has only a header row.'); return }
 
-      // Detect delimiter
       const delim = lines[0].includes('\t') ? '\t' : ','
-      const headers = lines[0].split(delim).map(h => h.replace(/^"|"$/g, '').trim().toLowerCase())
+      // Skip header row, read data: col A=date, col B=weight, col C=BMI, col D=body fat
       const dataRows = lines.slice(1).map(l => l.split(delim).map(c => c.replace(/^"|"$/g, '').trim()))
 
-      // Auto-detect columns by header name
-      const findCol = (...terms) => headers.findIndex(h => terms.some(t => h.includes(t)))
-      let dateCol = findCol('date', 'day', 'time', 'logged')
-      let weightCol = findCol('weight', 'lbs', 'lb', 'kg', 'mass')
-      let fatCol = findCol('fat', 'bf', 'body')
-
-      // Fallback: if no header match, try to detect by content of first data row
-      if (dateCol < 0) {
-        dataRows[0].forEach((val, i) => { if (dateCol < 0 && parseDate(val)) dateCol = i })
-      }
-      if (weightCol < 0) {
-        dataRows[0].forEach((val, i) => { if (i !== dateCol && weightCol < 0 && !isNaN(parseFloat(val))) weightCol = i })
-      }
-
-      // Build preview rows
-      const rows = dataRows.slice(0, 200).map(cols => ({
-        raw: cols,
-        date: dateCol >= 0 ? cols[dateCol] : '',
-        weight: weightCol >= 0 ? cols[weightCol] : '',
-        fat: fatCol >= 0 ? cols[fatCol] : '',
+      const rows = dataRows.slice(0, 500).map(cols => ({
+        date: cols[0] || '',
+        weight: cols[1] || '',
+        bmi: cols[2] || '',
+        fat: cols[3] || '',
       })).filter(r => parseDate(r.date) && (!isNaN(parseFloat(r.weight)) || !isNaN(parseFloat(r.fat))))
 
-      if (!rows.length) { alert('No valid rows found. Make sure your CSV has a date column and at least a weight or body fat column.'); return }
-      setCsvPreview({ rows, headers, dateCol, weightCol, fatCol, fileName: file.name, totalLines: dataRows.length })
+      if (!rows.length) { alert('No valid rows found. Expected: col A = date/time, col B = weight, col C = BMI, col D = body fat.'); return }
+      setCsvPreview({ rows, fileName: file.name, totalLines: dataRows.length })
     }
     reader.readAsText(file)
   }
@@ -4895,14 +4900,16 @@ function WeightTracker({ client, onBack, onUpdate }) {
     for (const row of csvPreview.rows) {
       const d = parseDate(row.date)
       const w = parseFloat(row.weight)
+      const bmiVal = parseFloat(row.bmi)
       const bf = parseFloat(row.fat)
       if (!d) { failed++; continue }
       try {
         await saveWeightLog(client.id, {
           weight: isNaN(w) ? null : w,
+          bmi: isNaN(bmiVal) ? null : bmiVal,
           bodyFat: isNaN(bf) ? null : bf,
-          rating: null, behaviorNotes: '',
-          loggedAt: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12).toISOString()
+          rating: null, behaviorNotes: null,
+          loggedAt: new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours ? d.getHours() : 12, d.getMinutes ? d.getMinutes() : 0).toISOString()
         })
         imported++
       } catch { failed++ }
@@ -5086,14 +5093,54 @@ function WeightTracker({ client, onBack, onUpdate }) {
     }
   }, [showJourneyModal, drawChart])
 
+  // Behavior pie chart
+  const drawPie = useCallback((canvas) => {
+    if (!canvas) return
+    const tagCounts = {}
+    logs.forEach(l => {
+      parseTags(l.behavior_notes).forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1 })
+    })
+    const entries = Object.entries(tagCounts).filter(([, v]) => v > 0)
+    if (!entries.length) return
+    const total = entries.reduce((s, [, v]) => s + v, 0)
+    const dpr = window.devicePixelRatio || 1
+    const size = Math.min(canvas.offsetWidth, 220)
+    canvas.width = size * dpr; canvas.height = size * dpr
+    canvas.style.width = size + 'px'; canvas.style.height = size + 'px'
+    const ctx = canvas.getContext('2d')
+    ctx.scale(dpr, dpr)
+    const cx = size / 2, cy = size / 2, r = size / 2 - 6
+    let angle = -Math.PI / 2
+    entries.forEach(([key, count]) => {
+      const tag = BEHAVIOR_TAGS.find(t => t.key === key)
+      const slice = (count / total) * 2 * Math.PI
+      ctx.beginPath(); ctx.moveTo(cx, cy)
+      ctx.arc(cx, cy, r, angle, angle + slice)
+      ctx.closePath()
+      ctx.fillStyle = tag?.color || '#aaa'
+      ctx.fill()
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke()
+      angle += slice
+    })
+    // Center hole
+    ctx.beginPath(); ctx.arc(cx, cy, r * 0.45, 0, 2 * Math.PI)
+    ctx.fillStyle = '#fff'; ctx.fill()
+  }, [logs])
+
+  useEffect(() => { setTimeout(() => drawPie(pieRef.current), 50) }, [drawPie])
+
   const input = { width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 13, color: C.text, outline: 'none', background: C.faint, boxSizing: 'border-box' }
 
   const latestWeight = [...logs].reverse().find(l => l.weight != null)
+  const latestBmi = [...logs].reverse().find(l => l.bmi != null)
   const latestFat = [...logs].reverse().find(l => l.body_fat != null)
   const firstWeight = logs.find(l => l.weight != null)
   const firstFat = logs.find(l => l.body_fat != null)
   const weightChange = latestWeight && firstWeight && latestWeight !== firstWeight ? (latestWeight.weight - firstWeight.weight).toFixed(1) : null
   const fatChange = latestFat && firstFat && latestFat !== firstFat ? (latestFat.body_fat - firstFat.body_fat).toFixed(1) : null
+  const tagCounts = {}
+  logs.forEach(l => { parseTags(l.behavior_notes).forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1 }) })
+  const hasTags = Object.keys(tagCounts).length > 0
 
   return (
     <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 24px 32px' }}>
@@ -5104,25 +5151,32 @@ function WeightTracker({ client, onBack, onUpdate }) {
       <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 3, color: C.text, marginBottom: 24 }}>{client.name}</div>
 
       {/* Summary cards */}
-      {(latestWeight || latestFat) && (
+      {(latestWeight || latestFat || latestBmi) && (
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 24 }}>
           {latestWeight && (
-            <div style={{ flex: '1 1 160px', background: C.accent + '10', border: `1.5px solid ${C.accent}33`, borderRadius: 12, padding: '14px 18px' }}>
+            <div style={{ flex: '1 1 140px', background: C.accent + '10', border: `1.5px solid ${C.accent}33`, borderRadius: 12, padding: '14px 18px' }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: C.accent, letterSpacing: 1.5, textTransform: 'uppercase' }}>Current Weight</div>
-              <div style={{ fontSize: 28, fontWeight: 800, color: C.text, marginTop: 2 }}>{latestWeight.weight}<span style={{ fontSize: 13, color: C.sub }}> lbs</span></div>
-              {weightChange && <div style={{ fontSize: 12, fontWeight: 700, color: parseFloat(weightChange) <= 0 ? C.green : C.red, marginTop: 2 }}>{parseFloat(weightChange) > 0 ? '+' : ''}{weightChange} lbs total</div>}
+              <div style={{ fontSize: 26, fontWeight: 800, color: C.text, marginTop: 2 }}>{latestWeight.weight}<span style={{ fontSize: 12, color: C.sub }}> lbs</span></div>
+              {weightChange && <div style={{ fontSize: 11, fontWeight: 700, color: parseFloat(weightChange) <= 0 ? C.green : C.red, marginTop: 2 }}>{parseFloat(weightChange) > 0 ? '+' : ''}{weightChange} lbs total</div>}
+            </div>
+          )}
+          {latestBmi && (
+            <div style={{ flex: '1 1 140px', background: C.teal + '10', border: `1.5px solid ${C.teal}33`, borderRadius: 12, padding: '14px 18px' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.teal, letterSpacing: 1.5, textTransform: 'uppercase' }}>BMI</div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: C.text, marginTop: 2 }}>{latestBmi.bmi}</div>
+              <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>{latestBmi.bmi < 18.5 ? 'Underweight' : latestBmi.bmi < 25 ? 'Normal' : latestBmi.bmi < 30 ? 'Overweight' : 'Obese'}</div>
             </div>
           )}
           {latestFat && (
-            <div style={{ flex: '1 1 160px', background: C.orange + '10', border: `1.5px solid ${C.orange}33`, borderRadius: 12, padding: '14px 18px' }}>
+            <div style={{ flex: '1 1 140px', background: C.orange + '10', border: `1.5px solid ${C.orange}33`, borderRadius: 12, padding: '14px 18px' }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: C.orange, letterSpacing: 1.5, textTransform: 'uppercase' }}>Body Fat</div>
-              <div style={{ fontSize: 28, fontWeight: 800, color: C.text, marginTop: 2 }}>{latestFat.body_fat}<span style={{ fontSize: 13, color: C.sub }}>%</span></div>
-              {fatChange && <div style={{ fontSize: 12, fontWeight: 700, color: parseFloat(fatChange) <= 0 ? C.green : C.red, marginTop: 2 }}>{parseFloat(fatChange) > 0 ? '+' : ''}{fatChange}% total</div>}
+              <div style={{ fontSize: 26, fontWeight: 800, color: C.text, marginTop: 2 }}>{latestFat.body_fat}<span style={{ fontSize: 12, color: C.sub }}>%</span></div>
+              {fatChange && <div style={{ fontSize: 11, fontWeight: 700, color: parseFloat(fatChange) <= 0 ? C.green : C.red, marginTop: 2 }}>{parseFloat(fatChange) > 0 ? '+' : ''}{fatChange}% total</div>}
             </div>
           )}
-          <div style={{ flex: '1 1 160px', background: C.faint, border: `1.5px solid ${C.border}`, borderRadius: 12, padding: '14px 18px' }}>
+          <div style={{ flex: '1 1 140px', background: C.faint, border: `1.5px solid ${C.border}`, borderRadius: 12, padding: '14px 18px' }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1.5, textTransform: 'uppercase' }}>Weigh-Ins</div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: C.text, marginTop: 2 }}>{logs.length}</div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: C.text, marginTop: 2 }}>{logs.length}</div>
             <div style={{ fontSize: 12, color: C.sub }}>logged</div>
           </div>
         </div>
@@ -5162,7 +5216,7 @@ function WeightTracker({ client, onBack, onUpdate }) {
       {/* Input Form */}
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 20px', marginBottom: 24 }}>
         <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 16 }}>LOG WEIGH-IN</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12, marginBottom: 14 }}>
           <div>
             <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Date</label>
             <input type="date" value={logDate} onChange={e => setLogDate(e.target.value)} style={input} />
@@ -5170,6 +5224,10 @@ function WeightTracker({ client, onBack, onUpdate }) {
           <div>
             <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Weight (lbs)</label>
             <input type="number" step="0.1" value={weight} onChange={e => setWeight(e.target.value)} placeholder="185.0" style={input} />
+          </div>
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 700, color: C.teal, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>BMI</label>
+            <input type="number" step="0.1" value={bmi} onChange={e => setBmi(e.target.value)} placeholder="24.5" style={input} />
           </div>
           <div>
             <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Body Fat %</label>
@@ -5189,9 +5247,24 @@ function WeightTracker({ client, onBack, onUpdate }) {
           </div>
         </div>
 
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>What's the issue? (select all that apply)</label>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {BEHAVIOR_TAGS.map(tag => {
+              const on = selectedTags.includes(tag.key)
+              return (
+                <button key={tag.key} onClick={() => setSelectedTags(prev => on ? prev.filter(k => k !== tag.key) : [...prev, tag.key])}
+                  style={{ padding: '7px 14px', borderRadius: 20, border: `2px solid ${on ? tag.color : C.border}`, background: on ? tag.color + '20' : 'white', color: on ? tag.color : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer', transition: 'all .15s' }}>
+                  {tag.label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
         <div style={{ marginBottom: 14 }}>
-          <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Behavior Notes / What to Address</label>
-          <textarea value={behaviorNotes} onChange={e => setBehaviorNotes(e.target.value)} rows={3} placeholder="e.g. Missed meals on weekends, hydration low, stress eating..." style={{ ...input, resize: 'vertical' }} />
+          <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Additional Notes</label>
+          <textarea value={behaviorNotes} onChange={e => setBehaviorNotes(e.target.value)} rows={2} placeholder="Any other observations..." style={{ ...input, resize: 'vertical' }} />
         </div>
 
         <Btn onClick={handleSave} disabled={saving || (!weight && !bodyFat)}>
@@ -5218,10 +5291,18 @@ function WeightTracker({ client, onBack, onUpdate }) {
                       <div style={{ display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
                         <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{dateStr}</span>
                         {l.weight != null && <span style={{ fontSize: 12, color: C.accent, fontWeight: 700 }}>{l.weight} lbs</span>}
+                        {l.bmi != null && <span style={{ fontSize: 12, color: C.teal, fontWeight: 700 }}>BMI {l.bmi}</span>}
                         {l.body_fat != null && <span style={{ fontSize: 12, color: C.orange, fontWeight: 700 }}>{l.body_fat}%</span>}
                         {l.rating && <span style={{ fontSize: 10, fontWeight: 700, borderRadius: 8, padding: '1px 8px', background: l.rating === 'good' ? C.green + '15' : C.red + '15', color: l.rating === 'good' ? C.green : C.red }}>{l.rating === 'good' ? 'Good' : 'Needs Work'}</span>}
                       </div>
-                      {l.behavior_notes && <div style={{ fontSize: 11, color: C.sub, marginTop: 3, lineHeight: 1.5 }}>{l.behavior_notes}</div>}
+                      {(() => {
+                        const tags = parseTags(l.behavior_notes)
+                        return tags.length > 0 ? (
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 5 }}>
+                            {tags.map(k => { const t = BEHAVIOR_TAGS.find(b => b.key === k); return t ? <span key={k} style={{ fontSize: 10, fontWeight: 700, padding: '1px 8px', borderRadius: 10, background: t.color + '20', color: t.color }}>{t.label}</span> : null })}
+                          </div>
+                        ) : l.behavior_notes ? <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>{l.behavior_notes}</div> : null
+                      })()}
                     </div>
                     <button onClick={() => handleDelete(l.id)} style={{ background: 'none', border: 'none', color: C.red + '66', fontSize: 14, cursor: 'pointer', padding: '0 4px' }} title="Delete">×</button>
                   </div>
@@ -5229,6 +5310,26 @@ function WeightTracker({ client, onBack, onUpdate }) {
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Behavior Pie Chart */}
+      {hasTags && (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 20px', marginBottom: 16, marginTop: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 14 }}>Behavior Breakdown</div>
+          <div style={{ display: 'flex', gap: 24, alignItems: 'center', flexWrap: 'wrap' }}>
+            <canvas ref={pieRef} style={{ flexShrink: 0 }} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+              {BEHAVIOR_TAGS.filter(t => tagCounts[t.key]).sort((a, b) => (tagCounts[b.key] || 0) - (tagCounts[a.key] || 0)).map(t => (
+                <div key={t.key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: t.color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 11, fontWeight: 700, color: C.text }}>{t.label}</span>
+                  <span style={{ fontSize: 11, color: C.sub, fontWeight: 600 }}>{tagCounts[t.key]}x</span>
+                  <span style={{ fontSize: 10, color: C.sub }}>{Math.round((tagCounts[t.key] / logs.length) * 100)}% of sessions</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
@@ -5272,8 +5373,9 @@ function WeightTracker({ client, onBack, onUpdate }) {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: 'Montserrat,sans-serif' }}>
                 <thead>
                   <tr style={{ background: C.faint }}>
-                    <th style={{ padding: '7px 12px', textAlign: 'left', fontWeight: 800, color: C.sub, borderBottom: `1px solid ${C.border}` }}>Date</th>
+                    <th style={{ padding: '7px 12px', textAlign: 'left', fontWeight: 800, color: C.sub, borderBottom: `1px solid ${C.border}` }}>Date / Time</th>
                     <th style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 800, color: C.accent, borderBottom: `1px solid ${C.border}` }}>Weight (lbs)</th>
+                    <th style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 800, color: C.teal, borderBottom: `1px solid ${C.border}` }}>BMI</th>
                     <th style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 800, color: C.orange, borderBottom: `1px solid ${C.border}` }}>Body Fat %</th>
                   </tr>
                 </thead>
@@ -5282,6 +5384,7 @@ function WeightTracker({ client, onBack, onUpdate }) {
                     <tr key={i} style={{ borderBottom: `1px solid ${C.border}22` }}>
                       <td style={{ padding: '6px 12px', color: C.text }}>{row.date}</td>
                       <td style={{ padding: '6px 12px', textAlign: 'right', color: C.accent, fontWeight: 700 }}>{row.weight || '—'}</td>
+                      <td style={{ padding: '6px 12px', textAlign: 'right', color: C.teal, fontWeight: 700 }}>{row.bmi || '—'}</td>
                       <td style={{ padding: '6px 12px', textAlign: 'right', color: C.orange, fontWeight: 700 }}>{row.fat || '—'}</td>
                     </tr>
                   ))}
