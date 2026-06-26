@@ -6124,6 +6124,7 @@ export default function App() {
   const [assessment, setAssessment] = useState(null)
   const [allClients, setAllClients] = useState([])
   const [globalError, setGlobalError] = useState(null)
+  const [forceNewAssessment, setForceNewAssessment] = useState(false)
 
   useEffect(() => {
     const onErr = (e) => setGlobalError(e.message + '\n' + (e.error?.stack || ''))
@@ -6179,8 +6180,6 @@ export default function App() {
   const switchToClient = (c) => { setClient(c); setView('client') }
   const openIntake = () => { setClient(null); setView('intake') }
   const openEditClient = (c) => { setClient(c); setView('editClient') }
-
-  const [forceNewAssessment, setForceNewAssessment] = useState(false)
 
   const runAssessment = (a, c, forceNew = false) => {
     setAssessment(a)
