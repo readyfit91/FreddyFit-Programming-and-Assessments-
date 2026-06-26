@@ -4877,17 +4877,17 @@ function WeightTracker({ client, onBack, onUpdate }) {
       if (lines.length < 2) { alert('CSV appears empty or has only a header row.'); return }
 
       const delim = lines[0].includes('\t') ? '\t' : ','
-      // Skip header row, read data: col A=date, col B=weight, col C=BMI, col D=body fat
+      // Col A=date, col B=time, col C=weight, col D=BMI, col E=body fat
       const dataRows = lines.slice(1).map(l => l.split(delim).map(c => c.replace(/^"|"$/g, '').trim()))
 
       const rows = dataRows.slice(0, 500).map(cols => ({
-        date: cols[0] || '',
-        weight: cols[1] || '',
-        bmi: cols[2] || '',
-        fat: cols[3] || '',
+        date: cols[0] ? `${cols[0]}${cols[1] ? ' ' + cols[1] : ''}` : '',
+        weight: cols[2] || '',
+        bmi: cols[3] || '',
+        fat: cols[4] || '',
       })).filter(r => parseDate(r.date) && (!isNaN(parseFloat(r.weight)) || !isNaN(parseFloat(r.fat))))
 
-      if (!rows.length) { alert('No valid rows found. Expected: col A = date/time, col B = weight, col C = BMI, col D = body fat.'); return }
+      if (!rows.length) { alert('No valid rows found. Expected: col A = date, col B = time, col C = weight, col D = BMI, col E = body fat.'); return }
       setCsvPreview({ rows, fileName: file.name, totalLines: dataRows.length })
     }
     reader.readAsText(file)
