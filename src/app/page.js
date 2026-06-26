@@ -4866,6 +4866,8 @@ function WeightTracker({ client, onBack, onUpdate }) {
     return null
   }
 
+  const isTimeStr = (s) => /^\d{1,2}:\d{2}(:\d{2})?(\s*(AM|PM))?$/i.test(s.trim())
+
   const handleCsvUpload = (e) => {
     const file = e.target.files?.[0]
     e.target.value = ''
@@ -4876,19 +4878,52 @@ function WeightTracker({ client, onBack, onUpdate }) {
       const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
       if (lines.length < 2) { alert('CSV appears empty or has only a header row.'); return }
 
-      const delim = lines[0].includes('\t') ? '\t' : ','
-      // Col A=date, col B=time, col C=weight, col D=BMI, col E=body fat
-      const dataRows = lines.slice(1).map(l => l.split(delim).map(c => c.replace(/^"|"$/g, '').trim()))
+      // Auto-detect delimiter
+      const delim = lines[0].split('\t').length > lines[0].split(',').length ? '\t' : ','
+      const allRows = lines.map(l => l.split(delim).map(c => c.replace(/^"|"$/g, '').trim()))
+      const dataRows = allRows.slice(1) // skip header
 
-      const rows = dataRows.slice(0, 500).map(cols => ({
-        date: cols[0] ? `${cols[0]}${cols[1] ? ' ' + cols[1] : ''}` : '',
-        weight: cols[2] || '',
-        bmi: cols[3] || '',
-        fat: cols[4] || '',
-      })).filter(r => parseDate(r.date) && (!isNaN(parseFloat(r.weight)) || !isNaN(parseFloat(r.fat))))
+      if (!dataRows.length) { alert('No data rows found.'); return }
 
-      if (!rows.length) { alert('No valid rows found. Expected: col A = date, col B = time, col C = weight, col D = BMI, col E = body fat.'); return }
-      setCsvPreview({ rows, fileName: file.name, totalLines: dataRows.length })
+      // Scan first 10 data rows to classify each column
+      const sample = dataRows.slice(0, 10)
+      const numCols = Math.max(...sample.map(r => r.length))
+      const colTypes = Array.from({ length: numCols }, (_, ci) => {
+        const vals = sample.map(r => r[ci] || '').filter(Boolean)
+        const dateCount = vals.filter(v => parseDate(v) && !isTimeStr(v)).length
+        const timeCount = vals.filter(v => isTimeStr(v)).length
+        const numCount = vals.filter(v => !isNaN(parseFloat(v)) && isFinite(v)).length
+        if (dateCount >= vals.length * 0.5) return 'date'
+        if (timeCount >= vals.length * 0.5) return 'time'
+        if (numCount >= vals.length * 0.5) return 'num'
+        return 'other'
+      })
+
+      const dateCol = colTypes.indexOf('date')
+      const timeCol = colTypes.indexOf('time')
+      // Numeric columns in order after any date/time cols
+      const numCols2 = colTypes.map((t, i) => t === 'num' ? i : -1).filter(i => i >= 0)
+      const weightCol = numCols2[0] ?? -1
+      const bmiCol    = numCols2[1] ?? -1
+      const fatCol    = numCols2[2] ?? -1
+
+      if (dateCol < 0 && weightCol < 0) {
+        alert('Could not detect date or weight columns. Make sure your CSV has a date column and numeric weight column.'); return
+      }
+
+      const rows = dataRows.slice(0, 500).map(cols => {
+        const dateStr = dateCol >= 0 ? cols[dateCol] || '' : ''
+        const timeStr = timeCol >= 0 ? cols[timeCol] || '' : ''
+        return {
+          date: timeStr ? `${dateStr} ${timeStr}` : dateStr,
+          weight: weightCol >= 0 ? cols[weightCol] || '' : '',
+          bmi:    bmiCol >= 0    ? cols[bmiCol]    || '' : '',
+          fat:    fatCol >= 0    ? cols[fatCol]    || '' : '',
+        }
+      }).filter(r => parseDate(r.date) && (!isNaN(parseFloat(r.weight)) || !isNaN(parseFloat(r.fat))))
+
+      if (!rows.length) { alert('No valid rows found after parsing. Check that your CSV has date and weight columns.'); return }
+      setCsvPreview({ rows, fileName: file.name, totalLines: dataRows.length, colTypes, dateCol, timeCol, weightCol, bmiCol, fatCol })
     }
     reader.readAsText(file)
   }
