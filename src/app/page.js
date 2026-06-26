@@ -3358,16 +3358,31 @@ const SUB_PACKAGES = [
   { label: 'Classic (In-Home)', monthly: 4 },
 ]
 
-// Period advances on the same day-of-month as start date each month (or draftDay if set).
-// e.g. start Feb 15 → Period 1: Feb 15–Mar 14, Period 2: Mar 15–Apr 14
+// Clamp day to the actual number of days in a given month so e.g. draft day 31
+// in February safely lands on Feb 28/29 rather than rolling into March.
+function clampToMonth(year, month0, day) {
+  const daysInMonth = new Date(year, month0 + 1, 0).getDate()
+  return Math.min(day, daysInMonth)
+}
+
+// Returns a Date for the start of billing period p given subscription start and draft day.
+function periodStartDate(startYear, startMonth0, anchorDay, p) {
+  const y = startYear
+  const m = startMonth0 + (p - 1)
+  const absYear = y + Math.floor(m / 12)
+  const absMonth0 = ((m % 12) + 12) % 12
+  return new Date(absYear, absMonth0, clampToMonth(absYear, absMonth0, anchorDay))
+}
+
+// Period advances on the same day-of-month as draft date each month.
+// Months with fewer days than the draft date use the last day of that month.
 function getSubPeriod(startDateStr, draftDay) {
   if (!startDateStr) return 1
   const start = new Date(startDateStr + 'T00:00:00')
   const anchorDay = draftDay || start.getDate()
   const now = new Date()
   for (let p = 6; p >= 1; p--) {
-    const periodStart = new Date(start.getFullYear(), start.getMonth() + (p - 1), anchorDay)
-    if (now >= periodStart) return p
+    if (now >= periodStartDate(start.getFullYear(), start.getMonth(), anchorDay, p)) return p
   }
   return 1
 }
@@ -3407,8 +3422,10 @@ function getPeriodCalendarData(startDateStr, period, draftDay) {
   const start = new Date(startDateStr + 'T00:00:00')
   const anchorDay = draftDay || start.getDate()
 
-  const periodStart = new Date(start.getFullYear(), start.getMonth() + (period - 1), anchorDay)
-  const periodEnd = new Date(start.getFullYear(), start.getMonth() + period, anchorDay - 1)
+  const periodStart = periodStartDate(start.getFullYear(), start.getMonth(), anchorDay, period)
+  // Period ends one day before the next period starts
+  const nextStart = periodStartDate(start.getFullYear(), start.getMonth(), anchorDay, period + 1)
+  const periodEnd = new Date(nextStart.getTime() - 86400000)
 
   const calYear = periodStart.getFullYear()
   const calMonth0 = periodStart.getMonth()
