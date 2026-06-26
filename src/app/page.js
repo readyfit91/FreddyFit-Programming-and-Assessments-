@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
 import { FIELD_MODIFIERS } from '../lib/modifiers'
@@ -3402,6 +3402,31 @@ function getCalendarMonth(startDateStr, subMonth) {
   return { label: `${names[calMonth - 1]} ${calYear}`, fiveWeeks }
 }
 
+class SubscriptionErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null } }
+  static getDerivedStateFromError(e) { return { error: e } }
+  componentDidCatch(e, info) { console.error('SubscriptionTracker error:', e, info) }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 24, fontFamily: 'Montserrat,sans-serif' }}>
+          <h3 style={{ color: '#ef4444', marginBottom: 8 }}>Subscription Error</h3>
+          <pre style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: 12, fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+            {this.state.error?.message || String(this.state.error)}
+            {'\n\n'}
+            {this.state.error?.stack || ''}
+          </pre>
+          <button onClick={() => { this.setState({ error: null }); this.props.onBack?.() }}
+            style={{ marginTop: 12, background: '#4F46E5', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', fontWeight: 700 }}>
+            Go Back
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 function SubscriptionTracker({ client, onBack, onUpdate }) {
   const localKey = `ff_sub_${client.id}`
 
@@ -6251,11 +6276,13 @@ export default function App() {
           />
         )}
         {view === 'subscription' && client && (
-          <SubscriptionTracker
-            client={client}
-            onUpdate={updateClient}
-            onBack={() => setView('client')}
-          />
+          <SubscriptionErrorBoundary onBack={() => setView('client')}>
+            <SubscriptionTracker
+              client={client}
+              onUpdate={updateClient}
+              onBack={() => setView('client')}
+            />
+          </SubscriptionErrorBoundary>
         )}
         {view === 'intake' && (
           <ClientIntakeForm
