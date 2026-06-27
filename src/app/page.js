@@ -4981,17 +4981,15 @@ function WeightTracker({ client, onBack, onUpdate }) {
 
       // ── Logo ──────────────────────────────────────────────────────
       try {
-        const img = new window.Image()
-        await new Promise((res, rej) => {
-          img.onload = res; img.onerror = rej
-          img.src = '/logo.png'
+        const resp = await fetch('/logo.png')
+        const blob = await resp.blob()
+        const logoData = await new Promise((res, rej) => {
+          const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob)
         })
+        const img = new window.Image()
+        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = logoData })
         const logoH = 48
         const logoW = (img.naturalWidth / img.naturalHeight) * logoH
-        const canvas = document.createElement('canvas')
-        canvas.width = img.naturalWidth; canvas.height = img.naturalHeight
-        canvas.getContext('2d').drawImage(img, 0, 0)
-        const logoData = canvas.toDataURL('image/png')
         doc.addImage(logoData, 'PNG', M, y, logoW, logoH)
       } catch {}
       y += 56
@@ -5058,14 +5056,15 @@ function WeightTracker({ client, onBack, onUpdate }) {
         doc.text('PROGRESS OVER TIME', M, y)
         y += 10
 
-        // Draw chart into an off-screen canvas
-        const cCanvas = document.createElement('canvas')
-        cCanvas.width = 900; cCanvas.height = 340
-        drawChart(cCanvas, false)
-        const chartImg = cCanvas.toDataURL('image/png')
-        const chartH = (CW * 340) / 900
-        doc.addImage(chartImg, 'PNG', M, y, CW, chartH)
-        y += chartH + 20
+        // Use the live on-screen chart canvas (already rendered at full resolution)
+        const chartImg = chartRef.current ? chartRef.current.toDataURL('image/png') : null
+        if (chartImg) {
+          const srcW = chartRef.current.width || 900
+          const srcH = chartRef.current.height || 340
+          const chartH = (CW * srcH) / srcW
+          doc.addImage(chartImg, 'PNG', M, y, CW, chartH)
+          y += chartH + 20
+        }
       }
 
       // ── Behavior Pie ──────────────────────────────────────────────
@@ -5083,12 +5082,9 @@ function WeightTracker({ client, onBack, onUpdate }) {
         doc.text('BEHAVIOR IMPACT BREAKDOWN', M, y)
         y += 10
 
-        const pCanvas = document.createElement('canvas')
-        pCanvas.width = 320; pCanvas.height = 320
-        drawPie(pCanvas)
-        const pieImg = pCanvas.toDataURL('image/png')
+        const pieImg = pieRef.current ? pieRef.current.toDataURL('image/png') : null
         const pieSize = 200
-        doc.addImage(pieImg, 'PNG', M, y, pieSize, pieSize)
+        if (pieImg) doc.addImage(pieImg, 'PNG', M, y, pieSize, pieSize)
 
         // Legend to the right of pie
         let ly = y + 16
