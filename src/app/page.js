@@ -4861,7 +4861,8 @@ function WeightTracker({ client, onBack, onUpdate }) {
   }
 
   // CSV import — reads file, auto-detects columns, shows preview, then bulk-saves
-  const [csvPreview, setCsvPreview] = useState(null) // { rows, dateCol, weightCol, fatCol, fileName }
+  const [csvPreview, setCsvPreview] = useState(null)
+  const [csvMapping, setCsvMapping] = useState({ dateCol: -1, timeCol: -1, weightCol: -1, bmiCol: -1, fatCol: -1 })
   const [csvImporting, setCsvImporting] = useState(false)
 
   const parseDate = (s) => {
@@ -4930,19 +4931,9 @@ function WeightTracker({ client, onBack, onUpdate }) {
         alert('Could not detect date or weight columns. Make sure your CSV has a date column and numeric weight column.'); return
       }
 
-      const rows = dataRows.slice(0, 500).map(cols => {
-        const dateStr = dateCol >= 0 ? cols[dateCol] || '' : ''
-        const timeStr = timeCol >= 0 ? cols[timeCol] || '' : ''
-        return {
-          date: timeStr ? `${dateStr} ${timeStr}` : dateStr,
-          weight: weightCol >= 0 ? cols[weightCol] || '' : '',
-          bmi:    bmiCol >= 0    ? cols[bmiCol]    || '' : '',
-          fat:    fatCol >= 0    ? cols[fatCol]    || '' : '',
-        }
-      }).filter(r => { try { return parseDate(r.date) && (!isNaN(parseFloat(r.weight)) || !isNaN(parseFloat(r.fat))) } catch { return false } })
-
-      if (!rows.length) { alert('No valid rows found after parsing. Check that your CSV has date and weight columns.'); return }
-      setCsvPreview({ rows, fileName: file.name, totalLines: dataRows.length, colTypes, dateCol, timeCol, weightCol, bmiCol, fatCol, headers: allRows[0] || [] })
+      const mapping = { dateCol, timeCol, weightCol, bmiCol, fatCol }
+      setCsvMapping(mapping)
+      setCsvPreview({ rawRows: dataRows.slice(0, 500), fileName: file.name, totalLines: dataRows.length, colTypes, headers: allRows[0] || [] })
       } catch (err) {
         alert('Error reading CSV: ' + (err?.message || String(err)))
       }
@@ -4950,11 +4941,27 @@ function WeightTracker({ client, onBack, onUpdate }) {
     reader.readAsText(file)
   }
 
+  const buildCsvRows = (rawRows, m) => {
+    if (!rawRows) return []
+    return rawRows.map(cols => {
+      const dateStr = m.dateCol >= 0 ? cols[m.dateCol] || '' : ''
+      const timeStr = m.timeCol >= 0 ? cols[m.timeCol] || '' : ''
+      return {
+        date: timeStr ? `${dateStr} ${timeStr}` : dateStr,
+        weight: m.weightCol >= 0 ? cols[m.weightCol] || '' : '',
+        bmi:    m.bmiCol >= 0    ? cols[m.bmiCol]    || '' : '',
+        fat:    m.fatCol >= 0    ? cols[m.fatCol]    || '' : '',
+      }
+    }).filter(r => { try { return parseDate(r.date) && (!isNaN(parseFloat(r.weight)) || !isNaN(parseFloat(r.fat))) } catch { return false } })
+  }
+
   const handleCsvImport = async () => {
     if (!csvPreview) return
+    const rows = buildCsvRows(csvPreview.rawRows, csvMapping)
+    if (!rows.length) { alert('No valid rows with the current column mapping. Please adjust the columns above.'); return }
     setCsvImporting(true)
     let imported = 0, failed = 0
-    for (const row of csvPreview.rows) {
+    for (const row of rows) {
       const d = parseDate(row.date)
       const w = parseFloat(row.weight)
       const bmiVal = parseFloat(row.bmi)
@@ -5413,53 +5420,79 @@ function WeightTracker({ client, onBack, onUpdate }) {
             {/* Preview header */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>📊 {csvPreview.fileName}</span>
-              <span style={{ fontSize: 11, color: C.green, fontWeight: 700 }}>{csvPreview.rows.length} valid rows detected</span>
-              {csvPreview.totalLines > csvPreview.rows.length && (
-                <span style={{ fontSize: 10, color: C.sub }}>({csvPreview.totalLines - csvPreview.rows.length} skipped)</span>
-              )}
               <button onClick={() => setCsvPreview(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: C.sub, fontSize: 18, cursor: 'pointer', lineHeight: 1 }}>×</button>
             </div>
 
-            {/* Column mapping */}
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-              {csvPreview.dateCol >= 0 && <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 8, background: C.accent + '15', color: C.accent }}>Date → col "{csvPreview.headers[csvPreview.dateCol]}"</span>}
-              {csvPreview.weightCol >= 0 && <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 8, background: C.teal + '15', color: C.teal }}>Weight → col "{csvPreview.headers[csvPreview.weightCol]}"</span>}
-              {csvPreview.fatCol >= 0 && <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 8, background: C.orange + '15', color: C.orange }}>Body Fat → col "{csvPreview.headers[csvPreview.fatCol]}"</span>}
-            </div>
+            {/* Manual column mapping */}
+            {(() => {
+              const colOptions = [<option key={-1} value={-1}>— none —</option>, ...csvPreview.headers.map((h, i) => <option key={i} value={i}>Col {i+1}: {h || `Column ${i+1}`}</option>)]
+              const pickerStyle = { fontSize: 11, fontFamily: 'Montserrat,sans-serif', padding: '4px 8px', borderRadius: 6, border: `1px solid ${C.border}`, background: C.faint, color: C.text, cursor: 'pointer' }
+              return (
+                <div style={{ marginBottom: 14, padding: '10px 14px', background: C.faint, borderRadius: 10, border: `1px solid ${C.border}` }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: C.sub, marginBottom: 8, letterSpacing: '0.05em' }}>MAP COLUMNS — adjust if preview looks wrong</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 8 }}>
+                    {[
+                      { label: 'Date', key: 'dateCol', color: C.accent },
+                      { label: 'Time (optional)', key: 'timeCol', color: C.sub },
+                      { label: 'Weight', key: 'weightCol', color: C.teal },
+                      { label: 'BMI', key: 'bmiCol', color: C.green },
+                      { label: 'Body Fat %', key: 'fatCol', color: C.orange },
+                    ].map(({ label, key, color }) => (
+                      <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color }}>{label}</span>
+                        <select value={csvMapping[key]} onChange={e => setCsvMapping(prev => ({ ...prev, [key]: Number(e.target.value) }))} style={{ ...pickerStyle, borderColor: color + '66' }}>
+                          {colOptions}
+                        </select>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
 
-            {/* Preview table */}
-            <div style={{ overflowX: 'auto', marginBottom: 14, maxHeight: 220, overflowY: 'auto', borderRadius: 8, border: `1px solid ${C.border}` }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: 'Montserrat,sans-serif' }}>
-                <thead>
-                  <tr style={{ background: C.faint }}>
-                    <th style={{ padding: '7px 12px', textAlign: 'left', fontWeight: 800, color: C.sub, borderBottom: `1px solid ${C.border}` }}>Date / Time</th>
-                    <th style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 800, color: C.accent, borderBottom: `1px solid ${C.border}` }}>Weight (lbs)</th>
-                    <th style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 800, color: C.teal, borderBottom: `1px solid ${C.border}` }}>BMI</th>
-                    <th style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 800, color: C.orange, borderBottom: `1px solid ${C.border}` }}>Body Fat %</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {csvPreview.rows.slice(0, 50).map((row, i) => (
-                    <tr key={i} style={{ borderBottom: `1px solid ${C.border}22` }}>
-                      <td style={{ padding: '6px 12px', color: C.text }}>{row.date}</td>
-                      <td style={{ padding: '6px 12px', textAlign: 'right', color: C.accent, fontWeight: 700 }}>{row.weight || '—'}</td>
-                      <td style={{ padding: '6px 12px', textAlign: 'right', color: C.teal, fontWeight: 700 }}>{row.bmi || '—'}</td>
-                      <td style={{ padding: '6px 12px', textAlign: 'right', color: C.orange, fontWeight: 700 }}>{row.fat || '—'}</td>
-                    </tr>
-                  ))}
-                  {csvPreview.rows.length > 50 && (
-                    <tr><td colSpan={3} style={{ padding: '8px 12px', color: C.sub, fontSize: 10, textAlign: 'center' }}>…and {csvPreview.rows.length - 50} more rows</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <Btn onClick={handleCsvImport} disabled={csvImporting}>
-                {csvImporting ? 'Importing...' : `Import ${csvPreview.rows.length} Rows & Plot`}
-              </Btn>
-              <button onClick={() => setCsvPreview(null)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 14px', fontSize: 11, fontWeight: 700, color: C.sub, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Cancel</button>
-            </div>
+            {/* Live preview table */}
+            {(() => {
+              const previewRows = buildCsvRows(csvPreview.rawRows, csvMapping)
+              return (
+                <>
+                  <div style={{ fontSize: 11, color: previewRows.length ? C.green : C.red, fontWeight: 700, marginBottom: 8 }}>
+                    {previewRows.length ? `${previewRows.length} valid rows` : 'No valid rows — adjust column mapping above'}
+                    {csvPreview.totalLines > previewRows.length && previewRows.length > 0 && <span style={{ color: C.sub, fontWeight: 400 }}> ({csvPreview.totalLines - previewRows.length} skipped)</span>}
+                  </div>
+                  <div style={{ overflowX: 'auto', marginBottom: 14, maxHeight: 220, overflowY: 'auto', borderRadius: 8, border: `1px solid ${C.border}` }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: 'Montserrat,sans-serif' }}>
+                      <thead>
+                        <tr style={{ background: C.faint }}>
+                          <th style={{ padding: '7px 12px', textAlign: 'left', fontWeight: 800, color: C.sub, borderBottom: `1px solid ${C.border}` }}>Date / Time</th>
+                          <th style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 800, color: C.teal, borderBottom: `1px solid ${C.border}` }}>Weight</th>
+                          <th style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 800, color: C.green, borderBottom: `1px solid ${C.border}` }}>BMI</th>
+                          <th style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 800, color: C.orange, borderBottom: `1px solid ${C.border}` }}>Body Fat %</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewRows.slice(0, 50).map((row, i) => (
+                          <tr key={i} style={{ borderBottom: `1px solid ${C.border}22` }}>
+                            <td style={{ padding: '6px 12px', color: C.text }}>{row.date}</td>
+                            <td style={{ padding: '6px 12px', textAlign: 'right', color: C.teal, fontWeight: 700 }}>{row.weight || '—'}</td>
+                            <td style={{ padding: '6px 12px', textAlign: 'right', color: C.green, fontWeight: 700 }}>{row.bmi || '—'}</td>
+                            <td style={{ padding: '6px 12px', textAlign: 'right', color: C.orange, fontWeight: 700 }}>{row.fat || '—'}</td>
+                          </tr>
+                        ))}
+                        {previewRows.length > 50 && (
+                          <tr><td colSpan={4} style={{ padding: '8px 12px', color: C.sub, fontSize: 10, textAlign: 'center' }}>…and {previewRows.length - 50} more rows</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                    <Btn onClick={handleCsvImport} disabled={csvImporting || !previewRows.length}>
+                      {csvImporting ? 'Importing...' : `Import ${previewRows.length} Rows & Plot`}
+                    </Btn>
+                    <button onClick={() => setCsvPreview(null)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 14px', fontSize: 11, fontWeight: 700, color: C.sub, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Cancel</button>
+                  </div>
+                </>
+              )
+            })()}
           </div>
         )}
       </div>
