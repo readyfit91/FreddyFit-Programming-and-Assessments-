@@ -5001,7 +5001,8 @@ function WeightTracker({ client, onBack, onUpdate }) {
 
     // Time range
     const allDates = logs.map(l => new Date(l.logged_at).getTime())
-    const minT = Math.min(...allDates), maxT = Math.max(...allDates)
+    const minT = allDates.reduce((a, b) => Math.min(a, b), Infinity)
+    const maxT = allDates.reduce((a, b) => Math.max(a, b), -Infinity)
     const tRange = maxT - minT || 1
     const xFor = (t) => pad.left + ((t - minT) / tRange) * cW
 
@@ -5074,7 +5075,8 @@ function WeightTracker({ client, onBack, onUpdate }) {
 
     const drawLine = (data, getVal, color, label, yAxis) => {
       const vals = data.map(l => getVal(l))
-      const minV = Math.min(...vals), maxV = Math.max(...vals)
+      const minV = vals.reduce((a, b) => Math.min(a, b), Infinity)
+      const maxV = vals.reduce((a, b) => Math.max(a, b), -Infinity)
       const vRange = maxV - minV || 1
       const yFor = (v) => pad.top + cH - ((v - minV) / vRange) * cH
 
