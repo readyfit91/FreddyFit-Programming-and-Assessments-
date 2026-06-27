@@ -4821,9 +4821,12 @@ function WeightTracker({ client, onBack, onUpdate }) {
   const [showHistory, setShowHistory] = useState(false)
   const [selectedLogs, setSelectedLogs] = useState(new Set())
   const [showJourneyModal, setShowJourneyModal] = useState(false)
+  const [exportingPdf, setExportingPdf] = useState(false)
   const chartRef = useRef(null)
   const modalChartRef = useRef(null)
   const pieRef = useRef(null)
+  const pdfChartRef = useRef(null)
+  const pdfPieRef = useRef(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -4950,6 +4953,183 @@ function WeightTracker({ client, onBack, onUpdate }) {
       }
     }
     reader.readAsText(file)
+  }
+
+  const exportPdf = async () => {
+    setExportingPdf(true)
+    try {
+      const { jsPDF } = await import('jspdf')
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' })
+      const PW = doc.internal.pageSize.getWidth()
+      const PH = doc.internal.pageSize.getHeight()
+      const M = 40 // margin
+      const CW = PW - M * 2
+      let y = M
+
+      // ── Brand colors ──────────────────────────────────────────────
+      const DARK   = '#0F172A'
+      const ACCENT = '#6366F1'
+      const TEAL   = '#0D9488'
+      const ORANGE = '#F97316'
+      const SUB    = '#64748B'
+      const BORDER = '#E2E8F0'
+
+      const hex = (h) => {
+        const r = parseInt(h.slice(1,3),16), g = parseInt(h.slice(3,5),16), b = parseInt(h.slice(5,7),16)
+        return [r,g,b]
+      }
+
+      // ── Logo ──────────────────────────────────────────────────────
+      try {
+        const img = new window.Image()
+        await new Promise((res, rej) => {
+          img.onload = res; img.onerror = rej
+          img.src = '/logo.png'
+        })
+        const logoH = 48
+        const logoW = (img.naturalWidth / img.naturalHeight) * logoH
+        const canvas = document.createElement('canvas')
+        canvas.width = img.naturalWidth; canvas.height = img.naturalHeight
+        canvas.getContext('2d').drawImage(img, 0, 0)
+        const logoData = canvas.toDataURL('image/png')
+        doc.addImage(logoData, 'PNG', M, y, logoW, logoH)
+      } catch {}
+      y += 56
+
+      // ── Header rule ───────────────────────────────────────────────
+      doc.setDrawColor(...hex(ACCENT))
+      doc.setLineWidth(2)
+      doc.line(M, y, PW - M, y)
+      y += 14
+
+      // ── Title block ───────────────────────────────────────────────
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(22)
+      doc.setTextColor(...hex(DARK))
+      doc.text('Weight Progress Report', M, y)
+      y += 28
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(12)
+      doc.setTextColor(...hex(SUB))
+      doc.text(`Client: ${client.name}`, M, y)
+      y += 17
+      if (client.goal) { doc.text(`Goal: ${client.goal}`, M, y); y += 17 }
+      doc.text(`Generated: ${new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' })}`, M, y)
+      y += 17
+      doc.text(`Total Check-ins: ${logs.length}`, M, y)
+      y += 28
+
+      // ── Summary stats ─────────────────────────────────────────────
+      const weightLogs = logs.filter(l => l.weight != null).sort((a,b) => new Date(a.logged_at)-new Date(b.logged_at))
+      if (weightLogs.length >= 2) {
+        const first = weightLogs[0], last = weightLogs[weightLogs.length-1]
+        const diff = (last.weight - first.weight).toFixed(1)
+        const stats = [
+          { label: 'Starting Weight', value: `${first.weight} lbs` },
+          { label: 'Current Weight',  value: `${last.weight} lbs` },
+          { label: 'Total Change',    value: `${diff > 0 ? '+' : ''}${diff} lbs`, color: diff <= 0 ? '#16A34A' : '#DC2626' },
+          { label: 'Duration',        value: `${Math.round((new Date(last.logged_at)-new Date(first.logged_at))/(1000*60*60*24))} days` },
+        ]
+        const boxW = (CW - 12) / 4
+        stats.forEach((s, i) => {
+          const bx = M + i * (boxW + 4)
+          doc.setFillColor(...hex('#F8FAFC'))
+          doc.setDrawColor(...hex(BORDER))
+          doc.setLineWidth(1)
+          doc.roundedRect(bx, y, boxW, 52, 4, 4, 'FD')
+          doc.setFont('helvetica', 'bold')
+          doc.setFontSize(16)
+          doc.setTextColor(...hex(s.color || ACCENT))
+          doc.text(s.value, bx + boxW/2, y + 26, { align: 'center' })
+          doc.setFont('helvetica', 'normal')
+          doc.setFontSize(8)
+          doc.setTextColor(...hex(SUB))
+          doc.text(s.label.toUpperCase(), bx + boxW/2, y + 42, { align: 'center' })
+        })
+        y += 68
+      }
+
+      // ── Progress Chart ────────────────────────────────────────────
+      if (logs.length >= 2) {
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(11)
+        doc.setTextColor(...hex(SUB))
+        doc.text('PROGRESS OVER TIME', M, y)
+        y += 10
+
+        // Draw chart into an off-screen canvas
+        const cCanvas = document.createElement('canvas')
+        cCanvas.width = 900; cCanvas.height = 340
+        drawChart(cCanvas, false)
+        const chartImg = cCanvas.toDataURL('image/png')
+        const chartH = (CW * 340) / 900
+        doc.addImage(chartImg, 'PNG', M, y, CW, chartH)
+        y += chartH + 20
+      }
+
+      // ── Behavior Pie ──────────────────────────────────────────────
+      const tagCounts = {}
+      for (const l of logs) { for (const k of parseTags(l.behavior_notes)) tagCounts[k] = (tagCounts[k]||0)+1 }
+      const hasPie = Object.keys(tagCounts).length > 0
+
+      if (hasPie) {
+        // New page if not enough room
+        if (y + 260 > PH - M) { doc.addPage(); y = M }
+
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(11)
+        doc.setTextColor(...hex(SUB))
+        doc.text('BEHAVIOR IMPACT BREAKDOWN', M, y)
+        y += 10
+
+        const pCanvas = document.createElement('canvas')
+        pCanvas.width = 320; pCanvas.height = 320
+        drawPie(pCanvas)
+        const pieImg = pCanvas.toDataURL('image/png')
+        const pieSize = 200
+        doc.addImage(pieImg, 'PNG', M, y, pieSize, pieSize)
+
+        // Legend to the right of pie
+        let ly = y + 16
+        const lx = M + pieSize + 24
+        const tagsSorted = BEHAVIOR_TAGS.filter(t => tagCounts[t.key]).sort((a,b) => (tagCounts[b.key]||0)-(tagCounts[a.key]||0))
+        const total = Object.values(tagCounts).reduce((a,b)=>a+b,0)
+        tagsSorted.forEach(t => {
+          doc.setFillColor(...hex(t.color))
+          doc.roundedRect(lx, ly - 7, 10, 10, 2, 2, 'F')
+          doc.setFont('helvetica', 'bold')
+          doc.setFontSize(10)
+          doc.setTextColor(...hex(DARK))
+          doc.text(t.label, lx + 15, ly)
+          doc.setFont('helvetica', 'normal')
+          doc.setFontSize(9)
+          doc.setTextColor(...hex(SUB))
+          doc.text(`${tagCounts[t.key]} session${tagCounts[t.key]>1?'s':''} · ${Math.round(tagCounts[t.key]/total*100)}%`, lx + 15, ly + 12)
+          ly += 28
+        })
+        y += pieSize + 16
+      }
+
+      // ── Footer ────────────────────────────────────────────────────
+      const pageCount = doc.internal.getNumberOfPages()
+      for (let p = 1; p <= pageCount; p++) {
+        doc.setPage(p)
+        doc.setDrawColor(...hex(BORDER))
+        doc.setLineWidth(0.5)
+        doc.line(M, PH - 36, PW - M, PH - 36)
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(8)
+        doc.setTextColor(...hex(SUB))
+        doc.text('FreddyFit Performance Training', M, PH - 20)
+        doc.text(`Page ${p} of ${pageCount}`, PW - M, PH - 20, { align: 'right' })
+      }
+
+      doc.save(`${client.name.replace(/\s+/g,'_')}_weight_report.pdf`)
+    } catch (err) {
+      alert('Export failed: ' + (err?.message || String(err)))
+    }
+    setExportingPdf(false)
   }
 
   const buildCsvRows = (rawRows, m) => {
@@ -5264,9 +5444,14 @@ function WeightTracker({ client, onBack, onUpdate }) {
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 16px 8px', marginBottom: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>PROGRESS OVER TIME</div>
-            <button onClick={() => setShowJourneyModal(true)} style={{ background: C.accent + '12', border: `1.5px solid ${C.accent}44`, color: C.accent, borderRadius: 8, padding: '5px 14px', fontSize: 10, fontWeight: 800, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', letterSpacing: 1, textTransform: 'uppercase' }}>
-              View Journey
-            </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={exportPdf} disabled={exportingPdf} style={{ background: exportingPdf ? C.faint : '#0F172A', border: 'none', color: 'white', borderRadius: 8, padding: '5px 14px', fontSize: 10, fontWeight: 800, cursor: exportingPdf ? 'default' : 'pointer', fontFamily: 'Montserrat,sans-serif', letterSpacing: 1, textTransform: 'uppercase', opacity: exportingPdf ? 0.6 : 1 }}>
+                {exportingPdf ? 'Generating...' : '↓ Export PDF'}
+              </button>
+              <button onClick={() => setShowJourneyModal(true)} style={{ background: C.accent + '12', border: `1.5px solid ${C.accent}44`, color: C.accent, borderRadius: 8, padding: '5px 14px', fontSize: 10, fontWeight: 800, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', letterSpacing: 1, textTransform: 'uppercase' }}>
+                View Journey
+              </button>
+            </div>
           </div>
           <canvas ref={chartRef} style={{ width: '100%', height: 280, display: 'block' }} />
           <div style={{ display: 'flex', gap: 16, justifyContent: 'center', padding: '8px 0 4px' }}>
