@@ -4942,7 +4942,7 @@ function WeightTracker({ client, onBack, onUpdate }) {
       }).filter(r => { try { return parseDate(r.date) && (!isNaN(parseFloat(r.weight)) || !isNaN(parseFloat(r.fat))) } catch { return false } })
 
       if (!rows.length) { alert('No valid rows found after parsing. Check that your CSV has date and weight columns.'); return }
-      setCsvPreview({ rows, fileName: file.name, totalLines: dataRows.length, colTypes, dateCol, timeCol, weightCol, bmiCol, fatCol })
+      setCsvPreview({ rows, fileName: file.name, totalLines: dataRows.length, colTypes, dateCol, timeCol, weightCol, bmiCol, fatCol, headers: allRows[0] || [] })
       } catch (err) {
         alert('Error reading CSV: ' + (err?.message || String(err)))
       }
