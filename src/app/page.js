@@ -4819,6 +4819,7 @@ function WeightTracker({ client, onBack, onUpdate }) {
   const [behaviorNotes, setBehaviorNotes] = useState('')
   const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0])
   const [showHistory, setShowHistory] = useState(false)
+  const [selectedLogs, setSelectedLogs] = useState(new Set())
   const [showJourneyModal, setShowJourneyModal] = useState(false)
   const chartRef = useRef(null)
   const modalChartRef = useRef(null)
@@ -4858,6 +4859,16 @@ function WeightTracker({ client, onBack, onUpdate }) {
   const handleDelete = async (id) => {
     if (!confirm('Delete this weigh-in?')) return
     try { await deleteWeightLog(id); await load() } catch (e) { alert('Error: ' + e.message) }
+  }
+
+  const handleBulkDelete = async () => {
+    if (!selectedLogs.size) return
+    if (!confirm(`Delete ${selectedLogs.size} selected weigh-in${selectedLogs.size > 1 ? 's' : ''}?`)) return
+    try {
+      for (const id of selectedLogs) await deleteWeightLog(id)
+      setSelectedLogs(new Set())
+      await load()
+    } catch (e) { alert('Error: ' + e.message) }
   }
 
   // CSV import — reads file, auto-detects columns, shows preview, then bulk-saves
@@ -5347,11 +5358,30 @@ function WeightTracker({ client, onBack, onUpdate }) {
           </div>
           {showHistory && (
             <div style={{ marginTop: 12 }}>
+              {/* Select-all toolbar */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, paddingBottom: 8, borderBottom: `1px solid ${C.border}` }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 11, fontWeight: 700, color: C.sub }}>
+                  <input type="checkbox"
+                    checked={selectedLogs.size === logs.length && logs.length > 0}
+                    onChange={e => setSelectedLogs(e.target.checked ? new Set(logs.map(l => l.id)) : new Set())}
+                    style={{ width: 15, height: 15, cursor: 'pointer' }} />
+                  Select All
+                </label>
+                {selectedLogs.size > 0 && (
+                  <button onClick={handleBulkDelete} style={{ marginLeft: 'auto', background: C.red + '10', border: `1px solid ${C.red}55`, borderRadius: 7, color: C.red, fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: '4px 14px', fontFamily: 'Montserrat,sans-serif' }}>
+                    Delete {selectedLogs.size} Selected
+                  </button>
+                )}
+              </div>
               {[...logs].reverse().map(l => {
                 const d = new Date(l.logged_at)
                 const dateStr = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`
+                const checked = selectedLogs.has(l.id)
                 return (
-                  <div key={l.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 0', borderBottom: `1px solid ${C.border}22` }}>
+                  <div key={l.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 0', borderBottom: `1px solid ${C.border}22`, background: checked ? C.red + '06' : 'transparent', borderRadius: 6 }}>
+                    <input type="checkbox" checked={checked}
+                      onChange={e => setSelectedLogs(prev => { const n = new Set(prev); e.target.checked ? n.add(l.id) : n.delete(l.id); return n })}
+                      style={{ width: 15, height: 15, marginTop: 3, flexShrink: 0, cursor: 'pointer' }} />
                     <div style={{ minWidth: 8, height: 8, borderRadius: '50%', marginTop: 5, background: l.rating === 'good' ? C.green : l.rating === 'bad' ? C.red : C.border }} />
                     <div style={{ flex: 1 }}>
                       <div style={{ display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
@@ -5370,7 +5400,7 @@ function WeightTracker({ client, onBack, onUpdate }) {
                         ) : l.behavior_notes ? <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>{l.behavior_notes}</div> : null
                       })()}
                     </div>
-                    <button onClick={() => handleDelete(l.id)} style={{ background: 'none', border: '1px solid ' + C.red + '55', borderRadius: 6, color: C.red, fontSize: 12, cursor: 'pointer', padding: '2px 8px', marginLeft: 6, opacity: 0.75 }} title="Delete weigh-in">Delete</button>
+                    <button onClick={() => handleDelete(l.id)} style={{ background: 'none', border: `1px solid ${C.red}55`, borderRadius: 6, color: C.red, fontSize: 12, cursor: 'pointer', padding: '2px 8px', flexShrink: 0, opacity: 0.75 }} title="Delete weigh-in">Delete</button>
                   </div>
                 )
               })}
