@@ -4113,9 +4113,9 @@ function ProgramUploads({ client, onUpdate }) {
 
   // program_journal: { "y1_p1_Week 1": { days: [...] }, ... }
   const [journal, setJournal] = useState(stored.program_journal || {})
-  const [selYear, setSelYear] = useState(1)
-  const [selPhase, setSelPhase] = useState('p1')
-  const [selWeek, setSelWeek] = useState('Week 1')
+  const [selYear, setSelYear] = useState(stored.last_sel?.year ?? 1)
+  const [selPhase, setSelPhase] = useState(stored.last_sel?.phase ?? 'p1')
+  const [selWeek, setSelWeek] = useState(stored.last_sel?.week ?? 'Week 1')
   // Week order per phase — allows custom deload placement
   const weekOrderKey = `y${selYear}_${selPhase}_weekorder`
   const weekOrder = journal[weekOrderKey] || DEFAULT_WEEK_ORDER
@@ -4151,11 +4151,23 @@ function ProgramUploads({ client, onUpdate }) {
   const journalRef = useRef(journal)
   const autosaveTimer = useRef(null)
   const isFirstRender = useRef(true)
+  const isFirstSelRender = useRef(true)
+  const selSaveTimer = useRef(null)
 
   useEffect(() => {
     setWeekNotesUnsaved(false)
     setWeekNotesSaved(false)
   }, [journalKey])
+
+  // Persist last selected year/phase/week so it reopens in the same spot
+  useEffect(() => {
+    if (isFirstSelRender.current) { isFirstSelRender.current = false; return }
+    if (selSaveTimer.current) clearTimeout(selSaveTimer.current)
+    selSaveTimer.current = setTimeout(() => {
+      persist({ last_sel: { year: selYear, phase: selPhase, week: selWeek } })
+    }, 800)
+    return () => { if (selSaveTimer.current) clearTimeout(selSaveTimer.current) }
+  }, [selYear, selPhase, selWeek])
 
   useEffect(() => { journalRef.current = journal }, [journal])
 
@@ -5349,7 +5361,7 @@ function WeightTracker({ client, onBack, onUpdate }) {
                         ) : l.behavior_notes ? <div style={{ fontSize: 11, color: C.sub, marginTop: 3 }}>{l.behavior_notes}</div> : null
                       })()}
                     </div>
-                    <button onClick={() => handleDelete(l.id)} style={{ background: 'none', border: 'none', color: C.red + '66', fontSize: 14, cursor: 'pointer', padding: '0 4px' }} title="Delete">×</button>
+                    <button onClick={() => handleDelete(l.id)} style={{ background: 'none', border: '1px solid ' + C.red + '55', borderRadius: 6, color: C.red, fontSize: 12, cursor: 'pointer', padding: '2px 8px', marginLeft: 6, opacity: 0.75 }} title="Delete weigh-in">Delete</button>
                   </div>
                 )
               })}
