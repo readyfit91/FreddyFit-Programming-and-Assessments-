@@ -4966,13 +4966,13 @@ function WeightTracker({ client, onBack, onUpdate }) {
       const CW = PW - M * 2
       let y = M
 
-      // ── Brand colors ──────────────────────────────────────────────
-      const DARK   = '#0F172A'
-      const ACCENT = '#6366F1'
-      const TEAL   = '#0D9488'
+      // ── Brand colors (matched to FreddyFit logo) ─────────────────
+      const DARK   = '#1A1A2E'
+      const ACCENT = '#29A8D0'   // logo blue
+      const TEAL   = '#29A8D0'
       const ORANGE = '#F97316'
-      const SUB    = '#64748B'
-      const BORDER = '#E2E8F0'
+      const SUB    = '#6B7280'   // neutral gray
+      const BORDER = '#D1D5DB'
 
       const hex = (h) => {
         const r = parseInt(h.slice(1,3),16), g = parseInt(h.slice(3,5),16), b = parseInt(h.slice(5,7),16)
@@ -4994,10 +4994,10 @@ function WeightTracker({ client, onBack, onUpdate }) {
       } catch {}
       y += 56
 
-      // ── Business info (right-aligned) ─────────────────────────────
+      // ── Business info (right-aligned, logo blue + gray) ───────────
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(10)
-      doc.setTextColor(...hex(DARK))
+      doc.setTextColor(...hex(ACCENT))
       doc.text('FreddyFit Performance Center', PW - M, y - 20, { align: 'right' })
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(9)
@@ -5005,16 +5005,16 @@ function WeightTracker({ client, onBack, onUpdate }) {
       doc.text('6047 Telegraph Road', PW - M, y - 8, { align: 'right' })
       doc.text('Saint Louis, MO 63129', PW - M, y + 3, { align: 'right' })
 
-      // ── Header rule ───────────────────────────────────────────────
+      // ── Header rule (logo blue, full bleed) ───────────────────────
       doc.setDrawColor(...hex(ACCENT))
-      doc.setLineWidth(2)
-      doc.line(M, y + 12, PW - M, y + 12)
-      y += 28
+      doc.setLineWidth(3)
+      doc.line(M, y + 14, PW - M, y + 14)
+      y += 30
 
       // ── Title block ───────────────────────────────────────────────
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(20)
-      doc.setTextColor(...hex(DARK))
+      doc.setTextColor(...hex(ACCENT))
       doc.text('Patient Weight Monitoring Report', M, y)
       y += 26
 
@@ -5063,7 +5063,7 @@ function WeightTracker({ client, onBack, onUpdate }) {
       if (logs.length >= 2) {
         doc.setFont('helvetica', 'bold')
         doc.setFontSize(11)
-        doc.setTextColor(...hex(SUB))
+        doc.setTextColor(...hex(ACCENT))
         doc.text('PROGRESS OVER TIME', M, y)
         y += 10
 
@@ -5089,7 +5089,7 @@ function WeightTracker({ client, onBack, onUpdate }) {
 
         doc.setFont('helvetica', 'bold')
         doc.setFontSize(11)
-        doc.setTextColor(...hex(SUB))
+        doc.setTextColor(...hex(ACCENT))
         doc.text('BEHAVIOR IMPACT BREAKDOWN', M, y)
         y += 10
 
