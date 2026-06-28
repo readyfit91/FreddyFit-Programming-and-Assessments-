@@ -5080,8 +5080,8 @@ function WeightTracker({ client, onBack, onUpdate }) {
           const legendItems = [
             { color: '#29A8D0', label: 'Weight (lbs)' },
             { color: '#F97316', label: 'Body Fat %' },
-            { color: '#16A34A', label: 'Good Session' },
-            { color: '#DC2626', label: 'Needs Work Session' },
+            { color: '#16A34A', label: 'Client Progressing' },
+            { color: '#DC2626', label: 'Client Regressing' },
           ]
           const itemW = CW / legendItems.length
           legendItems.forEach((item, i) => {
