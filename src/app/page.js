@@ -4994,29 +4994,40 @@ function WeightTracker({ client, onBack, onUpdate }) {
       } catch {}
       y += 56
 
+      // ── Business info (right-aligned) ─────────────────────────────
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(10)
+      doc.setTextColor(...hex(DARK))
+      doc.text('FreddyFit Performance Center', PW - M, y - 20, { align: 'right' })
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      doc.setTextColor(...hex(SUB))
+      doc.text('6047 Telegraph Road', PW - M, y - 8, { align: 'right' })
+      doc.text('Saint Louis, MO 63129', PW - M, y + 3, { align: 'right' })
+
       // ── Header rule ───────────────────────────────────────────────
       doc.setDrawColor(...hex(ACCENT))
       doc.setLineWidth(2)
-      doc.line(M, y, PW - M, y)
-      y += 14
+      doc.line(M, y + 12, PW - M, y + 12)
+      y += 28
 
       // ── Title block ───────────────────────────────────────────────
       doc.setFont('helvetica', 'bold')
-      doc.setFontSize(22)
+      doc.setFontSize(20)
       doc.setTextColor(...hex(DARK))
-      doc.text('Weight Progress Report', M, y)
-      y += 28
+      doc.text('Patient Weight Monitoring Report', M, y)
+      y += 26
 
       doc.setFont('helvetica', 'normal')
-      doc.setFontSize(12)
+      doc.setFontSize(11)
       doc.setTextColor(...hex(SUB))
       doc.text(`Client: ${client.name}`, M, y)
-      y += 17
-      if (client.goal) { doc.text(`Goal: ${client.goal}`, M, y); y += 17 }
+      y += 16
+      if (client.goal) { doc.text(`Goal: ${client.goal}`, M, y); y += 16 }
       doc.text(`Generated: ${new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' })}`, M, y)
-      y += 17
+      y += 16
       doc.text(`Total Check-ins: ${logs.length}`, M, y)
-      y += 28
+      y += 26
 
       // ── Summary stats ─────────────────────────────────────────────
       const weightLogs = logs.filter(l => l.weight != null).sort((a,b) => new Date(a.logged_at)-new Date(b.logged_at))
@@ -5117,7 +5128,7 @@ function WeightTracker({ client, onBack, onUpdate }) {
         doc.setFont('helvetica', 'normal')
         doc.setFontSize(8)
         doc.setTextColor(...hex(SUB))
-        doc.text('FreddyFit Performance Training', M, PH - 20)
+        doc.text('FreddyFit Performance Center  ·  6047 Telegraph Road, Saint Louis, MO 63129', M, PH - 20)
         doc.text(`Page ${p} of ${pageCount}`, PW - M, PH - 20, { align: 'right' })
       }
 
