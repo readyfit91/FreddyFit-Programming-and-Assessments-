@@ -5898,6 +5898,7 @@ export default function App() {
   const [client, setClient] = useState(null)
   const [assessment, setAssessment] = useState(null)
   const [allClients, setAllClients] = useState([])
+  const [forceNewAssessment, setForceNewAssessment] = useState(false)
 
   // Load all clients for linked-client switching
   const refreshAllClients = useCallback(async () => {
@@ -5945,8 +5946,6 @@ export default function App() {
   const switchToClient = (c) => { setClient(c); setView('client') }
   const openIntake = () => { setClient(null); setView('intake') }
   const openEditClient = (c) => { setClient(c); setView('editClient') }
-
-  const [forceNewAssessment, setForceNewAssessment] = useState(false)
 
   const runAssessment = (a, c, forceNew = false) => {
     setAssessment(a)
