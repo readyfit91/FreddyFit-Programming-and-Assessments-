@@ -5074,7 +5074,27 @@ function WeightTracker({ client, onBack, onUpdate }) {
           const srcH = chartRef.current.height || 340
           const chartH = (CW * srcH) / srcW
           doc.addImage(chartImg, 'PNG', M, y, CW, chartH)
-          y += chartH + 20
+          y += chartH + 8
+
+          // ── Chart legend ────────────────────────────────────────────
+          const legendItems = [
+            { color: '#29A8D0', label: 'Weight (lbs)' },
+            { color: '#F97316', label: 'Body Fat %' },
+            { color: '#16A34A', label: 'Good Session' },
+            { color: '#DC2626', label: 'Needs Work Session' },
+          ]
+          const itemW = CW / legendItems.length
+          legendItems.forEach((item, i) => {
+            const lx = M + i * itemW + itemW / 2
+            // Colored dot
+            doc.setFillColor(...hex(item.color))
+            doc.circle(lx - 22, y + 4, 4, 'F')
+            doc.setFont('helvetica', 'normal')
+            doc.setFontSize(9)
+            doc.setTextColor(...hex(SUB))
+            doc.text(item.label, lx - 15, y + 7)
+          })
+          y += 22
         }
       }
 
