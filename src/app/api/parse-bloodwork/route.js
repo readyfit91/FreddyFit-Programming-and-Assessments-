@@ -9,7 +9,7 @@ const PANEL_MARKERS = {
     'Neutrophil %','Lymphocytes %','Monocyte %','Eosinophils %','Basophils %'
   ],
   'Lipid Panel': [
-    'Total Cholesterol','LDL','HDL','Triglycerides','Non-HDL','Cholesterol/HDL Ratio'
+    'Total Cholesterol','HDL','Triglycerides','LDL','Cholesterol/HDL Ratio','Non-HDL'
   ],
   'Comprehensive Metabolic Panel': [
     'Glucose','BUN','Creatinine','eGFR','BUN/Creatinine Ratio','Sodium','Potassium',
