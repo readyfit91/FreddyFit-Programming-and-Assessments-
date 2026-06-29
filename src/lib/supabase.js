@@ -214,6 +214,7 @@ export async function saveLead(lead) {
     date_added: lead.date_added || new Date().toISOString().split('T')[0],
     last_contact_date: lead.last_contact_date || null,
     notes: lead.notes || '',
+    consultation_notes: lead.consultation_notes || '',
     updated_at: new Date().toISOString()
   }
   if (lead.id) {

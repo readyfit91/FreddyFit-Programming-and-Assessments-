@@ -6004,9 +6004,12 @@ const OUTREACH_SEQUENCE = [
 function getOutreachStep(lead) {
   if (['Client', 'Cold', 'Booked'].includes(lead.status)) return null
   const today = new Date()
-  const added = lead.date_added ? new Date(lead.date_added + 'T00:00:00') : null
-  if (!added) return null
-  const daysSinceAdded = Math.floor((today - added) / 86400000)
+  // Use last_contact_date as sequence reset point when set, otherwise date_added
+  const seqStart = lead.last_contact_date
+    ? new Date(lead.last_contact_date + 'T00:00:00')
+    : lead.date_added ? new Date(lead.date_added + 'T00:00:00') : null
+  if (!seqStart) return null
+  const daysSinceAdded = Math.floor((today - seqStart) / 86400000)
 
   // After 30 days with no status change → suggest Cold
   if (daysSinceAdded > 30) {
@@ -6194,8 +6197,9 @@ function CrmLeads({ onBack }) {
   const [filterStatus, setFilterStatus] = useState('All')
   const [editing, setEditing] = useState(null) // null = list, 'new' = new form, {id,...} = edit form
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({ name:'', phone:'', email:'', source:'', goal:'', status:'New Lead', last_contact_date:'', notes:'' })
+  const [form, setForm] = useState({ name:'', phone:'', email:'', source:'', goal:'', status:'New Lead', last_contact_date:'', notes:'', consultation_notes:'' })
   const [aiCoachLead, setAiCoachLead] = useState(null)
+  const [converting, setConverting] = useState(false)
   const [showActionItems, setShowActionItems] = useState(true)
 
   const today = new Date().toISOString().split('T')[0]
@@ -6223,8 +6227,38 @@ function CrmLeads({ onBack }) {
       status: lead.status || 'New Lead',
       last_contact_date: lead.last_contact_date || '',
       notes: lead.notes || '',
+      consultation_notes: lead.consultation_notes || '',
     })
     setEditing(lead)
+  }
+
+  const convertToClient = async () => {
+    if (!editing || editing === 'new') return
+    if (!confirm(`Convert ${editing.name} to a full client? This will create their client profile with intake data pre-filled.`)) return
+    setConverting(true)
+    try {
+      // Build trainer_notes JSON from intake data
+      const intakeData = {
+        phone: editing.phone || '',
+        email: editing.email || '',
+        source: editing.source || '',
+        intake_notes: editing.notes || '',
+        consultation_notes: form.consultation_notes || '',
+      }
+      await saveClient({
+        name: editing.name,
+        goal: editing.goal || '',
+        dob: '',
+        equipment: '',
+        trainerNotes: JSON.stringify(intakeData),
+      })
+      // Mark lead as Client
+      await saveLead({ ...editing, ...form, status: 'Client' })
+      await load()
+      setEditing(null)
+      alert(`${editing.name} has been added as a client! Find them in your client roster.`)
+    } catch (e) { alert('Error converting lead: ' + e.message) }
+    setConverting(false)
   }
 
   const save = async () => {
@@ -6325,15 +6359,29 @@ function CrmLeads({ onBack }) {
           </div>
 
           <div>
-            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>Notes</div>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>Intake Notes</div>
             <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-              placeholder="Any notes about this lead…"
-              rows={4}
+              placeholder="Intake form data…"
+              rows={3}
               style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 14px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
           </div>
 
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>📋 Consultation Notes</div>
+            <textarea value={form.consultation_notes} onChange={e => setForm(f => ({ ...f, consultation_notes: e.target.value }))}
+              placeholder="What did you discuss on the call? Objections, what they're really after, next steps…"
+              rows={5}
+              style={{ width: '100%', background: '#FFFBEB', border: `1px solid #F59E0B44`, borderRadius: 8, padding: '10px 14px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8, flexWrap: 'wrap' }}>
             <Btn outline onClick={() => setEditing(null)}>Cancel</Btn>
+            {editing !== 'new' && (
+              <button onClick={convertToClient} disabled={converting}
+                style={{ padding: '11px 22px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 13, cursor: converting ? 'not-allowed' : 'pointer', opacity: converting ? 0.6 : 1 }}>
+                {converting ? 'Converting…' : '⭐ Convert to Client'}
+              </button>
+            )}
             <Btn onClick={save} disabled={saving || !form.name.trim()}>{saving ? 'Saving…' : 'Save Lead'}</Btn>
           </div>
         </div>
@@ -6533,6 +6581,14 @@ function CrmLeads({ onBack }) {
                         {lead.notes.length > 120 ? lead.notes.slice(0, 120) + '…' : lead.notes}
                       </div>
                     )}
+                  </div>
+                )}
+                {lead.consultation_notes && (
+                  <div style={{ marginTop: 8, background: '#FFFBEB', border: `1px solid #F59E0B44`, borderRadius: 8, padding: '8px 12px' }}>
+                    <div style={{ fontSize: 9, fontWeight: 800, color: '#92400E', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 }}>📋 Consultation Notes</div>
+                    <div style={{ fontSize: 12, color: '#92400E', lineHeight: 1.6 }}>
+                      {lead.consultation_notes.length > 150 ? lead.consultation_notes.slice(0, 150) + '…' : lead.consultation_notes}
+                    </div>
                   </div>
                 )}
               </div>
