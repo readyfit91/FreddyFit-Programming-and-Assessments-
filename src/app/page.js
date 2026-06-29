@@ -7457,9 +7457,10 @@ function BloodWorkPieChart({ records }) {
   )
 }
 
-async function parsePdfBloodWork(file) {
+async function parsePdfBloodWork(file, panel = null) {
   const fd = new FormData()
   fd.append('pdf', file)
+  if (panel) fd.append('panel', panel)
   const res = await fetch('/api/parse-bloodwork', { method: 'POST', body: fd })
   const data = await res.json()
   if (data.error) throw new Error(data.error)
@@ -7511,24 +7512,24 @@ function BloodWorkPanel({ client, onBack }) {
     setDrafts(d => ({ ...d, [key]: { ...(d[key] || getDraft(year, period)), [name]: value } }))
   }
 
-  async function handlePdfUpload(year, period, file) {
+  async function handlePdfUpload(year, period, file, panel) {
     if (!file) return
     const key = getDraftKey(year, period)
-    setParsing(p => ({ ...p, [key]: true }))
+    const pKey = panel ? `${key}-${panel}` : key
+    setParsing(p => ({ ...p, [pKey]: true }))
     try {
-      const { markers, count } = await parsePdfBloodWork(file)
+      const { markers, count } = await parsePdfBloodWork(file, panel)
       if (!count || count === 0) {
-        alert('Could not extract marker values from this PDF. Try uploading a text-based (not scanned) PDF, or enter values manually.')
-        setParsing(p => ({ ...p, [key]: false }))
+        alert('Could not extract marker values from this PDF. Make sure it is a text-based PDF (not a scan) and contains the expected markers.')
+        setParsing(p => ({ ...p, [pKey]: false }))
         return
       }
       setDrafts(d => ({ ...d, [key]: { ...(d[key] || getDraft(year, period)), ...markers } }))
       setExpandedPeriod(key)
-      setShowManual(m => ({ ...m, [key]: true }))
     } catch (e) {
       alert('PDF parsing failed: ' + e.message)
     }
-    setParsing(p => ({ ...p, [key]: false }))
+    setParsing(p => ({ ...p, [pKey]: false }))
   }
 
   async function handleSave(year, period) {
@@ -7778,44 +7779,49 @@ function BloodWorkPanel({ client, onBack }) {
 
                             {isExpP && (
                               <div style={{ padding: '16px' }}>
-                                {/* PDF Upload — primary action */}
-                                <div style={{ background: C.accent + '0a', border: `1.5px dashed ${C.accent}55`, borderRadius: 10, padding: '16px', marginBottom: 14, textAlign: 'center' }}>
-                                  <div style={{ fontSize: 13, fontWeight: 700, color: C.accent, marginBottom: 6 }}>📄 Upload Lab Report PDF</div>
-                                  <div style={{ fontSize: 11, color: C.sub, marginBottom: 12 }}>AI will automatically extract all marker values from your lab report</div>
-                                  <input
-                                    ref={el => { fileInputRefs.current[pKey] = el }}
-                                    type="file"
-                                    accept=".pdf"
-                                    style={{ display: 'none' }}
-                                    onChange={e => { if (e.target.files?.[0]) handlePdfUpload(year, period, e.target.files[0]); e.target.value = '' }}
-                                  />
-                                  <button onClick={() => fileInputRefs.current[pKey]?.click()} disabled={isParsing}
-                                    style={{ padding: '10px 24px', borderRadius: 8, border: 'none', background: C.accent, color: '#fff', fontFamily: 'Montserrat,sans-serif', fontWeight: 800, fontSize: 12, cursor: isParsing ? 'not-allowed' : 'pointer', opacity: isParsing ? 0.7 : 1 }}>
-                                    {isParsing ? '⏳ Extracting markers…' : rec ? '↺ Replace with new PDF' : '📤 Choose PDF'}
-                                  </button>
-                                  {!isManual && (
-                                    <div style={{ marginTop: 10 }}>
-                                      <button onClick={e => { e.stopPropagation(); setShowManual(m => ({ ...m, [pKey]: true })); setExpandedPeriod(pKey) }}
-                                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.sub, fontWeight: 600, textDecoration: 'underline' }}>
-                                        Or enter values manually
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-
-                                {/* Manual entry or post-PDF review */}
-                                {(isManual || isDirty || rec) && (
-                                  <div>
-                                    <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 12 }}>
-                                      {isDirty && !rec ? 'Review Extracted Values' : 'Marker Values'}
-                                    </div>
-                                    {BLOOD_PANELS.map(panel => (
-                                      <div key={panel.name} style={{ marginBottom: 16 }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                                {/* Per-panel upload sections */}
+                                {BLOOD_PANELS.map(panel => {
+                                  const panelParsing = !!parsing[`${pKey}-${panel.name}`]
+                                  const panelFileKey = `${pKey}-${panel.name}`
+                                  const panelMarkerCount = panel.markers.filter(m => draft[m.name] !== '' && draft[m.name] != null).length
+                                  return (
+                                    <div key={panel.name} style={{ border: `1.5px solid ${panel.color}33`, borderRadius: 10, marginBottom: 12, overflow: 'hidden' }}>
+                                      {/* Panel header with upload button */}
+                                      <div style={{ background: panel.color + '0d', padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                           <div style={{ width: 10, height: 10, borderRadius: '50%', background: panel.color, flexShrink: 0 }} />
-                                          <div style={{ fontSize: 11, fontWeight: 800, color: C.text }}>{panel.name}</div>
+                                          <div style={{ fontWeight: 800, fontSize: 12, color: C.text }}>{panel.name}</div>
+                                          {panelMarkerCount > 0 && (
+                                            <span style={{ fontSize: 10, fontWeight: 700, color: panel.color, background: panel.color + '18', padding: '1px 8px', borderRadius: 6 }}>
+                                              {panelMarkerCount} marker{panelMarkerCount !== 1 ? 's' : ''} filled
+                                            </span>
+                                          )}
                                         </div>
-                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 8 }}>
+                                        <div style={{ display: 'flex', align: 'center', gap: 8, flexShrink: 0 }}>
+                                          <input
+                                            ref={el => { fileInputRefs.current[panelFileKey] = el }}
+                                            type="file"
+                                            accept=".pdf"
+                                            style={{ display: 'none' }}
+                                            onChange={e => { if (e.target.files?.[0]) handlePdfUpload(year, period, e.target.files[0], panel.name); e.target.value = '' }}
+                                          />
+                                          <button
+                                            onClick={e => { e.stopPropagation(); fileInputRefs.current[panelFileKey]?.click() }}
+                                            disabled={panelParsing}
+                                            style={{ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${panel.color}`, background: panel.color + '18', color: panel.color, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: panelParsing ? 'not-allowed' : 'pointer', opacity: panelParsing ? 0.7 : 1, whiteSpace: 'nowrap' }}>
+                                            {panelParsing ? '⏳ Reading…' : panelMarkerCount > 0 ? '↺ Re-upload PDF' : '📄 Upload PDF'}
+                                          </button>
+                                        </div>
+                                      </div>
+
+                                      {/* Panel description */}
+                                      <div style={{ padding: '8px 14px', fontSize: 10, color: C.sub, background: C.faint, borderBottom: `1px solid ${panel.color}22` }}>
+                                        {panel.panelDesc}
+                                      </div>
+
+                                      {/* Marker inputs */}
+                                      <div style={{ padding: '12px 14px' }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
                                           {panel.markers.map(m => {
                                             const val = draft[m.name] ?? ''
                                             const status = getMarkerStatus(m.name, val)
@@ -7841,18 +7847,18 @@ function BloodWorkPanel({ client, onBack }) {
                                           })}
                                         </div>
                                       </div>
-                                    ))}
-
-                                    <div style={{ marginTop: 16, display: 'flex', gap: 10 }}>
-                                      <Btn onClick={() => handleSave(year, period)} disabled={saving[pKey]} small color={C.accent}>
-                                        {saving[pKey] ? 'Saving…' : '💾 Save'}
-                                      </Btn>
-                                      {isDirty && (
-                                        <Btn onClick={() => setDrafts(d => { const nd = { ...d }; delete nd[pKey]; return nd })} outline small color={C.sub}>Discard</Btn>
-                                      )}
                                     </div>
-                                  </div>
-                                )}
+                                  )
+                                })}
+
+                                <div style={{ marginTop: 8, display: 'flex', gap: 10 }}>
+                                  <Btn onClick={() => handleSave(year, period)} disabled={saving[pKey]} small color={C.accent}>
+                                    {saving[pKey] ? 'Saving…' : '💾 Save All'}
+                                  </Btn>
+                                  {isDirty && (
+                                    <Btn onClick={() => setDrafts(d => { const nd = { ...d }; delete nd[pKey]; return nd })} outline small color={C.sub}>Discard</Btn>
+                                  )}
+                                </div>
                               </div>
                             )}
                           </div>
