@@ -4226,7 +4226,7 @@ function WeightTracker({ client, onBack }) {
       canvas.height = rect.height * dpr
     }
     ctx.scale(dpr, dpr)
-    const pad = { top: 30, right: showBehavior ? 50 : 20, bottom: 50, left: 50 }
+    const pad = { top: 42, right: showBehavior ? 50 : 75, bottom: 50, left: 60 }
     const cW = W - pad.left - pad.right, cH = H - pad.top - pad.bottom
 
     ctx.clearRect(0, 0, W, H)
@@ -4328,9 +4328,9 @@ function WeightTracker({ client, onBack }) {
       }
 
       ctx.font = 'bold 11px Montserrat, sans-serif'
-      const labelX = yAxis === 'left' ? pad.left : W - pad.right
+      const labelX = yAxis === 'left' ? pad.left - 4 : W - pad.right + 4
       ctx.textAlign = yAxis === 'left' ? 'right' : 'left'
-      ctx.fillText(label, labelX, pad.top - 10)
+      ctx.fillText(label, labelX, pad.top - 18)
 
       ctx.strokeStyle = color
       ctx.lineWidth = 2.5
