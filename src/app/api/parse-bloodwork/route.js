@@ -14,7 +14,7 @@ const PANEL_MARKERS = {
   'Comprehensive Metabolic Panel': [
     'Glucose','BUN','Creatinine','eGFR','BUN/Creatinine Ratio','Sodium','Potassium',
     'Chloride','CO2','Calcium','Total Protein','Albumin','Globulin','A/G Ratio',
-    'Total Bilirubin','ALT','AST','Alkaline Phosphatase'
+    'Total Bilirubin','Alkaline Phosphatase','AST','ALT'
   ],
   'Hemoglobin A1C': [
     'HbA1c','Estimated Average Glucose (mg/dL)','Estimated Average Glucose (mmol/L)',
