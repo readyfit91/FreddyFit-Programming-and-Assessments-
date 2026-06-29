@@ -5990,13 +5990,13 @@ function LoginScreen({ onLogin }) {
 
 // 30-day follow-up sequence — each entry is a scheduled action day
 const OUTREACH_SEQUENCE = [
-  { day: 0,  channel: 'Text',  step: 1,  emoji: '💬', action: 'Intro text — introduce yourself, mention their goal, ask for 2-3 good days/times to go over their intake and schedule their free in-person consultation' },
+  { day: 0,  channel: 'Text',  step: 1,  emoji: '💬', action: 'Intro text — introduce yourself, mention their goal, ask for 2-3 good days/times to go over their intake and schedule their complimentary in-person consultation' },
   { day: 1,  channel: 'Text',  step: 2,  emoji: '💬', action: 'Follow-up text — they haven\'t responded yet, keep it short and easy to reply to, ask for availability' },
-  { day: 3,  channel: 'Call',  step: 3,  emoji: '📞', action: 'First phone call — texts aren\'t landing, calls convert 8x better. Reference their goal and invite them to the free consultation' },
+  { day: 3,  channel: 'Call',  step: 3,  emoji: '📞', action: 'First phone call — texts aren\'t landing, calls convert 8x better. Reference their goal and invite them to their complimentary consultation at FreddyFit Personal Training' },
   { day: 5,  channel: 'Email', step: 4,  emoji: '✉️', action: 'Professional intro email — formal, warm, reference their intake form answers, explain what the consultation covers, include your contact info' },
   { day: 7,  channel: 'Text',  step: 5,  emoji: '💬', action: 'Check-in text — casual, no pressure, acknowledge they may be busy, ask if this week works for a quick call' },
   { day: 10, channel: 'Call',  step: 6,  emoji: '📞', action: 'Second call attempt — try a different time of day. If voicemail, leave a brief personalized message referencing their goal' },
-  { day: 14, channel: 'Email', step: 7,  emoji: '✉️', action: 'Value email — share a specific tip or insight related to their stated goal. Soft CTA at the end to book their free consultation. Professional tone.' },
+  { day: 14, channel: 'Email', step: 7,  emoji: '✉️', action: 'Value email — share a specific tip or insight related to their stated goal. Soft CTA at the end to book their complimentary consultation at FreddyFit Personal Training. Professional tone.' },
   { day: 21, channel: 'Text',  step: 8,  emoji: '💬', action: 'Re-engagement text — reference their goal, acknowledge it\'s been a few weeks, ask if they\'re still looking for support. Keep door open.' },
   { day: 30, channel: 'Email', step: 9,  emoji: '✉️', action: 'Final professional email — last outreach attempt. Make it count. Warm but direct. Leave on great terms. Mention the door is always open at FreddyFit Personal Training.' },
 ]
@@ -6080,7 +6080,7 @@ function AiCoachModal({ lead, onClose }) {
     try {
       const seqStep = step ? `Step ${step.step} of 9 (Day ${(step.days || 0) + 1} of 30-day sequence)` : 'General outreach'
       const channelInstruction = step?.channel || 'Text'
-      const specificAction = step?.action || 'Reach out and invite them to schedule a free consultation'
+      const specificAction = step?.action || 'Reach out and invite them to schedule a complimentary consultation at FreddyFit Personal Training'
       const prompt = `You are writing on behalf of Freddy at FreddyFit Personal Training in Saint Louis, MO (6047 Telegraph Rd).
 
 Generate a personalized outreach message. Use the lead's actual intake answers to make it feel personal — not a template blast.
@@ -6100,14 +6100,14 @@ CHANNEL-SPECIFIC FORMAT:
 ${channelInstruction === 'Text' ? `TEXT MESSAGE RULES:
 - 2-3 sentences max, conversational tone
 - Reference their specific goal or barrier by name
-- Ask them to share 2-3 good days and times to go over their intake form and schedule their free in-person consultation
+- Ask them to share 2-3 good days and times to go over their intake form and schedule their complimentary in-person consultation at FreddyFit Personal Training
 - Sign off: "— Freddy | FreddyFit Personal Training"
 - No excessive emojis` : ''}
 ${channelInstruction === 'Call' ? `PHONE CALL SCRIPT RULES:
 - Write a 30-second spoken script
 - Opening: "Hi [Name], this is Freddy with FreddyFit Personal Training..."
 - Middle: Reference their specific goal or intake answer (1 sentence)
-- Ask: Invite them to schedule their free in-person consultation to go over their intake form together
+- Ask: Invite them to schedule their complimentary in-person consultation at FreddyFit Personal Training to go over their intake form together
 - Closing: Leave your number if voicemail
 - Natural conversational language` : ''}
 ${channelInstruction === 'Email' ? `EMAIL RULES:
@@ -6115,7 +6115,7 @@ ${channelInstruction === 'Email' ? `EMAIL RULES:
 - Professional, warm tone — like a letter from a real person not a marketing blast
 - Paragraph 1: Personal greeting, reference something specific from their intake
 - Paragraph 2: What FreddyFit Personal Training offers that directly addresses their goal/barrier
-- Paragraph 3: Invite them to their free in-person consultation, mention it's no pressure
+- Paragraph 3: Invite them to their complimentary in-person consultation at FreddyFit Personal Training, mention it's no pressure and no obligation
 - Sign off: "Warm regards,\\nFreddy\\nFreddyFit Personal Training\\n6047 Telegraph Rd, Saint Louis, MO 63123\\n314-584-9389"` : ''}
 ${channelInstruction === 'Cold' ? `COLD RE-ENGAGEMENT RULES:
 - Short, warm, zero pressure
@@ -6421,7 +6421,7 @@ function CrmLeads({ onBack }) {
           <summary style={{ fontSize: 11, color: C.sub, cursor: 'pointer', fontWeight: 700, letterSpacing: 1 }}>📋 FOLLOW-UP SEQUENCE GUIDE</summary>
           <div style={{ background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: '12px 14px', marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
             {[
-              { day: 'Day 0', action: 'Text intro — "Hey [Name], I\'m Freddy at FreddyFit! Saw you\'re interested in [goal]. Happy to chat — when works for a free consult?"', col: CHANNEL_COLORS.Text },
+              { day: 'Day 0', action: 'Text intro — "Hey [Name], this is Freddy with FreddyFit Personal Training! Saw you\'re interested in [goal]. I\'d love to set up your complimentary consultation — what days/times work best for you?"', col: CHANNEL_COLORS.Text },
               { day: 'Day 1–2', action: 'Follow-up text if no response — keep it short and easy to reply to', col: CHANNEL_COLORS.Text },
               { day: 'Day 3–4', action: 'Phone call — texts aren\'t landing, a call converts 8× better', col: CHANNEL_COLORS.Call },
               { day: 'Day 5–7', action: 'Email — reach them on another channel with a personalized message', col: CHANNEL_COLORS.Email },
