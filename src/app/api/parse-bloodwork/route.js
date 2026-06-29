@@ -109,6 +109,19 @@ CMP SYNONYM MAPPINGS:
   "TOTAL PROTEIN" or "PROTEIN, TOTAL" → Total Protein
   If a result says "SEE NOTE" or is missing/cancelled — skip that marker entirely.` : ''
 
+    const a1cInstructions = panelName === 'Hemoglobin A1C' ? `
+
+SPECIAL HbA1c FORMAT RULES — Quest Diagnostics / MyChart style:
+The word "Value" appears above the patient value.
+  Example: Value then 5.4 → HbA1c: 5.4
+
+HbA1c SYNONYM MAPPINGS:
+  "HEMOGLOBIN A1C" or "HBA1C" or "GLYCOHEMOGLOBIN" or "GLYCATED HEMOGLOBIN" → HbA1c
+  "ESTIMATED AVERAGE GLUCOSE" — SKIP THIS. It is a calculated value derived from HbA1c, not a direct lab measurement.
+  "FASTING GLUCOSE" or "GLUCOSE, FASTING" → Fasting Glucose (only if separately drawn and reported)
+  "FASTING INSULIN" or "INSULIN, FASTING" → Fasting Insulin
+  "HOMA-IR" or "INSULIN RESISTANCE" → HOMA-IR` : ''
+
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 1500,
@@ -142,7 +155,7 @@ Common lab name synonyms to help you map correctly:
 - "GLUCOSE, SERUM" → Glucose
 - "CREATININE, SERUM" → Creatinine
 - "BUN" or "UREA NITROGEN" → BUN
-${cbcInstructions}${cmpInstructions}
+${cbcInstructions}${cmpInstructions}${a1cInstructions}
 
 STRICT RULES:
 1. Many lab reports show results in a "Value" field — that number is the patient result. Ignore "Normal value", "Reference range", "Desirable range" — those are NOT the patient's result.
