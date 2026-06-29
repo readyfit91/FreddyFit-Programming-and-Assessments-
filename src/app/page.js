@@ -7549,7 +7549,7 @@ function Schedule({ onBack, allClients }) {
 
       {/* Booking modal */}
       {booking && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={e => { if (e.target === e.currentTarget) closeBooking() }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 340, boxShadow: '0 8px 40px rgba(0,0,0,0.18)', maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: 2, color: C.text, marginBottom: 4 }}>
               {booking.session ? 'Edit Session' : 'Book Session'}
