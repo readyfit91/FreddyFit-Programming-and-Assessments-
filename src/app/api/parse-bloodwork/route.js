@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import pdfParse from 'pdf-parse'
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -29,6 +29,18 @@ const PANEL_MARKERS = {
 
 const ALL_MARKERS = Object.values(PANEL_MARKERS).flat()
 
+async function extractTextFromPdf(buffer) {
+  const uint8 = new Uint8Array(buffer)
+  const pdf = await pdfjsLib.getDocument({ data: uint8, disableWorker: true }).promise
+  let text = ''
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i)
+    const content = await page.getTextContent()
+    text += content.items.map(item => item.str).join(' ') + '\n'
+  }
+  return text
+}
+
 export async function POST(request) {
   try {
     const formData = await request.formData()
@@ -37,15 +49,15 @@ export async function POST(request) {
     if (!file) return Response.json({ error: 'No file provided' }, { status: 400 })
 
     const buffer = Buffer.from(await file.arrayBuffer())
+
     let rawText = ''
     try {
-      const parsed = await pdfParse(buffer)
-      rawText = parsed.text
+      rawText = await extractTextFromPdf(buffer)
     } catch (e) {
       return Response.json({ error: 'Could not read PDF: ' + e.message }, { status: 400 })
     }
 
-    if (!rawText.trim()) {
+    if (!rawText || !rawText.trim()) {
       return Response.json({ error: 'PDF appears to be a scanned image. Please upload a text-based PDF from your lab.' }, { status: 400 })
     }
 
