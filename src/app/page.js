@@ -5530,6 +5530,33 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
     }
   }
 
+  const lastWeighIn = intake?.last_weigh_in || ''
+  const weighInterval = intake?.weigh_interval || 7
+
+  const saveWeighIn = async (date, interval) => {
+    const base = intake || {}
+    const updatedNotes = JSON.stringify({ ...base, last_weigh_in: date, weigh_interval: interval })
+    const updatedClient = { ...client, trainerNotes: updatedNotes }
+    await saveClient(updatedClient)
+    onUpdate(updatedClient)
+  }
+
+  const nextWeighInDate = (() => {
+    if (!lastWeighIn) return null
+    const d = new Date(lastWeighIn)
+    d.setDate(d.getDate() + Number(weighInterval))
+    return d
+  })()
+
+  const weighCountdown = (() => {
+    if (!nextWeighInDate) return null
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const next = new Date(nextWeighInDate)
+    next.setHours(0, 0, 0, 0)
+    return Math.ceil((next - today) / (1000 * 60 * 60 * 24))
+  })()
+
   const FLOW = [
     { phase: 'Phase 1 — Always First', color: C.teal, items: [ALL_ASSESSMENTS.hypermobility] },
     { phase: 'Phase 2 — Lower Body', color: C.accent, items: [ALL_ASSESSMENTS.prime8], subgroups: [
@@ -5599,6 +5626,45 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
           <Btn onClick={() => onBuildProgram(client)} small>📋 Program</Btn>
           <Btn onClick={() => onEditClient(client)} outline small color={C.sub}>✏️ Edit</Btn>
         </div>
+      </div>
+
+      {/* Weigh-In Countdown */}
+      <div style={{ background: C.faint, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 18px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>⚖️ Next Weigh-In</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: 1 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Last Weigh-In</span>
+            <input type="date" value={lastWeighIn} onChange={e => saveWeighIn(e.target.value, weighInterval)}
+              style={{ fontSize: 12, fontWeight: 700, border: `1.5px solid ${C.border}`, borderRadius: 7, padding: '5px 10px', background: '#fff', color: C.text, fontFamily: 'Montserrat,sans-serif', cursor: 'pointer' }} />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Interval</span>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {[7, 14, 30].map(d => (
+                <button key={d} onClick={() => saveWeighIn(lastWeighIn, d)}
+                  style={{ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${weighInterval === d ? C.teal : C.border}`, background: weighInterval === d ? C.teal + '18' : '#fff', color: weighInterval === d ? C.teal : C.sub, fontWeight: 800, fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+                  {d}d
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        {nextWeighInDate && (
+          <div style={{ textAlign: 'center', minWidth: 90 }}>
+            <div style={{ fontSize: weighCountdown === 0 ? 22 : 28, fontWeight: 900, color: weighCountdown < 0 ? C.red : weighCountdown <= 2 ? C.orange : C.teal, fontFamily: 'Montserrat,sans-serif', lineHeight: 1 }}>
+              {weighCountdown === 0 ? 'TODAY' : weighCountdown < 0 ? `${Math.abs(weighCountdown)}d LATE` : `${weighCountdown}d`}
+            </div>
+            <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 }}>
+              {weighCountdown === 0 ? 'Weigh in today!' : weighCountdown < 0 ? 'Overdue' : 'Until Next'}
+            </div>
+            <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>
+              {nextWeighInDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            </div>
+          </div>
+        )}
+        {!nextWeighInDate && (
+          <div style={{ fontSize: 11, color: C.sub, fontStyle: 'italic' }}>Set last weigh-in date to start countdown</div>
+        )}
       </div>
 
       {/* Intake Summary */}
