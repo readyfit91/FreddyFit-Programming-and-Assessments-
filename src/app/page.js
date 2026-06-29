@@ -7454,6 +7454,8 @@ function Schedule({ onBack, allClients }) {
         return [...filtered, saved].sort((a, b) => a.time.localeCompare(b.time))
       })
       closeBooking()
+    } catch(e) {
+      alert('Failed to save session: ' + e.message)
     } finally {
       setSaving(false)
     }
