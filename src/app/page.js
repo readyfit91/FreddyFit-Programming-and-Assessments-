@@ -5682,6 +5682,13 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
                   ['Financial concerns', intake.financial_concerns === 'Yes' ? intake.financial_concerns_description || 'Yes' : intake.financial_concerns],
                   ['Additional info', intake.additional_info],
                 ]} />
+                {(intake.source || intake.intake_notes || intake.consultation_notes) && (
+                  <Section title="CRM Intake (from Lead)" items={[
+                    ['Source', intake.source],
+                    ['Intake Notes', intake.intake_notes],
+                    ['Consultation Notes', intake.consultation_notes],
+                  ]} />
+                )}
                 <Section title="Functional Fit Package" items={[
                   ['Committed', intake.functional_fit_commit],
                   ['Initialed: 4 sessions / 3-4 weeks', intake.functional_fit_initial_1 ? '✓ Signed' : ''],
@@ -6259,35 +6266,47 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
     setEditing(lead)
   }
 
+  const doConvert = async (lead, extraForm = {}) => {
+    const merged = { ...lead, ...extraForm }
+    const intakeData = {
+      phone: merged.phone || '',
+      email: merged.email || '',
+      source: merged.source || '',
+      intake_notes: merged.notes || '',
+      consultation_notes: merged.consultation_notes || '',
+    }
+    // Do NOT pass id — let Supabase INSERT and generate the UUID
+    await saveClient({
+      name: merged.name,
+      goal: merged.goal || '',
+      dob: '',
+      equipment: '',
+      trainerNotes: JSON.stringify(intakeData),
+    })
+    await saveLead({ ...merged, status: 'Client' })
+    await load()
+  }
+
   const convertToClient = async () => {
     if (!editing || editing === 'new') return
-    if (!confirm(`Convert ${editing.name} to a full client? This will create their client profile with intake data pre-filled.`)) return
+    if (!confirm(`Convert ${editing.name} to a full client?\n\nTheir intake data, goal, phone, email and consultation notes will transfer to their client profile.`)) return
     setConverting(true)
     try {
-      // Build trainer_notes JSON from intake data
-      const intakeData = {
-        phone: editing.phone || '',
-        email: editing.email || '',
-        source: editing.source || '',
-        intake_notes: editing.notes || '',
-        consultation_notes: form.consultation_notes || '',
-      }
-      await saveClient({
-        id: crypto.randomUUID(),
-        name: editing.name,
-        goal: editing.goal || '',
-        dob: '',
-        equipment: '',
-        trainerNotes: JSON.stringify(intakeData),
-      })
-      // Mark lead as Client
-      await saveLead({ ...editing, ...form, status: 'Client' })
-      await load()
+      await doConvert(editing, form)
       setEditing(null)
-      alert(`${editing.name} has been added as a client! Find them in your client roster.`)
       if (onNavigateToRoster) onNavigateToRoster()
     } catch (e) { alert('Error converting lead: ' + e.message) }
     setConverting(false)
+  }
+
+  const directConvert = async (lead) => {
+    if (!confirm(`Convert ${lead.name} to a full client?\n\nTheir intake data, goal, phone, email and consultation notes will transfer to their client profile.`)) return
+    setAdvancing(lead.id)
+    try {
+      await doConvert(lead)
+      if (onNavigateToRoster) onNavigateToRoster()
+    } catch (e) { alert('Error converting lead: ' + e.message) }
+    setAdvancing(null)
   }
 
   const save = async () => {
@@ -6499,9 +6518,9 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
                           style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1 }}>
                           {busy ? '…' : '✅ Mark Done'}
                         </button>
-                        <button onClick={() => openEdit(lead)}
-                          style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
-                          ⭐ Convert
+                        <button onClick={() => directConvert(lead)} disabled={busy}
+                          style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer' }}>
+                          ⭐ Convert to Client
                         </button>
                         <button onClick={() => markCold(lead)} disabled={busy}
                           style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer' }}>
