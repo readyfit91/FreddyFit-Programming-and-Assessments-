@@ -7298,7 +7298,7 @@ const BLOOD_PANELS = [
     markers: [
       { name: 'Glucose',       unit: 'mg/dL',  optimal: [70,99],     borderline: [100,125], desc: 'Fasting blood sugar. Elevated = insulin resistance or pre-diabetes. Key metabolic fitness marker.' },
       { name: 'BUN',           unit: 'mg/dL',  optimal: [7,25],      borderline: [25,30],   desc: 'Kidney waste filter. High may indicate dehydration or very high protein intake post-training.' },
-      { name: 'Creatinine',    unit: 'mg/dL',  optimal: [0.74,1.35], borderline: [1.35,1.7],desc: 'Kidney filtration byproduct. Naturally higher in muscular athletes — context matters here.' },
+      { name: 'Creatinine',    unit: 'mg/dL',  optimal: [0.50,1.03], borderline: [1.03,1.35],desc: 'Kidney filtration byproduct. Naturally higher in muscular athletes — context matters here.' },
       { name: 'eGFR',          unit: 'mL/min', optimal: [60,999],    borderline: [45,60],   desc: 'Estimated kidney filtration rate. Below 60 flags kidney disease risk requiring medical follow-up.' },
       { name: 'BUN/Creatinine',unit: 'ratio',  optimal: [10,20],     borderline: [20,25],   desc: 'Kidney efficiency ratio. High = dehydration or muscle breakdown; low = possible liver stress.' },
       { name: 'Sodium',        unit: 'mEq/L',  optimal: [136,145],   borderline: [130,136], desc: 'Key electrolyte for hydration and nerve function. Critical to monitor in heavy-sweating athletes.' },
