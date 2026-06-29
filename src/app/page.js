@@ -4146,6 +4146,7 @@ function WeightTracker({ client, onBack }) {
   const [bodyFat, setBodyFat] = useState('')
   const [bmi, setBmi] = useState('')
   const [rating, setRating] = useState('')
+  const [behaviorTags, setBehaviorTags] = useState([])
   const [behaviorNotes, setBehaviorNotes] = useState('')
   const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0])
   const [showHistory, setShowHistory] = useState(false)
@@ -4173,10 +4174,11 @@ function WeightTracker({ client, onBack }) {
         bodyFat: bodyFat ? parseFloat(bodyFat) : null,
         bmi: bmi ? parseFloat(bmi) : null,
         rating: rating || null,
+        behaviorTags: behaviorTags.length ? behaviorTags : null,
         behaviorNotes,
         loggedAt: new Date(logDate + 'T12:00:00').toISOString()
       })
-      setWeight(''); setBodyFat(''); setBmi(''); setRating(''); setBehaviorNotes(''); setLogDate(new Date().toISOString().split('T')[0])
+      setWeight(''); setBodyFat(''); setBmi(''); setRating(''); setBehaviorTags([]); setBehaviorNotes(''); setLogDate(new Date().toISOString().split('T')[0])
       await load()
     } catch (e) { alert('Error saving: ' + e.message) }
     setSaving(false)
@@ -4413,27 +4415,30 @@ function WeightTracker({ client, onBack }) {
                   const { jsPDF } = await import('jspdf')
                   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' })
                   const W = doc.internal.pageSize.getWidth()
-                  // Header
+                  // Header bar
                   doc.setFillColor(43, 170, 223)
-                  doc.rect(0, 0, W, 56, 'F')
+                  doc.rect(0, 0, W, 72, 'F')
                   doc.setFont('helvetica', 'bold')
-                  doc.setFontSize(22)
+                  doc.setFontSize(20)
                   doc.setTextColor(255, 255, 255)
-                  doc.text('FREDDY', 36, 36)
-                  doc.setTextColor(255, 255, 255)
-                  doc.setFontSize(10)
-                  doc.text('FIT  |  Weight & Body Composition Report', 100, 36)
+                  doc.text('FreddyFit Performance Center', 36, 30)
+                  doc.setFont('helvetica', 'normal')
+                  doc.setFontSize(9)
+                  doc.text('6047 Telegraph Road  ·  Saint Louis, MO 63123  ·  myfitpro@getfreddyfit.com  ·  314-584-9389', 36, 46)
+                  doc.setFont('helvetica', 'bold')
+                  doc.setFontSize(12)
+                  doc.text('PATIENT PROGRESS REPORT', 36, 62)
                   // Client name
                   doc.setTextColor(26, 32, 44)
                   doc.setFontSize(18)
                   doc.setFont('helvetica', 'bold')
-                  doc.text(client.name, 36, 80)
+                  doc.text(client.name, 36, 96)
                   doc.setFontSize(10)
                   doc.setFont('helvetica', 'normal')
                   doc.setTextColor(113, 128, 150)
-                  doc.text(`Generated ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`, 36, 96)
+                  doc.text(`Generated ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`, 36, 112)
                   // Stats row
-                  let y = 120
+                  let y = 136
                   const latestW = [...logs].reverse().find(l => l.weight != null)
                   const firstW = logs.find(l => l.weight != null)
                   const latestBF = [...logs].reverse().find(l => l.body_fat != null)
@@ -4469,8 +4474,8 @@ function WeightTracker({ client, onBack }) {
                   y += 14
                   doc.setFont('helvetica', 'normal')
                   doc.setTextColor(26, 32, 44)
-                  const cols = ['Date', 'Weight', 'Body Fat', 'BMI', 'Rating', 'Notes']
-                  const colW = [80, 70, 70, 50, 70, W - 72 - 340]
+                  const cols = ['Date', 'Weight', 'Body Fat', 'BMI', 'Rating', 'Barriers / Notes']
+                  const colW = [72, 64, 64, 46, 64, W - 72 - 310]
                   let cx = 36
                   doc.setFont('helvetica', 'bold')
                   doc.setFontSize(8)
@@ -4482,13 +4487,14 @@ function WeightTracker({ client, onBack }) {
                   [...logs].reverse().forEach(l => {
                     if (y > 700) { doc.addPage(); y = 40 }
                     const d = new Date(l.logged_at)
+                    const barriers = l.behavior_tags && l.behavior_tags.length ? l.behavior_tags.join(', ') : (l.behavior_notes ? l.behavior_notes.slice(0, 60) : '—')
                     const row = [
                       `${d.getMonth()+1}/${d.getDate()}/${d.getFullYear()}`,
                       l.weight != null ? `${l.weight} lbs` : '—',
                       l.body_fat != null ? `${l.body_fat}%` : '—',
                       l.bmi != null ? `${l.bmi}` : '—',
                       l.rating ? (l.rating === 'good' ? 'Good' : 'Needs Work') : '—',
-                      l.behavior_notes ? l.behavior_notes.slice(0, 50) : '—',
+                      barriers.slice(0, 55),
                     ]
                     cx = 36
                     row.forEach((v, i) => { doc.text(v, cx, y); cx += colW[i] })
@@ -4500,7 +4506,7 @@ function WeightTracker({ client, onBack }) {
                     doc.setPage(p)
                     doc.setFontSize(8)
                     doc.setTextColor(113, 128, 150)
-                    doc.text('FreddyFit LLC — Confidential Client Report', 36, doc.internal.pageSize.getHeight() - 20)
+                    doc.text('FreddyFit Performance Center  ·  6047 Telegraph Rd, Saint Louis MO 63123  ·  Confidential Patient Report', 36, doc.internal.pageSize.getHeight() - 20)
                     doc.text(`Page ${p} of ${pages}`, W - 36, doc.internal.pageSize.getHeight() - 20, { align: 'right' })
                   }
                   doc.save(`${client.name.replace(/\s+/g, '_')}_weight_report.pdf`)
@@ -4559,14 +4565,30 @@ function WeightTracker({ client, onBack }) {
 
         <div style={{ marginBottom: 14 }}>
           <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>How was this weigh-in?</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => setRating(rating === 'good' ? '' : 'good')} style={{ flex: 1, padding: '10px 16px', borderRadius: 10, border: `2px solid ${rating === 'good' ? C.green : C.border}`, background: rating === 'good' ? C.green + '15' : 'white', color: rating === 'good' ? C.green : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-              Good
+          <div style={{ display: 'flex', gap: 8, marginBottom: rating === 'bad' ? 12 : 0 }}>
+            <button onClick={() => { setRating(rating === 'good' ? '' : 'good'); setBehaviorTags([]) }} style={{ flex: 1, padding: '10px 16px', borderRadius: 10, border: `2px solid ${rating === 'good' ? C.green : C.border}`, background: rating === 'good' ? C.green + '15' : 'white', color: rating === 'good' ? C.green : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+              ✓ Good
             </button>
             <button onClick={() => setRating(rating === 'bad' ? '' : 'bad')} style={{ flex: 1, padding: '10px 16px', borderRadius: 10, border: `2px solid ${rating === 'bad' ? C.red : C.border}`, background: rating === 'bad' ? C.red + '15' : 'white', color: rating === 'bad' ? C.red : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-              Needs Work
+              ⚠ Needs Work
             </button>
           </div>
+          {rating === 'bad' && (
+            <div style={{ background: C.red + '08', border: `1px solid ${C.red}22`, borderRadius: 10, padding: '12px 14px' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.red, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>What's contributing? (select all that apply)</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+                {['Emotional Stress','Mental Stress','Physical Stress','Hormonal','Traveling','Eating Out','Late Night Snacking','Poor Tracking'].map(tag => {
+                  const on = behaviorTags.includes(tag)
+                  return (
+                    <button key={tag} type="button" onClick={() => setBehaviorTags(prev => on ? prev.filter(t => t !== tag) : [...prev, tag])}
+                      style={{ padding: '6px 13px', borderRadius: 20, border: `1.5px solid ${on ? C.red : C.border}`, background: on ? C.red + '18' : 'white', color: on ? C.red : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer', transition: 'all .12s' }}>
+                      {tag}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         <div style={{ marginBottom: 14 }}>
@@ -4599,8 +4621,13 @@ function WeightTracker({ client, onBack }) {
                         <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{dateStr}</span>
                         {l.weight != null && <span style={{ fontSize: 12, color: C.accent, fontWeight: 700 }}>{l.weight} lbs</span>}
                         {l.body_fat != null && <span style={{ fontSize: 12, color: C.orange, fontWeight: 700 }}>{l.body_fat}%</span>}
-                        {l.rating && <span style={{ fontSize: 10, fontWeight: 700, borderRadius: 8, padding: '1px 8px', background: l.rating === 'good' ? C.green + '15' : C.red + '15', color: l.rating === 'good' ? C.green : C.red }}>{l.rating === 'good' ? 'Good' : 'Needs Work'}</span>}
+                          {l.rating && <span style={{ fontSize: 10, fontWeight: 700, borderRadius: 8, padding: '1px 8px', background: l.rating === 'good' ? C.green + '15' : C.red + '15', color: l.rating === 'good' ? C.green : C.red }}>{l.rating === 'good' ? 'Good' : 'Needs Work'}</span>}
                       </div>
+                      {l.behavior_tags && l.behavior_tags.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 5 }}>
+                          {l.behavior_tags.map(tag => <span key={tag} style={{ fontSize: 9, fontWeight: 700, borderRadius: 10, padding: '2px 8px', background: C.red + '12', color: C.red, border: `1px solid ${C.red}22` }}>{tag}</span>)}
+                        </div>
+                      )}
                       {l.behavior_notes && <div style={{ fontSize: 11, color: C.sub, marginTop: 3, lineHeight: 1.5 }}>{l.behavior_notes}</div>}
                     </div>
                     <button onClick={() => handleDelete(l.id)} style={{ background: 'none', border: 'none', color: C.red + '66', fontSize: 14, cursor: 'pointer', padding: '0 4px' }} title="Delete">×</button>
@@ -4659,6 +4686,54 @@ function WeightTracker({ client, onBack }) {
                 )
               })()}
             </div>
+
+            {/* Behavior Tag Pie Chart */}
+            {(() => {
+              const tagCounts = {}
+              logs.forEach(l => { (l.behavior_tags || []).forEach(tag => { tagCounts[tag] = (tagCounts[tag] || 0) + 1 }) })
+              const entries = Object.entries(tagCounts).sort((a, b) => b[1] - a[1])
+              if (entries.length === 0) return null
+              const total = entries.reduce((s, [, v]) => s + v, 0)
+              const PIE_COLORS = ['#EF4444','#F59E0B','#8B5CF6','#EC4899','#14B8A6','#F97316','#3B82F6','#6B7280']
+              return (
+                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '18px 20px', marginBottom: 20 }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.red, textTransform: 'uppercase', marginBottom: 14 }}>BARRIER BREAKDOWN — Needs Work Factors</div>
+                  <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <canvas ref={el => {
+                      if (!el) return
+                      const size = 160
+                      el.width = size * (window.devicePixelRatio || 1); el.height = size * (window.devicePixelRatio || 1)
+                      el.style.width = size + 'px'; el.style.height = size + 'px'
+                      const ctx = el.getContext('2d')
+                      ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1)
+                      let angle = -Math.PI / 2
+                      const cx = size / 2, cy = size / 2, r = size / 2 - 8
+                      entries.forEach(([, count], i) => {
+                        const slice = (count / total) * Math.PI * 2
+                        ctx.beginPath(); ctx.moveTo(cx, cy)
+                        ctx.arc(cx, cy, r, angle, angle + slice)
+                        ctx.closePath()
+                        ctx.fillStyle = PIE_COLORS[i % PIE_COLORS.length]
+                        ctx.fill()
+                        angle += slice
+                      })
+                      // Center hole
+                      ctx.beginPath(); ctx.arc(cx, cy, r * 0.52, 0, Math.PI * 2); ctx.fillStyle = C.card; ctx.fill()
+                    }} />
+                    <div style={{ flex: 1, minWidth: 200 }}>
+                      {entries.map(([tag, count], i) => (
+                        <div key={tag} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 7 }}>
+                          <div style={{ width: 12, height: 12, borderRadius: 3, background: PIE_COLORS[i % PIE_COLORS.length], flexShrink: 0 }} />
+                          <div style={{ flex: 1, fontSize: 12, color: C.text, fontWeight: 600 }}>{tag}</div>
+                          <div style={{ fontSize: 11, fontWeight: 800, color: PIE_COLORS[i % PIE_COLORS.length] }}>{count}×</div>
+                          <div style={{ fontSize: 10, color: C.sub, minWidth: 34, textAlign: 'right' }}>{Math.round((count / total) * 100)}%</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
 
             {/* Large Chart with Behavioral Markers */}
             <div style={{ background: C.faint, borderRadius: 14, padding: '16px 12px 8px', marginBottom: 20 }}>
@@ -6069,8 +6144,8 @@ function SubscriptionTracker({ client, onBack }) {
 
   const getPeriodDates = (startDate, idx) => {
     const base = new Date(startDate + 'T00:00:00')
-    const s = new Date(base); s.setDate(base.getDate() + idx * 14)
-    const e = new Date(s); e.setDate(s.getDate() + 13)
+    const s = new Date(base); s.setMonth(base.getMonth() + idx)
+    const e = new Date(base); e.setMonth(base.getMonth() + idx + 1); e.setDate(e.getDate() - 1)
     return { start: s, end: e }
   }
   const fmt = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
@@ -6141,7 +6216,7 @@ function SubscriptionTracker({ client, onBack }) {
           <input type="date" value={setupDate} onChange={e => setSetupDate(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 13, background: C.faint, color: C.text, outline: 'none', boxSizing: 'border-box' }} />
         </div>
         <div style={{ background: C.faint, borderRadius: 10, padding: '12px 16px', marginBottom: 20, fontSize: 12, color: C.sub, lineHeight: 1.6 }}>
-          <strong style={{ color: C.text }}>6 billing periods</strong> · Each period = 14 days · Unused sessions from odd periods (P1, P3, P5) roll over to the next even period
+          <strong style={{ color: C.text }}>6 monthly billing periods</strong> · Each period = 1 billing cycle (start date to next draft date) · Unused sessions from odd periods (P1, P3, P5) roll over to the following period
         </div>
         <Btn onClick={startSub}>Start Subscription →</Btn>
       </div>

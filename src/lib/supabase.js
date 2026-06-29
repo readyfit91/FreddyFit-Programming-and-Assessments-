@@ -167,7 +167,7 @@ export async function getWeightLogsForClient(clientId) {
   return data || []
 }
 
-export async function saveWeightLog(clientId, { weight, bodyFat, bmi, rating, behaviorNotes, loggedAt }) {
+export async function saveWeightLog(clientId, { weight, bodyFat, bmi, rating, behaviorTags, behaviorNotes, loggedAt }) {
   const { error } = await supabase
     .from('weight_logs')
     .insert({
@@ -176,6 +176,7 @@ export async function saveWeightLog(clientId, { weight, bodyFat, bmi, rating, be
       body_fat: bodyFat || null,
       bmi: bmi || null,
       rating: rating || null,
+      behavior_tags: behaviorTags || null,
       behavior_notes: behaviorNotes || '',
       logged_at: loggedAt || new Date().toISOString()
     })
