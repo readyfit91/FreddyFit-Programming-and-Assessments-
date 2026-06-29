@@ -17,17 +17,19 @@ export async function getAllClients() {
 }
 
 export async function saveClient(client) {
+  const payload = {
+    name: client.name,
+    goal: client.goal || '',
+    dob: client.dob || '',
+    equipment: client.equipment || '',
+    trainer_notes: client.trainerNotes || '',
+    updated_at: new Date().toISOString()
+  }
+  if (client.id) payload.id = client.id
+
   const { data, error } = await supabase
     .from('clients')
-    .upsert({
-      id: client.id,
-      name: client.name,
-      goal: client.goal || '',
-      dob: client.dob || '',
-      equipment: client.equipment || '',
-      trainer_notes: client.trainerNotes || '',
-      updated_at: new Date().toISOString()
-    })
+    .upsert(payload)
     .select()
     .single()
   if (error) throw error
