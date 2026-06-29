@@ -7274,6 +7274,8 @@ const BLOOD_PANELS = [
       { name: 'MCH',         unit: 'pg',    optimal: [27,33],    borderline: [24,27],      desc: 'Average hemoglobin per red cell. Reflects iron and B12 status alongside MCV.' },
       { name: 'MCHC',        unit: 'g/dL',  optimal: [32,36],    borderline: [30,32],      desc: 'Hemoglobin concentration in red cells. Low suggests iron deficiency anemia.' },
       { name: 'Platelets',   unit: 'K/µL',  optimal: [150,400],  borderline: [100,150],    desc: 'Clotting cells. Low raises bleeding risk. High raises clot risk — can follow hard training.' },
+      { name: 'RDW',        unit: '%',     optimal: [11,15],    borderline: [15,17],      desc: 'Red cell size variation. High RDW with low MCV = iron deficiency. High RDW with high MCV = B12/folate deficiency.' },
+      { name: 'MPV',        unit: 'fL',    optimal: [7.5,12.5], borderline: [12.5,15.0],  desc: 'Mean platelet volume. High MPV with low platelets = active platelet destruction. Low MPV = bone marrow suppression.' },
     ],
   },
   {

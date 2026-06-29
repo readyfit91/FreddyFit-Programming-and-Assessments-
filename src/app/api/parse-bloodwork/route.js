@@ -5,7 +5,7 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 const PANEL_MARKERS = {
   'CBC with Differential': [
     'WBC','Neutrophils','Lymphocytes','Monocytes','Eosinophils','Basophils',
-    'RBC','Hemoglobin','Hematocrit','MCV','MCH','MCHC','Platelets'
+    'RBC','Hemoglobin','Hematocrit','MCV','MCH','MCHC','Platelets','RDW','MPV'
   ],
   'Lipid Panel': [
     'Total Cholesterol','LDL','HDL','Triglycerides','Non-HDL','Cholesterol/HDL Ratio'
@@ -49,6 +49,66 @@ export async function POST(request) {
       ? `This is a ${panelName} lab report. Focus only on extracting these specific markers.`
       : 'This may contain any blood work markers.'
 
+    const cbcInstructions = panelName === 'CBC with Differential' ? `
+
+SPECIAL CBC FORMAT RULES — Quest Diagnostics / MyChart style:
+The PDF uses two different layouts depending on the test:
+
+LAYOUT A — Absolute counts (WBC, RBC, Neutrophils absolute, Lymphocytes absolute, etc.):
+  The reference range appears as TWO numbers on one line, then the PATIENT VALUE on the very next line.
+  Example:
+    3.8  10.8       ← reference range (ignore these)
+    6.5             ← THIS is the patient value
+
+LAYOUT B — Percentage values and some indices (Neutrophil%, Lymphocyte%, MCV, MCH, MCHC, RDW, MPV):
+  The word "Value" appears, then the patient value on the next line.
+  Example:
+    Value
+    77.2            ← THIS is the patient value
+
+UNIT CONVERSIONS — Quest reports absolute differential counts in cells/µL or cells/uL. Convert to K/µL by dividing by 1000:
+  - NEUTROPHIL ABSOLUTE: 5018 cells/uL → Neutrophils: 5.018
+  - LYMPHOCYTE ABSOLUTE: 1060 cells/uL → Lymphocytes: 1.060
+  - MONOCYTE ABSOLUTE: 351 cells/uL → Monocytes: 0.351
+  - EOSINOPHIL ABSOLUTE: 39 cells/uL → Eosinophils: 0.039
+  - BASOPHILS ABSOLUTE: 33 cells/uL → Basophils: 0.033
+  If the value is already small (e.g., WBC=6.5, already in K/µL range), do NOT divide.
+  Comma-formatted numbers like 5,018 mean 5018 — strip the comma before dividing: 5,018 → 5018 / 1000 = 5.018.
+
+CBC SYNONYM MAPPINGS:
+  "NEUTROPHIL ABSOLUTE" or "NEUTROPHILS ABSOLUTE" or "NEUT#" → Neutrophils (convert cells/uL → K/µL)
+  "LYMPHOCYTE ABSOLUTE" or "LYMPHS ABSOLUTE" or "LYM#" → Lymphocytes (convert)
+  "MONOCYTE ABSOLUTE" or "MONO#" → Monocytes (convert)
+  "EOSINOPHIL ABSOLUTE" or "EOS#" → Eosinophils (convert)
+  "BASOPHILS ABSOLUTE" or "BASO#" → Basophils (convert)
+  "HEMOGLOBIN" or "HGB" → Hemoglobin (no conversion needed — already in g/dL)
+  "HEMATOCRIT" or "HCT" → Hematocrit
+  "PLATELETS" or "PLT" → Platelets (Thousand/uL is already K/µL — no conversion)
+  "RDW" or "RDW-CV" or "RED CELL DISTRIBUTION WIDTH" → RDW
+  "MPV" or "MEAN PLATELET VOLUME" → MPV
+  For WBC, RBC: values already in K/µL or M/µL — use directly.` : ''
+
+    const cmpInstructions = panelName === 'Comprehensive Metabolic Panel' ? `
+
+SPECIAL CMP FORMAT RULES — Quest Diagnostics / MyChart style:
+Same two layouts as CBC:
+LAYOUT A: two reference numbers on one line, patient value on the NEXT line.
+  Example: 65  99 (ref range) then 87 (patient value) → Glucose: 87
+LAYOUT B: the word "Value" appears, then patient value on next line.
+  Example: Value then 101 → eGFR: 101
+
+CMP SYNONYM MAPPINGS:
+  "GLUCOSE" or "GLUCOSE, SERUM" → Glucose
+  "BUN" or "UREA NITROGEN" or "BLOOD UREA NITROGEN" → BUN
+  "CREATININE" or "CREATININE, SERUM" → Creatinine
+  "GFR" or "eGFR" or "ESTIMATED GFR" or "EGFR" → eGFR
+  "BUN/CREAT RATIO" or "BUN/CREATININE" → BUN/Creatinine Ratio
+  "ALBUMIN/GLOBULIN RATIO" or "A/G RATIO" or "AG RATIO" → A/G Ratio
+  "BILIRUBIN TOTAL" or "TOTAL BILIRUBIN" or "BILIRUBIN, TOTAL" → Total Bilirubin
+  "ALKALINE PHOSPHATASE" or "ALK PHOS" or "ALP" → Alkaline Phosphatase
+  "TOTAL PROTEIN" or "PROTEIN, TOTAL" → Total Protein
+  If a result says "SEE NOTE" or is missing/cancelled — skip that marker entirely.` : ''
+
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 1500,
@@ -82,10 +142,11 @@ Common lab name synonyms to help you map correctly:
 - "GLUCOSE, SERUM" → Glucose
 - "CREATININE, SERUM" → Creatinine
 - "BUN" or "UREA NITROGEN" → BUN
+${cbcInstructions}${cmpInstructions}
 
 STRICT RULES:
 1. Many lab reports show results in a "Value" field — that number is the patient result. Ignore "Normal value", "Reference range", "Desirable range" — those are NOT the patient's result.
-2. Copy the result number EXACTLY as it appears — do not round or modify it.
+2. Copy the result number EXACTLY as it appears — do not round or modify it (except unit conversions described above).
 3. NEVER use a reference range number (e.g. "<100", ">50", "4.5-11.0") as a result value.
 4. If a test name is ambiguous or doesn't clearly match one of the listed marker names — skip it.
 5. If the result is flagged as invalid, cancelled, or missing — skip it.
