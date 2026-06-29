@@ -6273,7 +6273,7 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
   const reactivate = async (lead) => {
     setAdvancing(lead.id)
     try {
-      await saveLead({ ...lead, status: 'Active', last_contact_date: today })
+      await saveLead({ ...lead, status: 'New Lead', last_contact_date: today })
       await load()
     } catch (e) { alert('Error: ' + e.message) }
     setAdvancing(null)
@@ -6368,7 +6368,7 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
         name: form.name, phone: form.phone, email: form.email, source: form.source,
         goal: form.goal, consultation_notes: form.consultation_notes,
         notes: packLeadNotes(form.intake_notes, form.booked_consultation, form.committed_package),
-        status: isNew ? 'Active' : (editing.status || 'Active'),
+        status: isNew ? 'New Lead' : (editing.status || 'New Lead'),
         ...(isNew ? {} : { id: editing.id, date_added: editing.date_added, last_contact_date: editing.last_contact_date }),
       }
       await saveLead(payload)
@@ -6731,18 +6731,13 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
   const markDone = async (lead) => {
     setBusy(lead.id)
     try {
-      const step = getOutreachStep(lead)
-      let newStatus = lead.status
-      if (step && step.step >= 3 && lead.status === 'New Lead') newStatus = 'Contacted'
-      if (step && step.step >= 5 && lead.status === 'Contacted') newStatus = 'Follow Up'
-      await saveLead({ ...lead, status: newStatus, last_contact_date: today })
+      await saveLead({ ...lead, last_contact_date: today })
       await load()
     } catch (e) { alert('Error: ' + e.message) }
     setBusy(null)
   }
 
   const markCold = async (lead) => {
-    if (!confirm(`Mark ${lead.name} as Cold?`)) return
     setBusy(lead.id)
     try {
       await saveLead({ ...lead, status: 'Cold', last_contact_date: today })
@@ -6751,11 +6746,42 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
     setBusy(null)
   }
 
+  const scheduleConsultation = async (lead, withCommit = false) => {
+    setBusy(lead.id)
+    try {
+      const parsed = parseLeadNotes(lead.notes)
+      parsed.booked_consultation = true
+      if (withCommit) parsed.committed_package = true
+      await saveLead({
+        ...lead,
+        last_contact_date: today,
+        notes: packLeadNotes(parsed.intake_notes, parsed.booked_consultation, parsed.committed_package)
+      })
+      await load()
+    } catch (e) { alert('Error: ' + e.message) }
+    setBusy(null)
+  }
+
+  const bossConvert = async (lead) => {
+    if (!confirm(`Convert ${lead.name} to a full client?\n\nTheir intake data, goal, phone, email and consultation notes will transfer to their client profile.`)) return
+    setBusy(lead.id)
+    try {
+      const parsed = parseLeadNotes(lead.notes)
+      const intakeData = { phone: lead.phone || '', email: lead.email || '', source: lead.source || '', intake_notes: parsed.intake_notes, consultation_notes: lead.consultation_notes || '' }
+      const result = await saveClient({ name: lead.name, goal: lead.goal || '', dob: '', equipment: '', trainerNotes: JSON.stringify(intakeData) })
+      if (!result) throw new Error('Client was not created — check Supabase connection')
+      await saveLead({ ...lead, status: 'Client' })
+      await load()
+      if (onGoToCrm) { onClose(); onGoToCrm() }
+    } catch (e) { alert('Error converting lead: ' + e.message) }
+    setBusy(null)
+  }
+
   return (
     <>
       {aiCoachLead && <AiCoachModal lead={aiCoachLead} onClose={() => setAiCoachLead(null)} />}
       <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 900 }} onClick={onClose} />
-      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: Math.min(400, (typeof window !== 'undefined' ? window.innerWidth : 400) - 16), background: '#fff', zIndex: 901, boxShadow: '-4px 0 24px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column', fontFamily: 'Montserrat,sans-serif' }}>
+      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: Math.min(420, (typeof window !== 'undefined' ? window.innerWidth : 420) - 16), background: '#fff', zIndex: 901, boxShadow: '-4px 0 24px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column', fontFamily: 'Montserrat,sans-serif' }}>
         <div style={{ padding: '20px 20px 16px', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
@@ -6779,8 +6805,8 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {actionItems.map(({ lead, step }) => {
                 const chCol = CHANNEL_COLORS[step.channel] || CHANNEL_COLORS.Text
-                const sc = LEAD_STATUS_COLORS[lead.status] || LEAD_STATUS_COLORS['New Lead']
                 const isBusy = busy === lead.id
+                const parsed = parseLeadNotes(lead.notes)
                 return (
                   <div key={lead.id} style={{ background: C.faint, border: `2px solid ${step.isOverdue ? C.red + '66' : chCol.border}`, borderRadius: 14, padding: '14px' }}>
                     {/* Name + timing */}
@@ -6809,25 +6835,50 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
                       })}
                     </div>
 
-                    {/* Channel box */}
-                    <div style={{ background: chCol.bg, border: `1px solid ${chCol.border}`, borderRadius: 8, padding: '8px 12px', marginBottom: 10 }}>
-                      <div style={{ fontWeight: 800, fontSize: 12, color: chCol.text }}>{step.emoji} {step.channel.toUpperCase()} — Step {step.step} of 9</div>
-                      <div style={{ fontSize: 11, color: chCol.text, opacity: 0.8, marginTop: 3 }}>{step.why}</div>
+                    {/* Daily task instruction */}
+                    <div style={{ background: chCol.bg, border: `1px solid ${chCol.border}`, borderRadius: 8, padding: '8px 12px', marginBottom: 8 }}>
+                      <div style={{ fontWeight: 800, fontSize: 12, color: chCol.text, marginBottom: 3 }}>{step.emoji} TODAY'S TASK — {step.channel.toUpperCase()}</div>
+                      <div style={{ fontSize: 11, color: chCol.text, lineHeight: 1.5 }}>{step.action}</div>
+                      <div style={{ fontSize: 10, color: chCol.text, opacity: 0.7, marginTop: 4, fontStyle: 'italic' }}>{step.why}</div>
                     </div>
 
-                    {/* Action buttons */}
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      <button onClick={() => setAiCoachLead(lead)}
-                        style={{ padding: '7px 11px', borderRadius: 8, border: `1.5px solid ${C.accent}44`, background: C.accent + '18', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
-                        ✨ Write {step.channel}
-                      </button>
+                    {/* Status badges */}
+                    {(parsed.booked_consultation || parsed.committed_package) && (
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+                        {parsed.booked_consultation && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: C.green + '22', color: C.green, border: `1px solid ${C.green}44` }}>📅 Consultation Booked</span>}
+                        {parsed.committed_package && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: C.green + '22', color: C.green, border: `1px solid ${C.green}44` }}>💪 Committed to Package</span>}
+                      </div>
+                    )}
+
+                    {/* AI message button */}
+                    <button onClick={() => setAiCoachLead(lead)} style={{ width: '100%', marginBottom: 8, padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.accent}44`, background: C.accent + '12', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer', textAlign: 'left' }}>
+                      ✨ Generate {step.channel} Message to Send
+                    </button>
+
+                    {/* Boss action buttons */}
+                    <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>Did you complete today's task?</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 8 }}>
                       <button onClick={() => markDone(lead)} disabled={isBusy}
-                        style={{ padding: '7px 11px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer', opacity: isBusy ? 0.6 : 1 }}>
-                        {isBusy ? '…' : '✅ Mark Done'}
+                        style={{ padding: '9px 8px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer', opacity: isBusy ? 0.6 : 1 }}>
+                        {isBusy ? '…' : '✅ Yes — Done'}
                       </button>
                       <button onClick={() => markCold(lead)} disabled={isBusy}
-                        style={{ padding: '7px 11px', borderRadius: 8, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer' }}>
-                        🥶 Cold
+                        style={{ padding: '9px 8px', borderRadius: 8, border: `1.5px solid ${C.red}55`, background: C.red + '0d', color: C.red, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer' }}>
+                        ❌ No — Go Cold
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <button onClick={() => scheduleConsultation(lead, false)} disabled={isBusy}
+                        style={{ padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.accent}`, background: C.accent + '12', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer', textAlign: 'left' }}>
+                        📅 Scheduled Consultation
+                      </button>
+                      <button onClick={() => scheduleConsultation(lead, true)} disabled={isBusy}
+                        style={{ padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.orange}`, background: C.orange + '12', color: C.orange, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer', textAlign: 'left' }}>
+                        📅💪 Scheduled Consultation + Committed to FunctionalFit
+                      </button>
+                      <button onClick={() => bossConvert(lead)} disabled={isBusy}
+                        style={{ padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer', textAlign: 'left' }}>
+                        ⭐ Convert to Client
                       </button>
                     </div>
                   </div>
@@ -7204,45 +7255,109 @@ function SubscriptionTracker({ client, onBack }) {
 
 // ── BLOOD WORK PANEL ─────────────────────────────────────────────────────────
 
-const MARKERS = {
-  'Total Cholesterol': { unit: 'mg/dL', optimal: [0, 200], borderline: [200, 239] },
-  'LDL': { unit: 'mg/dL', optimal: [0, 100], borderline: [100, 159] },
-  'HDL': { unit: 'mg/dL', optimal: [60, 999], borderline: [40, 60] },
-  'Triglycerides': { unit: 'mg/dL', optimal: [0, 150], borderline: [150, 199] },
-  'Glucose': { unit: 'mg/dL', optimal: [70, 99], borderline: [100, 125] },
-  'HbA1c': { unit: '%', optimal: [0, 5.7], borderline: [5.7, 6.4] },
-  'WBC': { unit: 'K/µL', optimal: [4.5, 11.0], borderline: [11.0, 13.0] },
-  'RBC': { unit: 'M/µL', optimal: [4.5, 5.9], borderline: [4.0, 4.5] },
-  'Hemoglobin': { unit: 'g/dL', optimal: [13.5, 17.5], borderline: [12.0, 13.5] },
-  'Hematocrit': { unit: '%', optimal: [41, 53], borderline: [36, 41] },
-  'Platelets': { unit: 'K/µL', optimal: [150, 400], borderline: [100, 150] },
-  'BUN': { unit: 'mg/dL', optimal: [7, 25], borderline: [25, 30] },
-  'Creatinine': { unit: 'mg/dL', optimal: [0.74, 1.35], borderline: [1.35, 1.7] },
-  'eGFR': { unit: 'mL/min', optimal: [60, 999], borderline: [45, 60] },
-  'Sodium': { unit: 'mEq/L', optimal: [136, 145], borderline: [130, 136] },
-  'Potassium': { unit: 'mEq/L', optimal: [3.5, 5.1], borderline: [3.0, 3.5] },
-  'Testosterone': { unit: 'ng/dL', optimal: [400, 1000], borderline: [300, 400] },
-  'TSH': { unit: 'mIU/L', optimal: [0.4, 4.0], borderline: [4.0, 10.0] },
-  'Cortisol': { unit: 'µg/dL', optimal: [6, 23], borderline: [23, 30] },
-  'Vitamin D': { unit: 'ng/mL', optimal: [40, 100], borderline: [20, 40] },
-  'B12': { unit: 'pg/mL', optimal: [400, 900], borderline: [200, 400] },
-  'Ferritin': { unit: 'ng/mL', optimal: [30, 300], borderline: [12, 30] },
-  'Iron': { unit: 'µg/dL', optimal: [60, 170], borderline: [40, 60] },
-  'CRP': { unit: 'mg/L', optimal: [0, 1.0], borderline: [1.0, 3.0] },
-  'Homocysteine': { unit: 'µmol/L', optimal: [0, 10], borderline: [10, 15] },
-}
+const BLOOD_PANELS = [
+  {
+    name: 'CBC with Differential',
+    color: '#DC2626',
+    panelDesc: 'Evaluates your overall blood health — red cells, white cells, and platelets. Detects anemia, infection, immune issues, and hydration status.',
+    markers: [
+      { name: 'WBC',         unit: 'K/µL',  optimal: [4.5,11.0], borderline: [3.5,4.5],   desc: 'White blood cells — immune defense. High = infection/inflammation. Low = immune suppression or overtraining.' },
+      { name: 'Neutrophils', unit: 'K/µL',  optimal: [1.8,7.7],  borderline: [1.0,1.8],   desc: 'First-responder immune cells. High may signal bacterial infection or chronic inflammation.' },
+      { name: 'Lymphocytes', unit: 'K/µL',  optimal: [1.0,4.8],  borderline: [0.5,1.0],   desc: 'Viral fighters and memory cells. Low can indicate immune deficiency or overtraining stress.' },
+      { name: 'Monocytes',   unit: 'K/µL',  optimal: [0.2,1.0],  borderline: [1.0,1.5],   desc: 'Clean up debris and fight chronic infection. Elevated often links to systemic inflammation.' },
+      { name: 'Eosinophils', unit: 'K/µL',  optimal: [0.0,0.5],  borderline: [0.5,1.5],   desc: 'Respond to allergies and parasites. High may indicate allergic response or inflammation.' },
+      { name: 'Basophils',   unit: 'K/µL',  optimal: [0.0,0.1],  borderline: [0.1,0.3],   desc: 'Involved in allergic reactions. Rarely elevated but flags mast cell or allergy issues when high.' },
+      { name: 'RBC',         unit: 'M/µL',  optimal: [4.5,5.9],  borderline: [4.0,4.5],   desc: 'Red blood cells — oxygen transport. Low signals anemia; high may indicate dehydration or EPO use.' },
+      { name: 'Hemoglobin',  unit: 'g/dL',  optimal: [13.5,17.5],borderline: [12.0,13.5], desc: 'Oxygen-carrying protein in red cells. Low = anemia, fatigue, and reduced exercise capacity.' },
+      { name: 'Hematocrit',  unit: '%',     optimal: [41,53],    borderline: [36,41],      desc: 'Percentage of blood made up of red cells. Key indicator of hydration and oxygen delivery capacity.' },
+      { name: 'MCV',         unit: 'fL',    optimal: [80,100],   borderline: [70,80],      desc: 'Average red cell size. Low = iron deficiency anemia. High = B12 or folate deficiency.' },
+      { name: 'MCH',         unit: 'pg',    optimal: [27,33],    borderline: [24,27],      desc: 'Average hemoglobin per red cell. Reflects iron and B12 status alongside MCV.' },
+      { name: 'MCHC',        unit: 'g/dL',  optimal: [32,36],    borderline: [30,32],      desc: 'Hemoglobin concentration in red cells. Low suggests iron deficiency anemia.' },
+      { name: 'Platelets',   unit: 'K/µL',  optimal: [150,400],  borderline: [100,150],    desc: 'Clotting cells. Low raises bleeding risk. High raises clot risk — can follow hard training.' },
+    ],
+  },
+  {
+    name: 'Lipid Panel',
+    color: '#F97316',
+    panelDesc: 'Measures blood fats and cardiovascular risk. Directly linked to heart disease, stroke, and metabolic health — essential context for all fitness clients.',
+    markers: [
+      { name: 'Total Cholesterol', unit: 'mg/dL', optimal: [0,200],   borderline: [200,239], desc: 'Overall blood fat load. High levels raise heart disease risk. Exercise and diet are primary movers.' },
+      { name: 'LDL',               unit: 'mg/dL', optimal: [0,100],   borderline: [100,159], desc: '"Bad" cholesterol — deposits in artery walls. The primary cardiovascular risk driver.' },
+      { name: 'HDL',               unit: 'mg/dL', optimal: [60,999],  borderline: [40,60],   desc: '"Good" cholesterol — clears LDL from arteries. Higher is better. Cardio exercise raises HDL.' },
+      { name: 'Triglycerides',     unit: 'mg/dL', optimal: [0,150],   borderline: [150,199], desc: 'Blood fats driven by sugar and refined carb excess. High levels drive metabolic syndrome.' },
+      { name: 'Non-HDL',           unit: 'mg/dL', optimal: [0,130],   borderline: [130,159], desc: 'All atherogenic (artery-clogging) cholesterol combined. Better risk predictor than LDL alone.' },
+      { name: 'VLDL',              unit: 'mg/dL', optimal: [5,40],    borderline: [40,60],   desc: 'Carries triglycerides in the blood. High VLDL signals excess sugar intake and metabolic stress.' },
+    ],
+  },
+  {
+    name: 'Comprehensive Metabolic Panel',
+    color: '#7C3AED',
+    panelDesc: 'Assesses kidney function, liver health, electrolyte balance, and blood sugar. Critical for evaluating how the body handles training load and nutrition.',
+    markers: [
+      { name: 'Glucose',       unit: 'mg/dL',  optimal: [70,99],     borderline: [100,125], desc: 'Fasting blood sugar. Elevated = insulin resistance or pre-diabetes. Key metabolic fitness marker.' },
+      { name: 'BUN',           unit: 'mg/dL',  optimal: [7,25],      borderline: [25,30],   desc: 'Kidney waste filter. High may indicate dehydration or very high protein intake post-training.' },
+      { name: 'Creatinine',    unit: 'mg/dL',  optimal: [0.74,1.35], borderline: [1.35,1.7],desc: 'Kidney filtration byproduct. Naturally higher in muscular athletes — context matters here.' },
+      { name: 'eGFR',          unit: 'mL/min', optimal: [60,999],    borderline: [45,60],   desc: 'Estimated kidney filtration rate. Below 60 flags kidney disease risk requiring medical follow-up.' },
+      { name: 'BUN/Creatinine',unit: 'ratio',  optimal: [10,20],     borderline: [20,25],   desc: 'Kidney efficiency ratio. High = dehydration or muscle breakdown; low = possible liver stress.' },
+      { name: 'Sodium',        unit: 'mEq/L',  optimal: [136,145],   borderline: [130,136], desc: 'Key electrolyte for hydration and nerve function. Critical to monitor in heavy-sweating athletes.' },
+      { name: 'Potassium',     unit: 'mEq/L',  optimal: [3.5,5.1],   borderline: [3.0,3.5], desc: 'Heart rhythm and muscle contraction. Low = cramping and fatigue. High = cardiac arrhythmia risk.' },
+      { name: 'Chloride',      unit: 'mEq/L',  optimal: [98,107],    borderline: [93,98],   desc: 'Electrolyte balance partner to sodium. Reflects hydration and acid-base status.' },
+      { name: 'CO2',           unit: 'mEq/L',  optimal: [23,29],     borderline: [18,23],   desc: 'Bicarbonate — measures acid-base balance. Low may indicate overbreathing or kidney issues.' },
+      { name: 'Calcium',       unit: 'mg/dL',  optimal: [8.6,10.2],  borderline: [8.0,8.6], desc: 'Bone density, muscle contraction, nerve signals. Low = deficiency; high = parathyroid issue.' },
+      { name: 'Total Protein', unit: 'g/dL',   optimal: [6.4,8.3],   borderline: [5.5,6.4], desc: 'Overall protein status. Low = malnutrition or liver stress. Key marker for muscle-building clients.' },
+      { name: 'Albumin',       unit: 'g/dL',   optimal: [3.5,5.0],   borderline: [3.0,3.5], desc: 'Main blood protein made by the liver. Low = malnutrition, inflammation, or liver dysfunction.' },
+      { name: 'Total Bilirubin',unit: 'mg/dL', optimal: [0.1,1.2],   borderline: [1.2,2.0], desc: 'Liver waste from red cell breakdown. High may indicate liver stress or red cell destruction.' },
+      { name: 'ALP',           unit: 'U/L',    optimal: [40,130],    borderline: [130,200],  desc: 'Alkaline phosphatase — liver and bone enzyme. Can rise during heavy training or bone growth.' },
+      { name: 'AST',           unit: 'U/L',    optimal: [10,40],     borderline: [40,80],   desc: 'Liver enzyme also released by muscle damage. Commonly elevated after intense strength training.' },
+      { name: 'ALT',           unit: 'U/L',    optimal: [7,56],      borderline: [56,100],  desc: 'Most specific liver enzyme. Elevated = liver stress, fatty liver disease, or hepatitis.' },
+    ],
+  },
+  {
+    name: 'Hemoglobin A1C',
+    color: '#059669',
+    panelDesc: 'Reflects average blood sugar over the past 90 days. Gold standard for diagnosing pre-diabetes and diabetes — essential for weight loss and metabolic health clients.',
+    markers: [
+      { name: 'HbA1c',           unit: '%',      optimal: [0,5.7],   borderline: [5.7,6.4], desc: '3-month blood sugar average. 5.7–6.4% = pre-diabetic. Above 6.5% = diabetic. Drops with exercise and diet changes.' },
+      { name: 'Fasting Glucose', unit: 'mg/dL',  optimal: [70,99],   borderline: [100,125], desc: 'Same-day fasting blood sugar. Cross-reference with HbA1c to separate daily spikes from chronic elevation.' },
+      { name: 'Fasting Insulin', unit: 'µIU/mL', optimal: [2,20],    borderline: [20,30],   desc: 'High fasting insulin signals resistance even before glucose rises — the earliest metabolic warning sign.' },
+      { name: 'HOMA-IR',         unit: 'index',  optimal: [0,1.5],   borderline: [1.5,3.0], desc: 'Calculated insulin resistance score (Glucose × Insulin ÷ 405). Above 1.9 = insulin resistance.' },
+    ],
+  },
+  {
+    name: 'Other / Additional',
+    color: '#0284C7',
+    panelDesc: 'Hormones, vitamins, inflammation markers, and specialty tests. Provides deeper insight into recovery capacity, energy optimization, and long-term health.',
+    markers: [
+      { name: 'Testosterone',      unit: 'ng/dL',   optimal: [400,1000], borderline: [300,400],  desc: 'Primary male hormone. Low = fatigue, low libido, and muscle loss. Exercise naturally raises testosterone.' },
+      { name: 'Free Testosterone', unit: 'pg/mL',   optimal: [9,30],     borderline: [5,9],      desc: 'Unbound, bioavailable testosterone. More relevant than total T for symptoms of low testosterone.' },
+      { name: 'SHBG',              unit: 'nmol/L',  optimal: [10,57],    borderline: [57,80],    desc: 'Binds testosterone, making it unavailable to cells. High SHBG can leave low free T even with normal total.' },
+      { name: 'Estradiol',         unit: 'pg/mL',   optimal: [10,40],    borderline: [40,60],    desc: 'Estrogen in men — needed for bone and joint health. Too high often means excess fat converting testosterone.' },
+      { name: 'TSH',               unit: 'mIU/L',   optimal: [0.4,4.0],  borderline: [4.0,10.0], desc: 'Thyroid stimulating hormone. High = hypothyroid — sluggish metabolism, fatigue, and weight gain.' },
+      { name: 'Free T3',           unit: 'pg/mL',   optimal: [2.3,4.2],  borderline: [1.8,2.3],  desc: 'Active thyroid hormone driving metabolism. Low = slow metabolism even when TSH looks normal.' },
+      { name: 'Free T4',           unit: 'ng/dL',   optimal: [0.8,1.8],  borderline: [0.6,0.8],  desc: 'Thyroid output hormone that converts to T3. Measures the thyroid gland\'s production capacity.' },
+      { name: 'Cortisol',          unit: 'µg/dL',   optimal: [6,23],     borderline: [23,30],    desc: 'Stress hormone. Chronically high = muscle breakdown, fat gain, poor sleep, and immune suppression.' },
+      { name: 'DHEA-S',            unit: 'µg/dL',   optimal: [100,400],  borderline: [50,100],   desc: 'Adrenal hormone. Low = adrenal fatigue and low energy. Declines with age and chronic stress.' },
+      { name: 'Vitamin D',         unit: 'ng/mL',   optimal: [40,80],    borderline: [20,40],    desc: 'Critical for bone density, immunity, mood, testosterone production, and muscle function. Most people are low.' },
+      { name: 'B12',               unit: 'pg/mL',   optimal: [400,900],  borderline: [200,400],  desc: 'Essential for nerve health, energy production, and red cell formation. Often low in plant-based diets.' },
+      { name: 'Folate',            unit: 'ng/mL',   optimal: [4,999],    borderline: [2,4],      desc: 'B vitamin needed for DNA repair and red cell production. Works with B12. Low causes anemia and fatigue.' },
+      { name: 'Iron',              unit: 'µg/dL',   optimal: [60,170],   borderline: [40,60],    desc: 'Needed to make hemoglobin. Low = iron-deficiency anemia — fatigue, breathlessness, and poor endurance.' },
+      { name: 'Ferritin',          unit: 'ng/mL',   optimal: [30,300],   borderline: [12,30],    desc: 'Iron storage protein. Better marker than serum iron alone. Low ferritin = depleted iron reserves.' },
+      { name: 'CRP',               unit: 'mg/L',    optimal: [0,1.0],    borderline: [1.0,3.0],  desc: 'High-sensitivity C-reactive protein — systemic inflammation. High = disease risk and poor recovery.' },
+      { name: 'Homocysteine',      unit: 'µmol/L',  optimal: [0,10],     borderline: [10,15],    desc: 'Inflammation amino acid. Elevated = cardiovascular risk and B vitamin deficiency.' },
+      { name: 'Omega-3 Index',     unit: '%',       optimal: [8,999],    borderline: [4,8],      desc: 'EPA+DHA percentage in red cells. Low = inflammation and poor heart health. Fish oil moves this marker.' },
+      { name: 'Magnesium',         unit: 'mg/dL',   optimal: [1.7,2.3],  borderline: [1.5,1.7],  desc: 'Cofactor for 300+ enzymes. Low = cramping, poor sleep, fatigue, anxiety, and insulin resistance.' },
+      { name: 'Zinc',              unit: 'µg/dL',   optimal: [60,120],   borderline: [40,60],    desc: 'Immune function, testosterone production, wound healing. Depleted rapidly by heavy sweating.' },
+      { name: 'PSA',               unit: 'ng/mL',   optimal: [0,4.0],    borderline: [4.0,10.0], desc: 'Prostate-specific antigen (men 40+). Screens for prostate enlargement or cancer. Important baseline.' },
+    ],
+  },
+]
 
-const MARKER_CATEGORIES = {
-  'Lipids': ['Total Cholesterol', 'LDL', 'HDL', 'Triglycerides'],
-  'Blood Sugar': ['Glucose', 'HbA1c'],
-  'CBC': ['WBC', 'RBC', 'Hemoglobin', 'Hematocrit', 'Platelets'],
-  'Metabolic': ['BUN', 'Creatinine', 'eGFR', 'Sodium', 'Potassium'],
-  'Hormones': ['Testosterone', 'TSH', 'Cortisol'],
-  'Vitamins & Minerals': ['Vitamin D', 'B12', 'Ferritin', 'Iron'],
-  'Inflammation': ['CRP', 'Homocysteine'],
-}
+// Flat lookup map for all markers by name
+const MARKERS = Object.fromEntries(BLOOD_PANELS.flatMap(p => p.markers.map(m => [m.name, m])))
 
-const HIGHER_IS_BETTER = new Set(['HDL', 'Hemoglobin', 'Vitamin D', 'Testosterone', 'eGFR', 'B12', 'Iron', 'Ferritin', 'RBC', 'Hematocrit'])
+const MARKER_CATEGORIES = Object.fromEntries(BLOOD_PANELS.map(p => [p.name, p.markers.map(m => m.name)]))
+
+const HIGHER_IS_BETTER = new Set(['HDL','Hemoglobin','Hematocrit','RBC','eGFR','Testosterone','Free Testosterone','DHEA-S','Free T3','Free T4','Vitamin D','B12','Folate','Iron','Ferritin','Omega-3 Index','Magnesium','Zinc','Total Protein','Albumin'])
 
 function getMarkerStatus(name, value) {
   const m = MARKERS[name]
