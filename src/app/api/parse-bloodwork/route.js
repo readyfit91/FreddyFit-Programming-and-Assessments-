@@ -4,8 +4,9 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 const PANEL_MARKERS = {
   'CBC with Differential': [
-    'WBC','Neutrophils','Lymphocytes','Monocytes','Eosinophils','Basophils',
-    'RBC','Hemoglobin','Hematocrit','MCV','MCH','MCHC','Platelets','RDW','MPV'
+    'WBC','RBC','Hemoglobin','Hematocrit','MCV','MCH','MCHC','RDW','Platelets','MPV',
+    'Neutrophil Absolute','Lymphocyte Absolute','Monocyte Absolute','Eosinophil Absolute','Basophils Absolute',
+    'Neutrophil %','Lymphocytes %','Monocyte %','Eosinophils %','Basophils %'
   ],
   'Lipid Panel': [
     'Total Cholesterol','LDL','HDL','Triglycerides','Non-HDL','Cholesterol/HDL Ratio'
@@ -77,16 +78,21 @@ UNIT CONVERSIONS — Quest reports absolute differential counts in cells/µL or 
   Comma-formatted numbers like 5,018 mean 5018 — strip the comma before dividing: 5,018 → 5018 / 1000 = 5.018.
 
 CBC SYNONYM MAPPINGS:
-  "NEUTROPHIL ABSOLUTE" or "NEUTROPHILS ABSOLUTE" or "NEUT#" → Neutrophils (convert cells/uL → K/µL)
-  "LYMPHOCYTE ABSOLUTE" or "LYMPHS ABSOLUTE" or "LYM#" → Lymphocytes (convert)
-  "MONOCYTE ABSOLUTE" or "MONO#" → Monocytes (convert)
-  "EOSINOPHIL ABSOLUTE" or "EOS#" → Eosinophils (convert)
-  "BASOPHILS ABSOLUTE" or "BASO#" → Basophils (convert)
-  "HEMOGLOBIN" or "HGB" → Hemoglobin (no conversion needed — already in g/dL)
+  "HEMOGLOBIN" or "HGB" → Hemoglobin (already in g/dL — no conversion)
   "HEMATOCRIT" or "HCT" → Hematocrit
-  "PLATELETS" or "PLT" → Platelets (Thousand/uL is already K/µL — no conversion)
   "RDW" or "RDW-CV" or "RED CELL DISTRIBUTION WIDTH" → RDW
+  "PLATELETS" or "PLT" → Platelets (Thousand/uL is already K/µL — no conversion)
   "MPV" or "MEAN PLATELET VOLUME" → MPV
+  "NEUTROPHIL ABSOLUTE" or "NEUTROPHILS ABSOLUTE" or "NEUT#" → Neutrophil Absolute (convert cells/uL ÷ 1000 → K/µL)
+  "LYMPHOCYTE ABSOLUTE" or "LYMPHS ABSOLUTE" or "LYM#" → Lymphocyte Absolute (convert)
+  "MONOCYTE ABSOLUTE" or "MONO#" → Monocyte Absolute (convert)
+  "EOSINOPHIL ABSOLUTE" or "EOS#" → Eosinophil Absolute (convert)
+  "BASOPHILS ABSOLUTE" or "BASO#" → Basophils Absolute (convert)
+  "NEUTROPHIL %" or "NEUTROPHIL" (% layout) or "NEUT%" → Neutrophil %
+  "LYMPHOCYTES %" or "LYMPHOCYTES" (% layout) or "LYM%" → Lymphocytes %
+  "MONOCYTE %" or "MONOCYTE" (% layout) or "MONO%" → Monocyte %
+  "EOSINOPHILS %" or "EOSINOPHILS" (% layout) or "EOS%" → Eosinophils %
+  "BASOPHILS %" or "BASOPHILS" (% layout) or "BASO%" → Basophils %
   For WBC, RBC: values already in K/µL or M/µL — use directly.` : ''
 
     const cmpInstructions = panelName === 'Comprehensive Metabolic Panel' ? `
