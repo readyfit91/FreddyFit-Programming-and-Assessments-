@@ -6005,7 +6005,7 @@ function LoginScreen({ onLogin }) {
 // Studies: texts open 98% in 3 min, calls convert 8x better, email nurtures long-term
 const OUTREACH_SEQUENCE = [
   { day: 0,  step: 1, channel: 'Text',  emoji: '💬',
-    action: 'Intro text — introduce yourself as Freddy with FreddyFit Personal Training, mention their goal by name, ask for a good day and time to hop on a quick call to confirm their intake form and schedule their complimentary consultation',
+    action: 'Intro text — say: "Hey [Name]! I saw you completed your intake form with FreddyFit Personal Training. I\'d love to connect for a quick call to go over your notes and discuss scheduling for your complimentary consultation. When would be a good time this week? 💪 — Freddy | FreddyFit Personal Training"',
     why: 'Texts open 98% within 3 minutes. Strike while they\'re hot.' },
   { day: 1,  step: 2, channel: 'Text',  emoji: '💬',
     action: 'Follow-up text — they haven\'t replied yet, keep it short and easy to respond to, reference their goal again',
@@ -6035,7 +6035,7 @@ const OUTREACH_SEQUENCE = [
 
 // Given a lead, calculate which step to show and its status
 function getOutreachStep(lead) {
-  if (['Client', 'Cold', 'Booked'].includes(lead.status)) return null
+  if (lead.status === 'Client' || lead.status === 'Cold') return null
   const dateAdded = lead.date_added ? new Date(lead.date_added + 'T00:00:00') : null
   if (!dateAdded) return null
 
@@ -6114,6 +6114,22 @@ const LEAD_STATUS_COLORS = {
 }
 const LEAD_SOURCES = ['Instagram', 'Facebook', 'Referral', 'Walk-in', 'Website', 'Email', 'Zapier / Email', 'Other']
 
+// Lead notes are stored as JSON: { intake_notes, booked_consultation, committed_package }
+// Old plain-text notes are treated as intake_notes
+function parseLeadNotes(raw) {
+  if (!raw) return { intake_notes: '', booked_consultation: false, committed_package: false }
+  try {
+    const p = JSON.parse(raw)
+    if (p && typeof p === 'object' && !Array.isArray(p)) {
+      return { intake_notes: p.intake_notes || '', booked_consultation: !!p.booked_consultation, committed_package: !!p.committed_package }
+    }
+  } catch {}
+  return { intake_notes: raw, booked_consultation: false, committed_package: false }
+}
+function packLeadNotes(intake_notes, booked_consultation, committed_package) {
+  return JSON.stringify({ intake_notes: intake_notes || '', booked_consultation: !!booked_consultation, committed_package: !!committed_package })
+}
+
 function AiCoachModal({ lead, onClose, stepOverride }) {
   const [msg, setMsg] = useState('')
   const [loading, setLoading] = useState(false)
@@ -6139,7 +6155,7 @@ LEAD:
 Name: ${lead.name}
 Goal: ${lead.goal || 'Not specified'}
 Phone: ${lead.phone || 'N/A'}
-Intake notes: ${lead.notes || 'None'}
+Intake notes: ${parseLeadNotes(lead.notes).intake_notes || 'None'}
 
 SEQUENCE CONTEXT:
 This is Step ${step.step} of 9 in the 30-day follow-up (Day ${step.day + 1}).
@@ -6203,13 +6219,13 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [filterStatus, setFilterStatus] = useState('All')
   const [editing, setEditing] = useState(null)
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({ name:'', phone:'', email:'', source:'', goal:'', status:'New Lead', last_contact_date:'', notes:'', consultation_notes:'' })
+  const [form, setForm] = useState({ name:'', phone:'', email:'', source:'', goal:'', intake_notes:'', consultation_notes:'', booked_consultation: false, committed_package: false })
   const [aiCoachLead, setAiCoachLead] = useState(null)
   const [converting, setConverting] = useState(false)
-  const [advancing, setAdvancing] = useState(null) // lead id being advanced
+  const [advancing, setAdvancing] = useState(null)
+  const [showCold, setShowCold] = useState(false)
 
   const today = new Date().toISOString().split('T')[0]
 
@@ -6219,16 +6235,25 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
     setLoading(false)
   }, [])
 
-  // "Mark Done" — records today as last_contact_date so the sequence advances to next step
+  useEffect(() => { load() }, [load])
+
+  const activeLeads = leads.filter(l => l.status !== 'Client' && l.status !== 'Cold')
+  const coldLeads = leads.filter(l => l.status === 'Cold')
+
+  const actionItems = activeLeads
+    .map(l => ({ lead: l, step: getOutreachStep(l) }))
+    .filter(({ step }) => step && step.isDue && !step.isComplete)
+    .sort((a, b) => (b.step.daysOverdue || 0) - (a.step.daysOverdue || 0))
+
+  const upcomingItems = activeLeads
+    .map(l => ({ lead: l, step: getOutreachStep(l) }))
+    .filter(({ step }) => step && !step.isDue && !step.isComplete)
+    .sort((a, b) => (a.step.daysUntil || 0) - (b.step.daysUntil || 0))
+
   const markStepDone = async (lead) => {
     setAdvancing(lead.id)
     try {
-      // Auto-advance status based on how far into the sequence we are
-      const step = getOutreachStep(lead)
-      let newStatus = lead.status
-      if (step && step.step >= 3 && lead.status === 'New Lead') newStatus = 'Contacted'
-      if (step && step.step >= 5 && lead.status === 'Contacted') newStatus = 'Follow Up'
-      await saveLead({ ...lead, status: newStatus, last_contact_date: today })
+      await saveLead({ ...lead, last_contact_date: today })
       await load()
     } catch (e) { alert('Error: ' + e.message) }
     setAdvancing(null)
@@ -6244,46 +6269,44 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
     setAdvancing(null)
   }
 
-  useEffect(() => { load() }, [load])
-
-  const openNew = () => {
-    setForm({ name:'', phone:'', email:'', source:'', goal:'', status:'New Lead', last_contact_date:'', notes:'' })
-    setEditing('new')
+  const reactivate = async (lead) => {
+    setAdvancing(lead.id)
+    try {
+      await saveLead({ ...lead, status: 'Active', last_contact_date: today })
+      await load()
+    } catch (e) { alert('Error: ' + e.message) }
+    setAdvancing(null)
   }
 
-  const openEdit = (lead) => {
-    setForm({
-      name: lead.name || '',
+  const toggleFlag = async (lead, flag) => {
+    setAdvancing(lead.id)
+    try {
+      const parsed = parseLeadNotes(lead.notes)
+      parsed[flag] = !parsed[flag]
+      await saveLead({ ...lead, notes: packLeadNotes(parsed.intake_notes, parsed.booked_consultation, parsed.committed_package) })
+      await load()
+    } catch (e) { alert('Error: ' + e.message) }
+    setAdvancing(null)
+  }
+
+  const doConvert = async (lead) => {
+    const parsed = parseLeadNotes(lead.notes)
+    const intakeData = {
       phone: lead.phone || '',
       email: lead.email || '',
       source: lead.source || '',
-      goal: lead.goal || '',
-      status: lead.status || 'New Lead',
-      last_contact_date: lead.last_contact_date || '',
-      notes: lead.notes || '',
+      intake_notes: parsed.intake_notes,
       consultation_notes: lead.consultation_notes || '',
-    })
-    setEditing(lead)
-  }
-
-  const doConvert = async (lead, extraForm = {}) => {
-    const merged = { ...lead, ...extraForm }
-    const intakeData = {
-      phone: merged.phone || '',
-      email: merged.email || '',
-      source: merged.source || '',
-      intake_notes: merged.notes || '',
-      consultation_notes: merged.consultation_notes || '',
     }
-    // Do NOT pass id — let Supabase INSERT and generate the UUID
-    await saveClient({
-      name: merged.name,
-      goal: merged.goal || '',
+    const result = await saveClient({
+      name: lead.name,
+      goal: lead.goal || '',
       dob: '',
       equipment: '',
       trainerNotes: JSON.stringify(intakeData),
     })
-    await saveLead({ ...merged, status: 'Client' })
+    if (!result) throw new Error('Client was not created — check Supabase connection')
+    await saveLead({ ...lead, status: 'Client' })
     await load()
   }
 
@@ -6292,7 +6315,12 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
     if (!confirm(`Convert ${editing.name} to a full client?\n\nTheir intake data, goal, phone, email and consultation notes will transfer to their client profile.`)) return
     setConverting(true)
     try {
-      await doConvert(editing, form)
+      const updatedLead = {
+        ...editing,
+        ...form,
+        notes: packLeadNotes(form.intake_notes, form.booked_consultation, form.committed_package),
+      }
+      await doConvert(updatedLead)
       setEditing(null)
       if (onNavigateToRoster) onNavigateToRoster()
     } catch (e) { alert('Error converting lead: ' + e.message) }
@@ -6309,11 +6337,39 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
     setAdvancing(null)
   }
 
+  const openNew = () => {
+    setForm({ name:'', phone:'', email:'', source:'', goal:'', intake_notes:'', consultation_notes:'', booked_consultation: false, committed_package: false })
+    setEditing('new')
+  }
+
+  const openEdit = (lead) => {
+    const parsed = parseLeadNotes(lead.notes)
+    setForm({
+      name: lead.name || '',
+      phone: lead.phone || '',
+      email: lead.email || '',
+      source: lead.source || '',
+      goal: lead.goal || '',
+      intake_notes: parsed.intake_notes,
+      booked_consultation: parsed.booked_consultation,
+      committed_package: parsed.committed_package,
+      consultation_notes: lead.consultation_notes || '',
+    })
+    setEditing(lead)
+  }
+
   const save = async () => {
     if (!form.name.trim()) return
     setSaving(true)
     try {
-      const payload = { ...form, ...(editing !== 'new' ? { id: editing.id, date_added: editing.date_added } : {}) }
+      const isNew = editing === 'new'
+      const payload = {
+        name: form.name, phone: form.phone, email: form.email, source: form.source,
+        goal: form.goal, consultation_notes: form.consultation_notes,
+        notes: packLeadNotes(form.intake_notes, form.booked_consultation, form.committed_package),
+        status: isNew ? 'Active' : (editing.status || 'Active'),
+        ...(isNew ? {} : { id: editing.id, date_added: editing.date_added, last_contact_date: editing.last_contact_date }),
+      }
       await saveLead(payload)
       await load()
       setEditing(null)
@@ -6328,22 +6384,21 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
     setLeads(ls => ls.filter(l => l.id !== id))
   }
 
-  const filtered = leads.filter(l => {
+  const filteredActive = activeLeads.filter(l => {
     const q = search.toLowerCase()
-    const matchQ = !q || l.name?.toLowerCase().includes(q) || l.email?.toLowerCase().includes(q) || l.phone?.includes(q)
-    const matchS = filterStatus === 'All' || l.status === filterStatus
-    return matchQ && matchS
+    return !q || l.name?.toLowerCase().includes(q) || l.email?.toLowerCase().includes(q) || l.phone?.includes(q)
   })
 
-  const actionItems = leads
-    .map(l => ({ lead: l, step: getOutreachStep(l) }))
-    .filter(({ step }) => step && step.isDue && !step.isComplete)
-    .sort((a, b) => (b.step.daysOverdue || 0) - (a.step.daysOverdue || 0))
-
-  const upcomingItems = leads
-    .map(l => ({ lead: l, step: getOutreachStep(l) }))
-    .filter(({ step }) => step && !step.isDue && !step.isComplete)
-    .sort((a, b) => (a.step.daysUntil || 0) - (b.step.daysUntil || 0))
+  // Toggle pill component
+  const TogglePill = ({ label, active, onToggle, disabled }) => (
+    <button onClick={onToggle} disabled={disabled}
+      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 20, border: `1.5px solid ${active ? C.green : C.border}`, background: active ? C.green + '18' : 'transparent', color: active ? C.green : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: disabled ? 'not-allowed' : 'pointer', transition: 'all .15s', opacity: disabled ? 0.6 : 1 }}>
+      <span style={{ width: 14, height: 14, borderRadius: '50%', border: `2px solid ${active ? C.green : C.border}`, background: active ? C.green : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        {active && <span style={{ color: '#fff', fontSize: 9, fontWeight: 900, lineHeight: 1 }}>✓</span>}
+      </span>
+      {label}
+    </button>
+  )
 
   // ── FORM VIEW ──
   if (editing !== null) {
@@ -6365,13 +6420,8 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
           ].map(({ label, key, type, placeholder }) => (
             <div key={key}>
               <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>{label}</div>
-              <input
-                type={type}
-                value={form[key]}
-                onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-                placeholder={placeholder}
-                style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 14px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
-              />
+              <input type={type} value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} placeholder={placeholder}
+                style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 14px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
             </div>
           ))}
 
@@ -6384,42 +6434,26 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
             </select>
           </div>
 
+          {/* Status toggles */}
           <div>
-            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>Status</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {LEAD_STATUSES.map(s => {
-                const c = LEAD_STATUS_COLORS[s]
-                const active = form.status === s
-                return (
-                  <button key={s} onClick={() => setForm(f => ({ ...f, status: s }))}
-                    style={{ padding: '7px 14px', borderRadius: 20, border: `1.5px solid ${active ? c.border : C.border}`, background: active ? c.bg : 'transparent', color: active ? c.text : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer', transition: 'all .15s' }}>
-                    {s}
-                  </button>
-                )
-              })}
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 10 }}>Progress Tracking</div>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <TogglePill label="📅 Booked Consultation" active={form.booked_consultation} onToggle={() => setForm(f => ({ ...f, booked_consultation: !f.booked_consultation }))} />
+              <TogglePill label="💪 Committed to FunctionalFit Package" active={form.committed_package} onToggle={() => setForm(f => ({ ...f, committed_package: !f.committed_package }))} />
             </div>
           </div>
 
           <div>
-            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>Last Contact Date</div>
-            <input type="date" value={form.last_contact_date}
-              onChange={e => setForm(f => ({ ...f, last_contact_date: e.target.value }))}
-              style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 14px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
-          </div>
-
-          <div>
             <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>Intake Notes</div>
-            <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-              placeholder="Intake form data…"
-              rows={3}
+            <textarea value={form.intake_notes} onChange={e => setForm(f => ({ ...f, intake_notes: e.target.value }))}
+              placeholder="Intake form data, health history, barriers…" rows={3}
               style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 14px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
           </div>
 
           <div>
             <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>📋 Consultation Notes</div>
             <textarea value={form.consultation_notes} onChange={e => setForm(f => ({ ...f, consultation_notes: e.target.value }))}
-              placeholder="What did you discuss on the call? Objections, what they're really after, next steps…"
-              rows={5}
+              placeholder="What did you discuss on the call? Objections, what they're really after, next steps…" rows={5}
               style={{ width: '100%', background: '#FFFBEB', border: `1px solid #F59E0B44`, borderRadius: 8, padding: '10px 14px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
           </div>
 
@@ -6451,232 +6485,226 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
             <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 4, color: C.text }}>CRM LEADS</div>
           </div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 4, marginLeft: 32 }}>
-            {leads.length} lead{leads.length !== 1 ? 's' : ''}
+            {activeLeads.length} active{coldLeads.length > 0 && ` · ${coldLeads.length} cold`}
             {actionItems.length > 0 && <span style={{ color: C.orange, marginLeft: 8, fontWeight: 700 }}>🎯 {actionItems.length} need outreach</span>}
           </div>
         </div>
         <Btn onClick={openNew}>+ New Lead</Btn>
       </div>
 
-      {/* ── BOSS MODE: Action Items ── */}
-      {!loading && (actionItems.length > 0 || upcomingItems.length > 0) && (
-        <div style={{ marginBottom: 20 }}>
-          {actionItems.length > 0 && (
-            <div style={{ background: '#FFFBEB', border: '2px solid #F59E0B', borderRadius: 14, padding: '16px 18px', marginBottom: 12 }}>
-              <div style={{ fontWeight: 800, fontSize: 13, color: '#92400E', letterSpacing: 1, marginBottom: 14 }}>
-                🎯 ACT NOW — {actionItems.length} lead{actionItems.length !== 1 ? 's' : ''} need outreach
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {actionItems.map(({ lead, step }) => {
-                  const chCol = CHANNEL_COLORS[step.channel] || CHANNEL_COLORS.Text
-                  const busy = advancing === lead.id
-                  return (
-                    <div key={lead.id} style={{ background: '#fff', border: `2px solid ${step.isOverdue ? C.red : chCol.border}`, borderRadius: 12, padding: '14px 14px' }}>
-                      {/* Header */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                        <div>
-                          <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>{lead.name}</div>
-                          {lead.goal && <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>🎯 {lead.goal}</div>}
-                          {lead.phone && <div style={{ fontSize: 11, color: C.sub, marginTop: 1 }}>📞 {lead.phone}</div>}
-                        </div>
-                        <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
-                          <div style={{ fontSize: 11, fontWeight: 800, color: step.isOverdue ? C.red : chCol.text }}>
-                            {step.isOverdue ? `⚠️ ${step.daysOverdue}d overdue` : '⚡ Due today'}
-                          </div>
-                          <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>Day {step.day + 1}/30 · Step {step.step}/9</div>
-                        </div>
-                      </div>
-
-                      {/* 30-day progress dots */}
-                      <div style={{ display: 'flex', gap: 3, marginBottom: 10, alignItems: 'center' }}>
-                        {OUTREACH_SEQUENCE.map((s) => {
-                          const isDone = step.completedSteps >= s.step
-                          const isCurrent = s.step === step.step
-                          const dotColor = isDone ? C.green : isCurrent ? (step.isOverdue ? C.red : C.orange) : C.border
-                          const chC = CHANNEL_COLORS[s.channel] || CHANNEL_COLORS.Text
-                          return (
-                            <div key={s.step} title={`Day ${s.day + 1}: ${s.channel}`}
-                              style={{ flex: 1, height: isCurrent ? 10 : 6, borderRadius: 4, background: isCurrent ? (step.isOverdue ? C.red : C.orange) : isDone ? C.green : C.border, transition: 'all .2s' }} />
-                          )
-                        })}
-                        <span style={{ fontSize: 9, color: C.sub, flexShrink: 0, marginLeft: 4 }}>{step.progress}%</span>
-                      </div>
-
-                      {/* Action box */}
-                      <div style={{ background: chCol.bg, border: `1.5px solid ${chCol.border}`, borderRadius: 8, padding: '9px 12px', marginBottom: 10 }}>
-                        <div style={{ fontWeight: 800, fontSize: 12, color: chCol.text, marginBottom: 3 }}>{step.emoji} {step.channel.toUpperCase()} — Step {step.step} of 9</div>
-                        <div style={{ fontSize: 11, color: chCol.text, opacity: 0.85, lineHeight: 1.5 }}>{step.why}</div>
-                      </div>
-
-                      {/* Buttons */}
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        <button onClick={() => setAiCoachLead(lead)}
-                          style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.accent}44`, background: C.accent + '18', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
-                          ✨ Write {step.channel}
-                        </button>
-                        <button onClick={() => markStepDone(lead)} disabled={busy}
-                          style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1 }}>
-                          {busy ? '…' : '✅ Mark Done'}
-                        </button>
-                        <button onClick={() => directConvert(lead)} disabled={busy}
-                          style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer' }}>
-                          ⭐ Convert to Client
-                        </button>
-                        <button onClick={() => markCold(lead)} disabled={busy}
-                          style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer' }}>
-                          🥶 Cold
-                        </button>
-                      </div>
+      {/* ── BOSS PANEL ── */}
+      {!loading && actionItems.length > 0 && (
+        <div style={{ background: '#FFFBEB', border: '2px solid #F59E0B', borderRadius: 14, padding: '16px 18px', marginBottom: 16 }}>
+          <div style={{ fontWeight: 800, fontSize: 13, color: '#92400E', letterSpacing: 1, marginBottom: 14 }}>
+            🎯 BOSS — {actionItems.length} lead{actionItems.length !== 1 ? 's' : ''} need outreach today
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {actionItems.map(({ lead, step }) => {
+              const chCol = CHANNEL_COLORS[step.channel] || CHANNEL_COLORS.Text
+              const busy = advancing === lead.id
+              const parsed = parseLeadNotes(lead.notes)
+              return (
+                <div key={lead.id} style={{ background: '#fff', border: `2px solid ${step.isOverdue ? C.red : chCol.border}`, borderRadius: 12, padding: '14px 14px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>{lead.name}</div>
+                      {lead.goal && <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>🎯 {lead.goal}</div>}
+                      {lead.phone && <div style={{ fontSize: 11, color: C.sub, marginTop: 1 }}>📞 {lead.phone}</div>}
                     </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
+                    <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: step.isOverdue ? C.red : chCol.text }}>
+                        {step.isOverdue ? `⚠️ ${step.daysOverdue}d overdue` : '⚡ Due today'}
+                      </div>
+                      <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>Day {step.day}/30 · Step {step.step}/9</div>
+                    </div>
+                  </div>
 
-          {/* Upcoming — not due yet */}
-          {upcomingItems.length > 0 && (
-            <div style={{ background: C.faint, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 16px' }}>
-              <div style={{ fontWeight: 800, fontSize: 11, color: C.sub, letterSpacing: 1, marginBottom: 10 }}>📅 COMING UP</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {upcomingItems.slice(0, 5).map(({ lead, step }) => {
-                  const chCol = CHANNEL_COLORS[step.channel] || CHANNEL_COLORS.Text
-                  return (
-                    <div key={lead.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 9px', borderRadius: 8, background: chCol.bg, color: chCol.text, border: `1px solid ${chCol.border}`, flexShrink: 0 }}>
-                        {step.emoji} {step.channel} in {step.daysUntil}d
+                  {/* Progress bar */}
+                  <div style={{ display: 'flex', gap: 3, marginBottom: 10, alignItems: 'center' }}>
+                    {OUTREACH_SEQUENCE.map((s) => {
+                      const isDone = (step.completedSteps || 0) >= s.step
+                      const isCurrent = s.step === step.step
+                      return (
+                        <div key={s.step} title={`Day ${s.day}: ${s.channel}`}
+                          style={{ flex: 1, height: isCurrent ? 10 : 6, borderRadius: 4, background: isCurrent ? (step.isOverdue ? C.red : C.orange) : isDone ? C.green : C.border, transition: 'all .2s' }} />
+                      )
+                    })}
+                    <span style={{ fontSize: 9, color: C.sub, flexShrink: 0, marginLeft: 4 }}>{step.progress}%</span>
+                  </div>
+
+                  {/* Action instruction */}
+                  <div style={{ background: chCol.bg, border: `1.5px solid ${chCol.border}`, borderRadius: 8, padding: '9px 12px', marginBottom: 10 }}>
+                    <div style={{ fontWeight: 800, fontSize: 12, color: chCol.text, marginBottom: 4 }}>{step.emoji} {step.channel.toUpperCase()} — Step {step.step} of 9 · {step.why}</div>
+                    <div style={{ fontSize: 11, color: chCol.text, lineHeight: 1.6, opacity: 0.9 }}>{step.action}</div>
+                  </div>
+
+                  {/* Booked / Committed toggles */}
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                    <button onClick={() => toggleFlag(lead, 'booked_consultation')} disabled={busy}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 20, border: `1.5px solid ${parsed.booked_consultation ? C.green : C.border}`, background: parsed.booked_consultation ? C.green + '18' : '#fff', color: parsed.booked_consultation ? C.green : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer', transition: 'all .15s' }}>
+                      <span style={{ width: 14, height: 14, borderRadius: '50%', border: `2px solid ${parsed.booked_consultation ? C.green : C.border}`, background: parsed.booked_consultation ? C.green : 'transparent', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        {parsed.booked_consultation && <span style={{ color: '#fff', fontSize: 9, fontWeight: 900 }}>✓</span>}
                       </span>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{lead.name}</span>
-                      <span style={{ fontSize: 11, color: C.sub }}>Step {step.step}/9 · Day {step.day + 1}</span>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
+                      📅 Booked Consultation
+                    </button>
+                    <button onClick={() => toggleFlag(lead, 'committed_package')} disabled={busy}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 20, border: `1.5px solid ${parsed.committed_package ? C.green : C.border}`, background: parsed.committed_package ? C.green + '18' : '#fff', color: parsed.committed_package ? C.green : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer', transition: 'all .15s' }}>
+                      <span style={{ width: 14, height: 14, borderRadius: '50%', border: `2px solid ${parsed.committed_package ? C.green : C.border}`, background: parsed.committed_package ? C.green : 'transparent', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        {parsed.committed_package && <span style={{ color: '#fff', fontSize: 9, fontWeight: 900 }}>✓</span>}
+                      </span>
+                      💪 Committed to Package
+                    </button>
+                  </div>
+
+                  {/* Action buttons */}
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button onClick={() => setAiCoachLead(lead)}
+                      style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.accent}44`, background: C.accent + '18', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
+                      ✨ Write {step.channel}
+                    </button>
+                    <button onClick={() => markStepDone(lead)} disabled={busy}
+                      style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1 }}>
+                      {busy ? '…' : '✅ Mark Done'}
+                    </button>
+                    <button onClick={() => directConvert(lead)} disabled={busy}
+                      style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer' }}>
+                      ⭐ Convert to Client
+                    </button>
+                    <button onClick={() => markCold(lead)} disabled={busy}
+                      style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer' }}>
+                      🥶 Gone Cold
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Upcoming */}
+      {!loading && upcomingItems.length > 0 && (
+        <div style={{ background: C.faint, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
+          <div style={{ fontWeight: 800, fontSize: 11, color: C.sub, letterSpacing: 1, marginBottom: 10 }}>📅 COMING UP</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {upcomingItems.slice(0, 6).map(({ lead, step }) => {
+              const chCol = CHANNEL_COLORS[step.channel] || CHANNEL_COLORS.Text
+              return (
+                <div key={lead.id} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }} onClick={() => openEdit(lead)}>
+                  <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 9px', borderRadius: 8, background: chCol.bg, color: chCol.text, border: `1px solid ${chCol.border}`, flexShrink: 0 }}>
+                    {step.emoji} {step.channel} in {step.daysUntil}d
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{lead.name}</span>
+                  <span style={{ fontSize: 11, color: C.sub }}>Day {step.day}/30</span>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 
       <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search leads…"
-        style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: '12px 16px', fontFamily: 'Montserrat,sans-serif', fontSize: 14, outline: 'none', marginBottom: 12, boxSizing: 'border-box' }} />
+        style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: '12px 16px', fontFamily: 'Montserrat,sans-serif', fontSize: 14, outline: 'none', marginBottom: 14, boxSizing: 'border-box' }} />
 
-      {/* Status filter chips */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>
-        {['All', ...LEAD_STATUSES].map(s => {
-          const active = filterStatus === s
-          const c = s === 'All' ? { bg: C.accent + '18', text: C.accent, border: C.accent + '44' } : LEAD_STATUS_COLORS[s]
-          return (
-            <button key={s} onClick={() => setFilterStatus(s)}
-              style={{ padding: '5px 12px', borderRadius: 20, border: `1.5px solid ${active ? c.border : C.border}`, background: active ? c.bg : 'transparent', color: active ? c.text : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer', transition: 'all .15s' }}>
-              {s}
-            </button>
-          )
-        })}
-      </div>
-
-      {loading ? <Spinner /> : filtered.length === 0 ? (
-        <div style={{ textAlign: 'center', color: C.sub, padding: 48, fontSize: 14 }}>No leads found</div>
+      {/* Active lead cards */}
+      {loading ? <Spinner /> : filteredActive.length === 0 && activeLeads.length === 0 ? (
+        <div style={{ textAlign: 'center', color: C.sub, padding: 48, fontSize: 14 }}>No active leads — click + New Lead to add one</div>
+      ) : filteredActive.length === 0 ? (
+        <div style={{ textAlign: 'center', color: C.sub, padding: 24, fontSize: 14 }}>No leads match your search</div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {filtered.map(lead => {
-            const sc = LEAD_STATUS_COLORS[lead.status] || LEAD_STATUS_COLORS['New Lead']
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+          {filteredActive.map(lead => {
             const step = getOutreachStep(lead)
             const chCol = step ? (CHANNEL_COLORS[step.channel] || CHANNEL_COLORS.Text) : null
+            const parsed = parseLeadNotes(lead.notes)
             const dateAdded = lead.date_added ? new Date(lead.date_added + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
-            const lastContact = lead.last_contact_date ? new Date(lead.last_contact_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null
             const busy = advancing === lead.id
-
             return (
-              <div key={lead.id}
-                style={{ background: C.card, border: `1.5px solid ${step?.isDue && step?.isOverdue ? C.red + '66' : step?.isDue ? C.orange + '66' : C.border}`, borderRadius: 14, padding: '16px 18px', position: 'relative' }}>
-
+              <div key={lead.id} style={{ background: C.card, border: `1.5px solid ${step?.isDue && step?.isOverdue ? C.red + '55' : step?.isDue ? C.orange + '55' : C.border}`, borderRadius: 14, padding: '14px 18px', position: 'relative' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                   <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => openEdit(lead)}>
                     <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>{lead.name}</div>
                     {lead.goal && <div style={{ fontSize: 12, color: C.sub, marginTop: 2 }}>🎯 {lead.goal}</div>}
                   </div>
-                  <button onClick={e => remove(lead.id, e)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.sub, fontSize: 16, padding: '0 0 0 8px', lineHeight: 1 }}>×</button>
+                  <button onClick={e => remove(lead.id, e)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.sub, fontSize: 18, padding: '0 0 0 8px', lineHeight: 1 }}>×</button>
                 </div>
 
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                  <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 12, background: sc.bg, color: sc.text, border: `1px solid ${sc.border}` }}>
-                    {lead.status}
-                  </span>
-                  {step && !step.isComplete && (
-                    <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 12, background: step.isDue ? (step.isOverdue ? C.red + '18' : C.orange + '18') : C.faint, color: step.isDue ? (step.isOverdue ? C.red : C.orange) : C.sub, border: `1px solid ${step.isDue ? (step.isOverdue ? C.red + '44' : C.orange + '44') : C.border}` }}>
-                      {step.emoji} {step.label}
-                    </span>
-                  )}
-                  {lead.source && (
-                    <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 12, background: C.faint, color: C.sub, border: `1px solid ${C.border}` }}>
-                      {lead.source}
-                    </span>
-                  )}
-                </div>
-
+                {/* Step indicator */}
                 {step && !step.isComplete && (
                   <div style={{ display: 'flex', gap: 3, marginBottom: 8, alignItems: 'center' }}>
                     {OUTREACH_SEQUENCE.map((s) => {
                       const isDone = (step.completedSteps || 0) >= s.step
                       const isCurrent = s.step === step.step
-                      return (
-                        <div key={s.step}
-                          style={{ flex: 1, height: isCurrent ? 8 : 5, borderRadius: 3, background: isCurrent ? (step.isOverdue ? C.red : C.orange) : isDone ? C.green : C.border }} />
-                      )
+                      return <div key={s.step} style={{ flex: 1, height: isCurrent ? 7 : 4, borderRadius: 3, background: isCurrent ? (step.isOverdue ? C.red : C.orange) : isDone ? C.green : C.border }} />
                     })}
-                    <span style={{ fontSize: 9, color: C.sub, flexShrink: 0, marginLeft: 4 }}>Step {step.step}/9</span>
+                    <span style={{ fontSize: 9, color: C.sub, flexShrink: 0, marginLeft: 4 }}>
+                      {step.isDue ? (step.isOverdue ? `${step.daysOverdue}d overdue` : 'due today') : `in ${step.daysUntil}d`}
+                    </span>
                   </div>
                 )}
 
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 11, color: C.sub, marginBottom: step && step.isDue ? 10 : 0 }}>
+                {/* Contact info + toggles */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', fontSize: 11, color: C.sub }}>
                   {lead.phone && <span>📞 {lead.phone}</span>}
                   {lead.email && <span>✉️ {lead.email}</span>}
+                  <span style={{ color: C.faint }}>|</span>
                   <span>Added {dateAdded}</span>
-                  {lastContact && <span>Last contact: {lastContact}</span>}
+                  {parsed.booked_consultation && <span style={{ color: C.green, fontWeight: 700 }}>📅 Booked</span>}
+                  {parsed.committed_package && <span style={{ color: C.green, fontWeight: 700 }}>💪 Committed</span>}
                 </div>
 
+                {/* Inline due-today actions */}
                 {step && step.isDue && !step.isComplete && (
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', paddingTop: 8, marginTop: 6, borderTop: `1px solid ${C.border}` }}>
                     <button onClick={() => setAiCoachLead(lead)}
                       style={{ padding: '5px 10px', borderRadius: 8, border: `1.5px solid ${C.accent}44`, background: C.accent + '18', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer' }}>
-                      ✨ Write {step.channel}
+                      ✨ Write {step?.channel}
                     </button>
                     <button onClick={() => markStepDone(lead)} disabled={busy}
                       style={{ padding: '5px 10px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1 }}>
-                      {busy ? '…' : '✅ Mark Done'}
+                      {busy ? '…' : '✅ Done'}
                     </button>
-                    <button onClick={() => markCold(lead)} disabled={busy}
-                      style={{ padding: '5px 10px', borderRadius: 8, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: busy ? 'not-allowed' : 'pointer' }}>
-                      🥶 Cold
+                    <button onClick={() => directConvert(lead)} disabled={busy}
+                      style={{ padding: '5px 10px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: busy ? 'not-allowed' : 'pointer' }}>
+                      ⭐ Convert
                     </button>
-                  </div>
-                )}
-
-                {lead.notes && (
-                  <div style={{ marginTop: 8, borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
-                    {lead.notes.includes('\n') ? (
-                      lead.notes.split('\n').map((line, i) => (
-                        <div key={i} style={{ fontSize: 11, color: C.sub, lineHeight: 1.7 }}>{line}</div>
-                      ))
-                    ) : (
-                      <div style={{ fontSize: 12, color: C.sub, fontStyle: 'italic' }}>
-                        {lead.notes.length > 120 ? lead.notes.slice(0, 120) + '…' : lead.notes}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {lead.consultation_notes && (
-                  <div style={{ marginTop: 8, background: '#FFFBEB', border: `1px solid #F59E0B44`, borderRadius: 8, padding: '8px 12px' }}>
-                    <div style={{ fontSize: 9, fontWeight: 800, color: '#92400E', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 }}>📋 Consultation Notes</div>
-                    <div style={{ fontSize: 12, color: '#92400E', lineHeight: 1.6 }}>
-                      {lead.consultation_notes.length > 150 ? lead.consultation_notes.slice(0, 150) + '…' : lead.consultation_notes}
-                    </div>
                   </div>
                 )}
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Cold leads section */}
+      {coldLeads.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <button onClick={() => setShowCold(v => !v)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, marginBottom: 10, padding: 0 }}>
+            🥶 {coldLeads.length} Cold Lead{coldLeads.length !== 1 ? 's' : ''} {showCold ? '▲' : '▼'}
+          </button>
+          {showCold && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {coldLeads.map(lead => {
+                const busy = advancing === lead.id
+                return (
+                  <div key={lead.id} style={{ background: C.faint, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                    <div style={{ cursor: 'pointer' }} onClick={() => openEdit(lead)}>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: C.sub }}>{lead.name}</div>
+                      {lead.goal && <div style={{ fontSize: 11, color: C.sub, opacity: 0.7 }}>🎯 {lead.goal}</div>}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                      <button onClick={() => reactivate(lead)} disabled={busy}
+                        style={{ padding: '6px 12px', borderRadius: 8, border: `1.5px solid ${C.accent}`, background: C.accent + '18', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer' }}>
+                        {busy ? '…' : '↺ Reactivate'}
+                      </button>
+                      <button onClick={e => remove(lead.id, e)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.sub, fontSize: 16, padding: 0 }}>×</button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>

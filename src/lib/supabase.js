@@ -212,7 +212,7 @@ export async function saveLead(lead) {
     email: lead.email || '',
     source: lead.source || '',
     goal: lead.goal || '',
-    status: lead.status || 'New Lead',
+    status: lead.status || 'Active',
     date_added: lead.date_added || new Date().toISOString().split('T')[0],
     last_contact_date: lead.last_contact_date || null,
     notes: lead.notes || '',
