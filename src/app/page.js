@@ -7573,8 +7573,8 @@ function BloodWorkPanel({ client, onBack }) {
       const dataStr = records.map(r => `${r.year} ${r.period}: ${Object.entries(r.markers || {}).map(([k, v]) => `${k}=${v}`).join(', ')}`).join('\n')
       const text = await callClaude([{
         role: 'user',
-        content: `You are a health & fitness advisor analyzing blood work for a personal trainer named Freddy.\n\nClient: ${client.name}\nBlood Work History:\n${dataStr || 'No data yet'}\n\nProvide analysis in exactly 4 sections:\n✅ What's Improving\n⚠️ Needs Attention (list specific markers and why they matter)\n🎯 Freddy's Focus (specific training & nutrition actions to take)\n📈 Year-over-Year Summary (highlight the most important trends)\n\nBe concise, specific, and actionable.`
-      }], 1500)
+        content: `You are a health & fitness advisor analyzing blood work for a personal trainer named Freddy.\n\nClient: ${client.name}\nBlood Work History:\n${dataStr || 'No data yet'}\n\nProvide analysis in exactly 4 sections:\n\n✅ WHAT'S IMPROVING\nList markers trending in the right direction and what that means for this client's fitness.\n\n⚠️ NEEDS ATTENTION\nFor each flagged marker: state the value, what it measures, likely contributing causes (lifestyle, diet, training, stress, etc.), and what happens if it stays elevated/low.\n\n🎯 FREDDY'S ACTION PLAN\nSpecific training and nutrition changes Freddy should implement based on these results. Be precise — e.g. "add 3g fish oil daily", "reduce HIIT frequency", "prioritize sleep for cortisol".\n\n📈 YEAR-OVER-YEAR SUMMARY\nThe most important trend across all periods and one headline win or concern.\n\nBe direct, specific, and actionable. No generic advice.`
+      }], 2000)
       setAiResult(text)
     } catch (e) {
       setAiResult('Error: ' + e.message)
@@ -7827,7 +7827,7 @@ function BloodWorkPanel({ client, onBack }) {
                                             const status = getMarkerStatus(m.name, val)
                                             const borderCol = status === 'empty' ? C.border : statusColor(status)
                                             return (
-                                              <div key={m.name}>
+                                              <div key={m.name} style={{ gridColumn: status !== 'empty' && val !== '' ? 'span 1' : undefined }}>
                                                 <div style={{ fontSize: 10, color: C.sub, marginBottom: 3, fontWeight: 600 }}>{m.name} <span style={{ color: C.border }}>({m.unit})</span></div>
                                                 <input
                                                   type="number"
@@ -7842,6 +7842,7 @@ function BloodWorkPanel({ client, onBack }) {
                                                     {status === 'optimal' ? '✅ Optimal' : status === 'borderline' ? '⚠️ Borderline' : '❌ Out of range'}
                                                   </div>
                                                 )}
+                                                <div style={{ fontSize: 9, color: C.sub, marginTop: 4, lineHeight: 1.4, opacity: 0.85 }}>{m.desc}</div>
                                               </div>
                                             )
                                           })}
