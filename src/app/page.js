@@ -7599,10 +7599,10 @@ function Schedule({ onBack, allClients }) {
 
             {/* Recurring */}
             <div style={{ marginBottom: 14 }}>
-              <button onClick={() => setForm(f => ({ ...f, recurring: !f.recurring }))}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 8, border: `1.5px solid ${form.recurring ? C.accent : C.border}`, background: form.recurring ? C.accent + '12' : '#fff', cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', width: '100%' }}>
-                <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${form.recurring ? C.accent : C.border}`, background: form.recurring ? C.accent : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  {form.recurring && <span style={{ color: '#fff', fontSize: 11, fontWeight: 900, lineHeight: 1 }}>✓</span>}
+              <button onClick={e => { e.stopPropagation(); setForm(f => ({ ...f, recurring: !f.recurring })) }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 8, border: `2px solid ${form.recurring ? C.accent : C.border}`, background: form.recurring ? C.accent + '15' : C.faint, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', width: '100%', boxSizing: 'border-box' }}>
+                <div style={{ width: 20, height: 20, borderRadius: 4, border: `2px solid ${form.recurring ? C.accent : C.border}`, background: form.recurring ? C.accent : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all .15s' }}>
+                  {form.recurring && <span style={{ color: '#fff', fontSize: 12, fontWeight: 900, lineHeight: 1 }}>✓</span>}
                 </div>
                 <span style={{ fontSize: 12, fontWeight: 700, color: form.recurring ? C.accent : C.sub }}>🔁 Recurring — repeats weekly</span>
               </button>
