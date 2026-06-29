@@ -3445,13 +3445,17 @@ function ProgramUploads({ client, onUpdate }) {
 
   // program_journal: { "y1_p1_Week 1": { days: [...] }, ... }
   const [journal, setJournal] = useState(stored.program_journal || {})
-  const [selYear, setSelYear] = useState(1)
-  const [selPhase, setSelPhase] = useState('p1')
-  const [selWeek, setSelWeek] = useState('Week 1')
+  const posKey = `ff_journal_pos_${client.id}`
+  const savedPos = (() => { try { return JSON.parse(localStorage.getItem(posKey) || 'null') } catch { return null } })()
+  const [selYear, setSelYear] = useState(savedPos?.year || 1)
+  const [selPhase, setSelPhase] = useState(savedPos?.phase || 'p1')
+  const [selWeek, setSelWeek] = useState(savedPos?.week || 'Week 1')
   // Week order per phase — allows custom deload placement
   const weekOrderKey = `y${selYear}_${selPhase}_weekorder`
   const weekOrder = journal[weekOrderKey] || DEFAULT_WEEK_ORDER
   const [saving, setSaving] = useState(false)
+  const [autoSaving, setAutoSaving] = useState(false)
+  const autoSaveTimer = useRef(null)
   const [programFile, setProgramFile] = useState(stored.program_file || null)
   const [showProgram, setShowProgram] = useState(false)
 
@@ -3495,7 +3499,21 @@ function ProgramUploads({ client, onUpdate }) {
 
   useEffect(() => { journalRef.current = journal }, [journal])
 
-  // Update locally only — no persist
+  // Persist last-viewed position
+  useEffect(() => {
+    try { localStorage.setItem(posKey, JSON.stringify({ year: selYear, phase: selPhase, week: selWeek })) } catch {}
+  }, [selYear, selPhase, selWeek])
+
+  const triggerAutoSave = () => {
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
+    setAutoSaving(true)
+    autoSaveTimer.current = setTimeout(async () => {
+      try { await persist({ program_journal: journalRef.current }) } catch {}
+      setAutoSaving(false)
+    }, 1500)
+  }
+
+  // Update locally and schedule autosave
   const updateWeekDataLocal = (newDays, changedDayIdx) => {
     const updated = { ...journal, [journalKey]: { ...weekData, days: newDays } }
     setJournal(updated)
@@ -3503,6 +3521,7 @@ function ProgramUploads({ client, onUpdate }) {
       setUnsavedDays(prev => new Set(prev).add(changedDayIdx))
       setSavedDays(prev => { const n = new Set(prev); n.delete(changedDayIdx); return n })
     }
+    triggerAutoSave()
   }
 
   // Persist entire week to database
@@ -3610,6 +3629,7 @@ function ProgramUploads({ client, onUpdate }) {
     setJournal(updated)
     setWeekNotesUnsaved(true)
     setWeekNotesSaved(false)
+    triggerAutoSave()
   }
 
   const saveWeekNotes = () => {
@@ -3624,6 +3644,7 @@ function ProgramUploads({ client, onUpdate }) {
     setJournal(updated)
     setPhaseNotesUnsaved(true)
     setPhaseNotesSaved(false)
+    triggerAutoSave()
   }
 
   const savePhaseNotes = () => {
@@ -4108,16 +4129,18 @@ function ProgramUploads({ client, onUpdate }) {
             )}
           </div>
 
-          {/* Save Day button */}
-          <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+          {/* Autosave indicator */}
+          <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8 }}>
+            {autoSaving && <span style={{ fontSize: 10, color: C.sub, fontStyle: 'italic' }}>Autosaving…</span>}
+            {!autoSaving && savedDays.has(dayIdx) && <span style={{ fontSize: 10, color: C.green, fontWeight: 700 }}>✓ Saved</span>}
             <button
               onClick={() => saveDay(dayIdx)}
-              disabled={saving || (!unsavedDays.has(dayIdx) && !savedDays.has(dayIdx))}
+              disabled={saving || autoSaving || (!unsavedDays.has(dayIdx) && !savedDays.has(dayIdx))}
               style={{
                 padding: '6px 20px', borderRadius: 7, border: 'none',
                 background: savedDays.has(dayIdx) ? C.green : unsavedDays.has(dayIdx) ? C.accent : C.border,
                 color: savedDays.has(dayIdx) ? '#fff' : unsavedDays.has(dayIdx) ? '#000' : C.sub,
-                fontSize: 11, fontWeight: 700, cursor: unsavedDays.has(dayIdx) ? 'pointer' : 'default',
+                fontSize: 11, fontWeight: 700, cursor: (unsavedDays.has(dayIdx) && !autoSaving) ? 'pointer' : 'default',
                 fontFamily: 'Montserrat,sans-serif', letterSpacing: 0.5, transition: 'all .2s'
               }}
             >
@@ -4937,18 +4960,29 @@ function ClientNotes({ client, onUpdate }) {
   const [notes, setNotes] = useState(intake.clientNotes || '')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const notesTimer = useRef(null)
+  const notesRef = useRef(notes)
+  useEffect(() => { notesRef.current = notes }, [notes])
 
   const save = async (value) => {
     setSaving(true)
     try {
-      const updated = { ...intake, clientNotes: value }
+      const latest = (() => { try { return JSON.parse(client.trainerNotes || '{}') } catch { return {} } })()
+      const updated = { ...latest, clientNotes: value }
       const updatedClient = { ...client, trainerNotes: JSON.stringify(updated) }
       await saveClient(updatedClient)
       onUpdate(updatedClient)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
-    } catch (e) { alert('Error saving notes: ' + e.message) }
+    } catch (e) { console.error('Error saving notes:', e.message) }
     setSaving(false)
+  }
+
+  const handleChange = (value) => {
+    setNotes(value)
+    setSaved(false)
+    if (notesTimer.current) clearTimeout(notesTimer.current)
+    notesTimer.current = setTimeout(() => save(notesRef.current), 1500)
   }
 
   return (
@@ -4956,25 +4990,20 @@ function ClientNotes({ client, onUpdate }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase' }}>📝 Client Notes</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 10, color: C.sub }}>{notes.length.toLocaleString()} chars</span>
-          <button
-            onClick={() => save(notes)}
-            disabled={saving}
-            style={{ padding: '4px 14px', borderRadius: 7, border: 'none', background: saved ? C.green : C.accent, color: saved ? '#fff' : '#000', fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', transition: 'all .2s' }}
-          >
-            {saving ? 'Saving...' : saved ? '✓ Saved!' : 'Save'}
-          </button>
+          <span style={{ fontSize: 10, color: saving ? C.sub : saved ? C.green : C.sub, fontWeight: saving || saved ? 700 : 400 }}>
+            {saving ? 'Saving…' : saved ? '✓ Saved' : `${notes.length.toLocaleString()} chars`}
+          </span>
         </div>
       </div>
       <textarea
         value={notes}
-        onChange={e => setNotes(e.target.value)}
+        onChange={e => handleChange(e.target.value)}
         onBlur={() => save(notes)}
         rows={6}
         placeholder={`Running notes for ${client.name}...\n\nUse this for session observations, progress notes, behavioral patterns, outside source references, or anything you want the AI to always know about this client.`}
         style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', color: C.text, background: C.faint, resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.7 }}
       />
-      <div style={{ fontSize: 10, color: C.sub, marginTop: 6 }}>Auto-saves when you click away · Full history always sent to AI</div>
+      <div style={{ fontSize: 10, color: C.sub, marginTop: 6 }}>Autosaves as you type · Always sent to AI</div>
     </div>
   )
 }
