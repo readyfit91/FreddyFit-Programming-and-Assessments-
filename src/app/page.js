@@ -4226,7 +4226,7 @@ function WeightTracker({ client, onBack }) {
       canvas.height = rect.height * dpr
     }
     ctx.scale(dpr, dpr)
-    const pad = { top: 42, right: showBehavior ? 50 : 75, bottom: 50, left: 60 }
+    const pad = { top: 42, right: showBehavior ? 50 : 80, bottom: 50, left: 80 }
     const cW = W - pad.left - pad.right, cH = H - pad.top - pad.bottom
 
     ctx.clearRect(0, 0, W, H)
@@ -4532,7 +4532,7 @@ function WeightTracker({ client, onBack }) {
                   const lineChartW = chartAreaW - pieW - 16
                   if (logs.length >= 2) {
                     const offChart = document.createElement('canvas')
-                    offChart.width = 800; offChart.height = 300
+                    offChart.width = 900; offChart.height = 320
                     drawChart(offChart, false)
                     const imgData = offChart.toDataURL('image/png')
                     doc.addImage(imgData, 'PNG', 36, y, lineChartW, 190)
