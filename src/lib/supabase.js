@@ -25,15 +25,15 @@ export async function saveClient(client) {
     trainer_notes: client.trainerNotes || '',
     updated_at: new Date().toISOString()
   }
-  if (client.id) payload.id = client.id
-
-  const { data, error } = await supabase
-    .from('clients')
-    .upsert(payload)
-    .select()
-    .single()
-  if (error) throw error
-  return data
+  if (client.id) {
+    const { data, error } = await supabase.from('clients').update(payload).eq('id', client.id).select().single()
+    if (error) throw error
+    return data
+  } else {
+    const { data, error } = await supabase.from('clients').insert(payload).select().single()
+    if (error) throw error
+    return data
+  }
 }
 
 export async function deleteClient(clientId) {
