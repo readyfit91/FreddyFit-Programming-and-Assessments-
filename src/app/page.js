@@ -5928,16 +5928,27 @@ function ClientRoster({ onSelectClient, onNewClient, onOpenSchedule }) {
           <div style={{ fontSize: 12, color: C.sub, fontStyle: 'italic', marginBottom: upcomingSessions.length > 0 ? 12 : 0 }}>No sessions booked today</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: upcomingSessions.length > 0 ? 14 : 0 }}>
-            {todaySessions.map(s => (
+            {todaySessions.map(s => {
+              const stype = SESSION_TYPES.find(t => t.label === s.session_type) || SESSION_TYPES[0]
+              return (
               <div key={s.id} onClick={onOpenSchedule} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 14px', background: C.accent + '12', borderRadius: 9, border: `1.5px solid ${C.accent}33`, cursor: 'pointer' }}>
                 <div style={{ fontSize: 13, fontWeight: 900, color: C.accent, minWidth: 44 }}>{s.time.slice(0,5)}</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{s.client_name}</div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: stype.color, marginTop: 1 }}>{s.session_type || 'FIT60'}{s.recurring ? ' 🔁' : ''}</div>
+                  {s.link && (
+                    <a href={s.link.startsWith('http') ? s.link : `tel:${s.link.replace(/\s/g,'')}`}
+                      onClick={e => e.stopPropagation()}
+                      style={{ fontSize: 10, color: C.accent, textDecoration: 'underline', display: 'block', marginTop: 1 }}>
+                      {s.link}
+                    </a>
+                  )}
                   {s.notes && <div style={{ fontSize: 10, color: C.sub, marginTop: 1 }}>{s.notes}</div>}
                 </div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.sub }}>{s.duration}min</div>
               </div>
-            ))}
+              )
+            })}
           </div>
         )}
         {upcomingSessions.length > 0 && (
@@ -5947,11 +5958,22 @@ function ClientRoster({ onSelectClient, onNewClient, onOpenSchedule }) {
               {upcomingSessions.slice(0, 4).map(s => {
                 const d = new Date(s.date + 'T00:00:00')
                 const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+                const stype = SESSION_TYPES.find(t => t.label === s.session_type) || SESSION_TYPES[0]
                 return (
                   <div key={s.id} onClick={onOpenSchedule} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 12px', background: C.faint, borderRadius: 8, cursor: 'pointer' }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, minWidth: 80 }}>{label}</div>
                     <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, minWidth: 40 }}>{s.time.slice(0,5)}</div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: C.text, flex: 1 }}>{s.client_name}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{s.client_name}</div>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: stype.color }}>{s.session_type || 'FIT60'}{s.recurring ? ' 🔁' : ''}</div>
+                      {s.link && (
+                        <a href={s.link.startsWith('http') ? s.link : `tel:${s.link.replace(/\s/g,'')}`}
+                          onClick={e => e.stopPropagation()}
+                          style={{ fontSize: 9, color: C.accent, textDecoration: 'underline', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {s.link}
+                        </a>
+                      )}
+                    </div>
                     <div style={{ fontSize: 10, color: C.sub }}>{s.duration}min</div>
                   </div>
                 )
