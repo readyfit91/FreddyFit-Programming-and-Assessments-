@@ -30,7 +30,8 @@ export async function saveClient(client) {
     if (error) throw error
     return data?.[0] || null
   } else {
-    const { data, error } = await supabase.from('clients').insert(payload).select()
+    const insertPayload = { ...payload, id: crypto.randomUUID() }
+    const { data, error } = await supabase.from('clients').insert(insertPayload).select()
     if (error) throw error
     return data?.[0] || null
   }
