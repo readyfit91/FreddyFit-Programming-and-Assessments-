@@ -58,3 +58,23 @@ create policy "allow all" on workouts for all using (true) with check (true);
 
 alter table weight_logs enable row level security;
 create policy "allow all" on weight_logs for all using (true) with check (true);
+
+-- ── CRM LEADS ────────────────────────────────────────────────────────────────
+
+create table if not exists leads (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  phone text,
+  email text,
+  source text,
+  goal text,
+  status text default 'New Lead' check (status in ('New Lead','Contacted','Follow Up','Booked','Client','Cold')),
+  date_added date not null default current_date,
+  last_contact_date date,
+  notes text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+alter table leads enable row level security;
+create policy "allow all" on leads for all using (true) with check (true);

@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog } from '../lib/supabase'
+import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog, getAllLeads, saveLead, deleteLead } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
 import { FIELD_MODIFIERS } from '../lib/modifiers'
 import { QRCodeCanvas } from 'qrcode.react'
@@ -5631,6 +5631,265 @@ function LoginScreen({ onLogin }) {
   )
 }
 
+// ── CRM LEADS ────────────────────────────────────────────────────────────────
+const LEAD_STATUSES = ['New Lead','Contacted','Follow Up','Booked','Client','Cold']
+const LEAD_STATUS_COLORS = {
+  'New Lead':   { bg: C.accent + '18', text: C.accent, border: C.accent + '44' },
+  'Contacted':  { bg: C.orange + '18', text: C.orange, border: C.orange + '44' },
+  'Follow Up':  { bg: '#8B5CF6' + '18', text: '#8B5CF6', border: '#8B5CF6' + '44' },
+  'Booked':     { bg: C.lime + '18',   text: C.lime,   border: C.lime + '44' },
+  'Client':     { bg: C.green + '18',  text: C.green,  border: C.green + '44' },
+  'Cold':       { bg: C.border,        text: C.sub,    border: C.border },
+}
+const LEAD_SOURCES = ['Instagram', 'Facebook', 'Referral', 'Walk-in', 'Website', 'Email', 'Zapier / Email', 'Other']
+
+function CrmLeads({ onBack }) {
+  const [leads, setLeads] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [filterStatus, setFilterStatus] = useState('All')
+  const [editing, setEditing] = useState(null) // null = list, 'new' = new form, {id,...} = edit form
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({ name:'', phone:'', email:'', source:'', goal:'', status:'New Lead', last_contact_date:'', notes:'' })
+
+  const today = new Date().toISOString().split('T')[0]
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try { setLeads(await getAllLeads()) } catch {}
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const openNew = () => {
+    setForm({ name:'', phone:'', email:'', source:'', goal:'', status:'New Lead', last_contact_date:'', notes:'' })
+    setEditing('new')
+  }
+
+  const openEdit = (lead) => {
+    setForm({
+      name: lead.name || '',
+      phone: lead.phone || '',
+      email: lead.email || '',
+      source: lead.source || '',
+      goal: lead.goal || '',
+      status: lead.status || 'New Lead',
+      last_contact_date: lead.last_contact_date || '',
+      notes: lead.notes || '',
+    })
+    setEditing(lead)
+  }
+
+  const save = async () => {
+    if (!form.name.trim()) return
+    setSaving(true)
+    try {
+      const payload = { ...form, ...(editing !== 'new' ? { id: editing.id, date_added: editing.date_added } : {}) }
+      await saveLead(payload)
+      await load()
+      setEditing(null)
+    } catch (e) { alert('Error saving lead: ' + e.message) }
+    setSaving(false)
+  }
+
+  const remove = async (id, e) => {
+    e.stopPropagation()
+    if (!confirm('Delete this lead?')) return
+    await deleteLead(id)
+    setLeads(ls => ls.filter(l => l.id !== id))
+  }
+
+  const isOverdue = (lead) => {
+    if (['Client','Cold','Booked'].includes(lead.status)) return false
+    const ref = lead.last_contact_date || lead.date_added
+    if (!ref) return false
+    const diff = Math.floor((new Date(today) - new Date(ref)) / 86400000)
+    return diff >= 3
+  }
+
+  const filtered = leads.filter(l => {
+    const q = search.toLowerCase()
+    const matchQ = !q || l.name?.toLowerCase().includes(q) || l.email?.toLowerCase().includes(q) || l.phone?.includes(q)
+    const matchS = filterStatus === 'All' || l.status === filterStatus
+    return matchQ && matchS
+  })
+
+  const overdueCount = leads.filter(isOverdue).length
+
+  // ── FORM VIEW ──
+  if (editing !== null) {
+    const isNew = editing === 'new'
+    return (
+      <div style={{ maxWidth: 700, margin: '0 auto', padding: '0 24px 40px' }}>
+        <LogoHeader />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 28 }}>
+          <button onClick={() => setEditing(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: C.sub }}>←</button>
+          <div style={{ fontWeight: 800, fontSize: 22, letterSpacing: 3, color: C.text }}>{isNew ? 'NEW LEAD' : 'EDIT LEAD'}</div>
+        </div>
+
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '24px 22px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {[
+            { label: 'Name *', key: 'name', type: 'text', placeholder: 'Full name' },
+            { label: 'Phone', key: 'phone', type: 'tel', placeholder: 'Phone number' },
+            { label: 'Email', key: 'email', type: 'email', placeholder: 'Email address' },
+            { label: 'Goal', key: 'goal', type: 'text', placeholder: 'What are they looking to achieve?' },
+          ].map(({ label, key, type, placeholder }) => (
+            <div key={key}>
+              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>{label}</div>
+              <input
+                type={type}
+                value={form[key]}
+                onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+                placeholder={placeholder}
+                style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 14px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+              />
+            </div>
+          ))}
+
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>How They Found You</div>
+            <select value={form.source} onChange={e => setForm(f => ({ ...f, source: e.target.value }))}
+              style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 14px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none' }}>
+              <option value="">Select source…</option>
+              {LEAD_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>Status</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {LEAD_STATUSES.map(s => {
+                const c = LEAD_STATUS_COLORS[s]
+                const active = form.status === s
+                return (
+                  <button key={s} onClick={() => setForm(f => ({ ...f, status: s }))}
+                    style={{ padding: '7px 14px', borderRadius: 20, border: `1.5px solid ${active ? c.border : C.border}`, background: active ? c.bg : 'transparent', color: active ? c.text : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer', transition: 'all .15s' }}>
+                    {s}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>Last Contact Date</div>
+            <input type="date" value={form.last_contact_date}
+              onChange={e => setForm(f => ({ ...f, last_contact_date: e.target.value }))}
+              style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 14px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
+          </div>
+
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>Notes</div>
+            <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+              placeholder="Any notes about this lead…"
+              rows={4}
+              style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 14px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
+            <Btn outline onClick={() => setEditing(null)}>Cancel</Btn>
+            <Btn onClick={save} disabled={saving || !form.name.trim()}>{saving ? 'Saving…' : 'Save Lead'}</Btn>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── LIST VIEW ──
+  return (
+    <div style={{ maxWidth: 700, margin: '0 auto', padding: '0 24px 40px' }}>
+      <LogoHeader />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: C.sub }}>←</button>
+            <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 4, color: C.text }}>CRM LEADS</div>
+          </div>
+          <div style={{ fontSize: 12, color: C.sub, marginTop: 4, marginLeft: 32 }}>{leads.length} lead{leads.length !== 1 ? 's' : ''}{overdueCount > 0 && <span style={{ color: C.red, marginLeft: 8 }}>⚠️ {overdueCount} overdue</span>}</div>
+        </div>
+        <Btn onClick={openNew}>+ New Lead</Btn>
+      </div>
+
+      <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search leads…"
+        style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: '12px 16px', fontFamily: 'Montserrat,sans-serif', fontSize: 14, outline: 'none', marginBottom: 12, boxSizing: 'border-box' }} />
+
+      {/* Status filter chips */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>
+        {['All', ...LEAD_STATUSES].map(s => {
+          const active = filterStatus === s
+          const c = s === 'All' ? { bg: C.accent + '18', text: C.accent, border: C.accent + '44' } : LEAD_STATUS_COLORS[s]
+          return (
+            <button key={s} onClick={() => setFilterStatus(s)}
+              style={{ padding: '5px 12px', borderRadius: 20, border: `1.5px solid ${active ? c.border : C.border}`, background: active ? c.bg : 'transparent', color: active ? c.text : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer', transition: 'all .15s' }}>
+              {s}
+            </button>
+          )
+        })}
+      </div>
+
+      {loading ? <Spinner /> : filtered.length === 0 ? (
+        <div style={{ textAlign: 'center', color: C.sub, padding: 48, fontSize: 14 }}>No leads found</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {filtered.map(lead => {
+            const sc = LEAD_STATUS_COLORS[lead.status] || LEAD_STATUS_COLORS['New Lead']
+            const overdue = isOverdue(lead)
+            const dateAdded = lead.date_added ? new Date(lead.date_added + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
+            const lastContact = lead.last_contact_date ? new Date(lead.last_contact_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null
+
+            return (
+              <div key={lead.id} onClick={() => openEdit(lead)}
+                style={{ background: C.card, border: `1.5px solid ${overdue ? C.red + '55' : C.border}`, borderRadius: 14, padding: '16px 18px', cursor: 'pointer', transition: 'box-shadow .15s', boxShadow: overdue ? `0 0 0 2px ${C.red}22` : 'none', position: 'relative' }}>
+
+                {overdue && (
+                  <div style={{ position: 'absolute', top: 12, right: 50, fontSize: 10, fontWeight: 800, color: C.red, background: C.red + '18', padding: '3px 8px', borderRadius: 6, letterSpacing: 1 }}>
+                    ⚠️ OVERDUE
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>{lead.name}</div>
+                    {lead.goal && <div style={{ fontSize: 12, color: C.sub, marginTop: 2 }}>🎯 {lead.goal}</div>}
+                  </div>
+                  <button onClick={e => remove(lead.id, e)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.sub, fontSize: 16, padding: '0 0 0 8px', lineHeight: 1 }}>×</button>
+                </div>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                  <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 12, background: sc.bg, color: sc.text, border: `1px solid ${sc.border}` }}>
+                    {lead.status}
+                  </span>
+                  {lead.source && (
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 12, background: C.faint, color: C.sub, border: `1px solid ${C.border}` }}>
+                      {lead.source}
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 11, color: C.sub }}>
+                  {lead.phone && <span>📞 {lead.phone}</span>}
+                  {lead.email && <span>✉️ {lead.email}</span>}
+                  <span>Added {dateAdded}</span>
+                  {lastContact && <span style={{ color: overdue ? C.red : C.sub }}>Last contact: {lastContact}</span>}
+                  {!lastContact && !overdue && <span>No contact yet</span>}
+                </div>
+
+                {lead.notes && (
+                  <div style={{ marginTop: 8, fontSize: 12, color: C.sub, fontStyle: 'italic', borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
+                    {lead.notes.length > 100 ? lead.notes.slice(0, 100) + '…' : lead.notes}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [authed, setAuthed] = useState(false)
@@ -5639,6 +5898,7 @@ export default function App() {
   const [client, setClient] = useState(null)
   const [assessment, setAssessment] = useState(null)
   const [allClients, setAllClients] = useState([])
+  const [forceNewAssessment, setForceNewAssessment] = useState(false)
 
   // Load all clients for linked-client switching
   const refreshAllClients = useCallback(async () => {
@@ -5687,8 +5947,6 @@ export default function App() {
   const openIntake = () => { setClient(null); setView('intake') }
   const openEditClient = (c) => { setClient(c); setView('editClient') }
 
-  const [forceNewAssessment, setForceNewAssessment] = useState(false)
-
   const runAssessment = (a, c, forceNew = false) => {
     setAssessment(a)
     setClient(c)
@@ -5715,9 +5973,12 @@ export default function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {view !== 'roster' && (
             <div style={{ fontSize: 12, color: C.sub }}>
-              {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : view === 'signin' ? 'Sign-In Sheet' : view === 'weightTracker' ? 'Weight Tracker' : view === 'editClient' ? 'Edit Client' : client?.name}
+              {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : view === 'signin' ? 'Sign-In Sheet' : view === 'weightTracker' ? 'Weight Tracker' : view === 'editClient' ? 'Edit Client' : view === 'leads' ? 'CRM Leads' : client?.name}
             </div>
           )}
+          <button onClick={() => setView('leads')} style={{ padding: '4px 10px', borderRadius: 6, border: `1.5px solid ${view === 'leads' ? C.accent : C.border}`, background: view === 'leads' ? C.accent + '18' : 'transparent', color: view === 'leads' ? C.accent : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+            CRM Leads
+          </button>
           <button onClick={async () => { await fetch('/api/auth', { method: 'DELETE' }); setAuthed(false) }} style={{ padding: '4px 10px', borderRadius: 6, border: `1px solid ${C.border}`, background: 'transparent', color: C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
             Log Out
           </button>
@@ -5803,6 +6064,7 @@ export default function App() {
             onBack={() => setView('client')}
           />
         )}
+        {view === 'leads' && <CrmLeads onBack={() => setView('roster')} />}
       </div>
     </div>
   )

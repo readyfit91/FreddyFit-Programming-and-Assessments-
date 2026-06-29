@@ -188,3 +188,43 @@ export async function deleteWeightLog(logId) {
     .eq('id', logId)
   if (error) throw error
 }
+
+// ── CRM LEADS ────────────────────────────────────────────────────────────────
+
+export async function getAllLeads() {
+  const { data, error } = await supabase
+    .from('leads')
+    .select('*')
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+
+export async function saveLead(lead) {
+  const payload = {
+    name: lead.name,
+    phone: lead.phone || '',
+    email: lead.email || '',
+    source: lead.source || '',
+    goal: lead.goal || '',
+    status: lead.status || 'New Lead',
+    date_added: lead.date_added || new Date().toISOString().split('T')[0],
+    last_contact_date: lead.last_contact_date || null,
+    notes: lead.notes || '',
+    updated_at: new Date().toISOString()
+  }
+  if (lead.id) {
+    const { data, error } = await supabase.from('leads').update(payload).eq('id', lead.id).select().single()
+    if (error) throw error
+    return data
+  } else {
+    const { data, error } = await supabase.from('leads').insert(payload).select().single()
+    if (error) throw error
+    return data
+  }
+}
+
+export async function deleteLead(leadId) {
+  const { error } = await supabase.from('leads').delete().eq('id', leadId)
+  if (error) throw error
+}
