@@ -7402,6 +7402,7 @@ function Schedule({ onBack, allClients }) {
   const [recurring, setRecurring] = useState(false)
   const [clientSearch, setClientSearch] = useState('')
   const [saving, setSaving] = useState(false)
+  const [deleteMode, setDeleteMode] = useState(false)
 
   const weekEnd = new Date(weekStart)
   weekEnd.setDate(weekEnd.getDate() + 6)
@@ -7425,6 +7426,8 @@ function Schedule({ onBack, allClients }) {
         const projected = new Date(weekStart)
         projected.setDate(projected.getDate() + dow)
         const projStr = fmt(projected)
+        const exceptions = Array.isArray(r.exceptions) ? r.exceptions : []
+        if (exceptions.includes(projStr)) continue
         const alreadyReal = week.some(s => s.date === projStr && s.time === r.time && s.client_id === r.client_id)
         if (!alreadyReal) virtual.push({ ...r, date: projStr, _virtualOf: r.id })
       }
@@ -7467,7 +7470,7 @@ function Schedule({ onBack, allClients }) {
     setBooking({ session: target })
   }
 
-  const closeBooking = () => setBooking(null)
+  const closeBooking = () => { setBooking(null); setDeleteMode(false) }
 
   const handleSave = async () => {
     if (!form.client_name.trim()) return
@@ -7489,10 +7492,30 @@ function Schedule({ onBack, allClients }) {
     }
   }
 
-  const handleDelete = async () => {
-    if (!booking?.session || !confirm('Delete this session?')) return
-    await deleteSession(booking.session.id)
-    setSessions(prev => prev.filter(s => s.id !== booking.session.id))
+  const handleDeleteThis = async () => {
+    const session = booking?.session
+    if (!session) return
+    if (session.recurring) {
+      // Add this specific date to exceptions so it's skipped in projection
+      const exceptions = Array.isArray(session.exceptions) ? session.exceptions : []
+      const dateToSkip = session._virtualOf ? session.date : session.date
+      if (!exceptions.includes(dateToSkip)) {
+        await saveSession({ ...session, exceptions: [...exceptions, dateToSkip], id: session._virtualOf || session.id })
+        setSessions(prev => prev.filter(s => !(s.date === dateToSkip && s.time === session.time && (s.id === session.id || s._virtualOf === session._virtualOf))))
+      }
+    } else {
+      await deleteSession(session.id)
+      setSessions(prev => prev.filter(s => s.id !== session.id))
+    }
+    closeBooking()
+  }
+
+  const handleDeleteAll = async () => {
+    const session = booking?.session
+    if (!session) return
+    const id = session._virtualOf || session.id
+    await deleteSession(id)
+    setSessions(prev => prev.filter(s => s.id !== id && s._virtualOf !== id))
     closeBooking()
   }
 
@@ -7647,16 +7670,35 @@ function Schedule({ onBack, allClients }) {
             </div>
 
             {/* Actions */}
-            <div style={{ display: 'flex', gap: 8 }}>
-              {booking.session && (
-                <button onClick={handleDelete} style={{ padding: '9px 14px', borderRadius: 8, border: `1.5px solid ${C.red}`, background: C.red + '10', color: C.red, fontWeight: 800, fontSize: 12, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Delete</button>
-              )}
-              <button onClick={closeBooking} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1.5px solid ${C.border}`, background: '#fff', color: C.sub, fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Cancel</button>
-              <button onClick={handleSave} disabled={!form.client_name.trim() || saving}
-                style={{ flex: 2, padding: '9px 0', borderRadius: 8, border: 'none', background: form.client_name.trim() ? C.accent : C.border, color: '#fff', fontWeight: 800, fontSize: 12, cursor: form.client_name.trim() ? 'pointer' : 'not-allowed', fontFamily: 'Montserrat,sans-serif' }}>
-                {saving ? 'Saving…' : booking.session ? 'Update' : 'Book'}
-              </button>
-            </div>
+            {deleteMode ? (
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 12, textAlign: 'center' }}>What would you like to delete?</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <button type="button" onClick={handleDeleteThis} style={{ padding: '11px 0', borderRadius: 8, border: `1.5px solid ${C.red}`, background: C.red + '10', color: C.red, fontWeight: 800, fontSize: 12, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+                    Delete This Session Only
+                  </button>
+                  {(booking.session?.recurring || booking.session?._virtualOf) && (
+                    <button type="button" onClick={handleDeleteAll} style={{ padding: '11px 0', borderRadius: 8, border: 'none', background: C.red, color: '#fff', fontWeight: 800, fontSize: 12, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+                      Delete All Future Sessions
+                    </button>
+                  )}
+                  <button type="button" onClick={() => setDeleteMode(false)} style={{ padding: '11px 0', borderRadius: 8, border: `1.5px solid ${C.border}`, background: '#fff', color: C.sub, fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 8 }}>
+                {booking.session && (
+                  <button type="button" onClick={() => setDeleteMode(true)} style={{ padding: '9px 14px', borderRadius: 8, border: `1.5px solid ${C.red}`, background: C.red + '10', color: C.red, fontWeight: 800, fontSize: 12, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Delete</button>
+                )}
+                <button type="button" onClick={closeBooking} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1.5px solid ${C.border}`, background: '#fff', color: C.sub, fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Cancel</button>
+                <button type="button" onClick={handleSave} disabled={!form.client_name.trim() || saving}
+                  style={{ flex: 2, padding: '9px 0', borderRadius: 8, border: 'none', background: form.client_name.trim() ? C.accent : C.border, color: '#fff', fontWeight: 800, fontSize: 12, cursor: form.client_name.trim() ? 'pointer' : 'not-allowed', fontFamily: 'Montserrat,sans-serif' }}>
+                  {saving ? 'Saving…' : booking.session ? 'Update' : 'Book'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
