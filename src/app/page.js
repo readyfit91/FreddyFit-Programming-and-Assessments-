@@ -5847,10 +5847,12 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
 }
 
 // ── CLIENT ROSTER ─────────────────────────────────────────────────────────────
-function ClientRoster({ onSelectClient, onNewClient }) {
+function ClientRoster({ onSelectClient, onNewClient, onOpenSchedule }) {
   const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [todaySessions, setTodaySessions] = useState([])
+  const [upcomingSessions, setUpcomingSessions] = useState([])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -5865,6 +5867,18 @@ function ClientRoster({ onSelectClient, onNewClient }) {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    const today = new Date()
+    const todayStr = today.toISOString().slice(0, 10)
+    const end = new Date(today)
+    end.setDate(end.getDate() + 6)
+    const endStr = end.toISOString().slice(0, 10)
+    getSessions(todayStr, endStr).then(all => {
+      setTodaySessions(all.filter(s => s.date === todayStr))
+      setUpcomingSessions(all.filter(s => s.date > todayStr))
+    }).catch(() => {})
+  }, [])
 
   const removeClient = async (id, e) => {
     e.stopPropagation()
@@ -5902,6 +5916,49 @@ function ClientRoster({ onSelectClient, onNewClient }) {
           <div style={{ fontSize: 12, color: C.sub, marginTop: 4 }}>{clients.length} client{clients.length !== 1 ? 's' : ''}</div>
         </div>
         <Btn onClick={onNewClient}>+ New Client</Btn>
+      </div>
+
+      {/* Schedule Widget */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase' }}>📅 Today's Schedule</div>
+          <button onClick={onOpenSchedule} style={{ fontSize: 11, fontWeight: 700, color: C.accent, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', padding: 0 }}>View Full Calendar →</button>
+        </div>
+        {todaySessions.length === 0 ? (
+          <div style={{ fontSize: 12, color: C.sub, fontStyle: 'italic', marginBottom: upcomingSessions.length > 0 ? 12 : 0 }}>No sessions booked today</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: upcomingSessions.length > 0 ? 14 : 0 }}>
+            {todaySessions.map(s => (
+              <div key={s.id} onClick={onOpenSchedule} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 14px', background: C.accent + '12', borderRadius: 9, border: `1.5px solid ${C.accent}33`, cursor: 'pointer' }}>
+                <div style={{ fontSize: 13, fontWeight: 900, color: C.accent, minWidth: 44 }}>{s.time.slice(0,5)}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{s.client_name}</div>
+                  {s.notes && <div style={{ fontSize: 10, color: C.sub, marginTop: 1 }}>{s.notes}</div>}
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.sub }}>{s.duration}min</div>
+              </div>
+            ))}
+          </div>
+        )}
+        {upcomingSessions.length > 0 && (
+          <>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.5, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>Coming Up</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {upcomingSessions.slice(0, 4).map(s => {
+                const d = new Date(s.date + 'T00:00:00')
+                const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+                return (
+                  <div key={s.id} onClick={onOpenSchedule} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 12px', background: C.faint, borderRadius: 8, cursor: 'pointer' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, minWidth: 80 }}>{label}</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, minWidth: 40 }}>{s.time.slice(0,5)}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: C.text, flex: 1 }}>{s.client_name}</div>
+                    <div style={{ fontSize: 10, color: C.sub }}>{s.duration}min</div>
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        )}
       </div>
 
       <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search clients..." style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: '12px 16px', fontFamily: 'Montserrat,sans-serif', fontSize: 14, outline: 'none', marginBottom: 16 }} />
@@ -8311,7 +8368,7 @@ export default function App() {
 
       {/* Content */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {view === 'roster' && <ClientRoster onSelectClient={goToClient} onNewClient={openIntake} />}
+        {view === 'roster' && <ClientRoster onSelectClient={goToClient} onNewClient={openIntake} onOpenSchedule={() => setView('schedule')} />}
         {view === 'client' && client && (
           <ClientProfile
             client={client}
