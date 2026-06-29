@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog, getAllLeads, saveLead, deleteLead, getBloodWork, saveBloodWork, deleteBloodWork } from '../lib/supabase'
+import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog, getAllLeads, saveLead, deleteLead, getBloodWork, saveBloodWork, deleteBloodWork, getSessions, saveSession, deleteSession } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
 import { FIELD_MODIFIERS } from '../lib/modifiers'
 import { QRCodeCanvas } from 'qrcode.react'
@@ -7319,6 +7319,242 @@ function SubscriptionTracker({ client, onBack }) {
   )
 }
 
+// ── SCHEDULE ─────────────────────────────────────────────────────────────────
+
+const HOURS = Array.from({ length: 14 }, (_, i) => i + 6) // 6am–7pm
+const DURATIONS = [30, 45, 60, 90]
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+function Schedule({ onBack, allClients }) {
+  const today = new Date()
+  const [weekStart, setWeekStart] = useState(() => {
+    const d = new Date(today)
+    d.setDate(d.getDate() - d.getDay())
+    d.setHours(0, 0, 0, 0)
+    return d
+  })
+  const [sessions, setSessions] = useState([])
+  const [booking, setBooking] = useState(null) // { date, time } or { session } for editing
+  const [form, setForm] = useState({ client_name: '', client_id: null, duration: 60, notes: '' })
+  const [clientSearch, setClientSearch] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const weekEnd = new Date(weekStart)
+  weekEnd.setDate(weekEnd.getDate() + 6)
+
+  const fmt = d => d.toISOString().slice(0, 10)
+
+  useEffect(() => {
+    getSessions(fmt(weekStart), fmt(weekEnd)).then(setSessions).catch(console.error)
+  }, [weekStart])
+
+  const weekDates = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(weekStart)
+    d.setDate(d.getDate() + i)
+    return d
+  })
+
+  const prevWeek = () => { const d = new Date(weekStart); d.setDate(d.getDate() - 7); setWeekStart(d) }
+  const nextWeek = () => { const d = new Date(weekStart); d.setDate(d.getDate() + 7); setWeekStart(d) }
+  const goToday = () => {
+    const d = new Date()
+    d.setDate(d.getDate() - d.getDay())
+    d.setHours(0, 0, 0, 0)
+    setWeekStart(d)
+  }
+
+  const openNew = (date, hour) => {
+    const time = `${String(hour).padStart(2, '0')}:00`
+    setForm({ client_name: '', client_id: null, duration: 60, notes: '' })
+    setClientSearch('')
+    setBooking({ date: fmt(date), time })
+  }
+
+  const openEdit = (session) => {
+    setForm({ client_name: session.client_name, client_id: session.client_id, duration: session.duration, notes: session.notes })
+    setClientSearch(session.client_name)
+    setBooking({ session })
+  }
+
+  const closeBooking = () => setBooking(null)
+
+  const handleSave = async () => {
+    if (!form.client_name.trim()) return
+    setSaving(true)
+    try {
+      const payload = booking.session
+        ? { ...booking.session, ...form }
+        : { date: booking.date, time: booking.time, ...form }
+      const saved = await saveSession(payload)
+      setSessions(prev => {
+        const filtered = prev.filter(s => s.id !== saved.id)
+        return [...filtered, saved].sort((a, b) => a.time.localeCompare(b.time))
+      })
+      closeBooking()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!booking?.session || !confirm('Delete this session?')) return
+    await deleteSession(booking.session.id)
+    setSessions(prev => prev.filter(s => s.id !== booking.session.id))
+    closeBooking()
+  }
+
+  const sessionAt = (date, hour) => sessions.filter(s => s.date === fmt(date) && s.time.startsWith(String(hour).padStart(2, '0')))
+
+  const filteredClients = clientSearch.length > 0
+    ? allClients.filter(c => c.name.toLowerCase().includes(clientSearch.toLowerCase())).slice(0, 6)
+    : []
+
+  const isToday = d => fmt(d) === fmt(today)
+
+  const monthLabel = (() => {
+    const s = weekStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    const e = weekEnd.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    return s === e ? s : `${weekStart.toLocaleDateString('en-US', { month: 'short' })} – ${weekEnd.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`
+  })()
+
+  return (
+    <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 16px 32px' }}>
+      <LogoHeader />
+      <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 20 }}>← Back</button>
+
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 10 }}>
+        <div style={{ fontWeight: 800, fontSize: 22, letterSpacing: 3, color: C.text }}>📅 Schedule</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button onClick={prevWeek} style={{ padding: '5px 12px', borderRadius: 7, border: `1px solid ${C.border}`, background: '#fff', color: C.text, fontSize: 14, cursor: 'pointer', fontWeight: 700 }}>‹</button>
+          <button onClick={goToday} style={{ padding: '5px 14px', borderRadius: 7, border: `1px solid ${C.border}`, background: '#fff', color: C.sub, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Today</button>
+          <button onClick={nextWeek} style={{ padding: '5px 12px', borderRadius: 7, border: `1px solid ${C.border}`, background: '#fff', color: C.text, fontSize: 14, cursor: 'pointer', fontWeight: 700 }}>›</button>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginLeft: 4 }}>{monthLabel}</div>
+        </div>
+      </div>
+
+      {/* Calendar grid */}
+      <div style={{ overflowX: 'auto' }}>
+        <div style={{ minWidth: 640 }}>
+          {/* Day headers */}
+          <div style={{ display: 'grid', gridTemplateColumns: '52px repeat(7, 1fr)', borderBottom: `1px solid ${C.border}` }}>
+            <div />
+            {weekDates.map((d, i) => (
+              <div key={i} style={{ textAlign: 'center', padding: '8px 4px', borderLeft: `1px solid ${C.border}` }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1 }}>{DAYS[i]}</div>
+                <div style={{ fontSize: 18, fontWeight: 900, color: isToday(d) ? C.accent : C.text, background: isToday(d) ? C.accent + '18' : 'transparent', borderRadius: 8, width: 32, height: 32, lineHeight: '32px', margin: '2px auto 0' }}>
+                  {d.getDate()}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Time rows */}
+          <div style={{ maxHeight: 560, overflowY: 'auto' }}>
+            {HOURS.map(hour => (
+              <div key={hour} style={{ display: 'grid', gridTemplateColumns: '52px repeat(7, 1fr)', borderBottom: `1px solid ${C.border}22` }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, padding: '10px 6px 0', textAlign: 'right', paddingRight: 8 }}>
+                  {hour === 12 ? '12pm' : hour < 12 ? `${hour}am` : `${hour - 12}pm`}
+                </div>
+                {weekDates.map((d, di) => {
+                  const slots = sessionAt(d, hour)
+                  return (
+                    <div key={di} onClick={() => openNew(d, hour)}
+                      style={{ borderLeft: `1px solid ${C.border}`, minHeight: 52, padding: 3, cursor: 'pointer', background: isToday(d) ? C.accent + '04' : 'transparent', transition: 'background .1s' }}
+                      onMouseEnter={e => { if (!slots.length) e.currentTarget.style.background = C.faint }}
+                      onMouseLeave={e => { e.currentTarget.style.background = isToday(d) ? C.accent + '04' : 'transparent' }}>
+                      {slots.map(s => (
+                        <div key={s.id} onClick={e => { e.stopPropagation(); openEdit(s) }}
+                          style={{ background: C.accent, borderRadius: 6, padding: '4px 6px', marginBottom: 2, cursor: 'pointer' }}>
+                          <div style={{ fontSize: 11, fontWeight: 800, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.client_name}</div>
+                          <div style={{ fontSize: 9, color: '#fff', opacity: .8 }}>{s.time.slice(0,5)} · {s.duration}min</div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Booking modal */}
+      {booking && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={closeBooking}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 340, boxShadow: '0 8px 40px rgba(0,0,0,0.18)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: 2, color: C.text, marginBottom: 4 }}>
+              {booking.session ? 'Edit Session' : 'Book Session'}
+            </div>
+            <div style={{ fontSize: 12, color: C.sub, marginBottom: 20 }}>
+              {booking.session
+                ? `${booking.session.date} at ${booking.session.time.slice(0,5)}`
+                : `${booking.date} at ${booking.time}`}
+            </div>
+
+            {/* Client search */}
+            <div style={{ marginBottom: 16, position: 'relative' }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 5 }}>Client</div>
+              <input
+                value={clientSearch}
+                onChange={e => { setClientSearch(e.target.value); setForm(f => ({ ...f, client_name: e.target.value, client_id: null })) }}
+                placeholder="Type client name..."
+                autoFocus
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600, fontFamily: 'Montserrat,sans-serif', color: C.text, boxSizing: 'border-box' }}
+              />
+              {filteredClients.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: `1px solid ${C.border}`, borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.10)', zIndex: 10, marginTop: 2 }}>
+                  {filteredClients.map(c => (
+                    <button key={c.id} onClick={() => { setClientSearch(c.name); setForm(f => ({ ...f, client_name: c.name, client_id: c.id })) }}
+                      style={{ display: 'block', width: '100%', padding: '9px 14px', background: 'transparent', border: 'none', borderBottom: `1px solid ${C.border}22`, fontSize: 13, fontWeight: 600, color: C.text, cursor: 'pointer', textAlign: 'left', fontFamily: 'Montserrat,sans-serif' }}
+                      onMouseEnter={e => e.currentTarget.style.background = C.faint}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Duration */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 5 }}>Duration</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {DURATIONS.map(d => (
+                  <button key={d} onClick={() => setForm(f => ({ ...f, duration: d }))}
+                    style={{ flex: 1, padding: '7px 0', borderRadius: 7, border: `1.5px solid ${form.duration === d ? C.accent : C.border}`, background: form.duration === d ? C.accent + '18' : '#fff', color: form.duration === d ? C.accent : C.sub, fontWeight: 800, fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+                    {d}m
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 5 }}>Notes (optional)</div>
+              <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2}
+                placeholder="e.g. focus on upper body, bring bands..."
+                style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', resize: 'vertical', color: C.text, boxSizing: 'border-box' }} />
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: 8 }}>
+              {booking.session && (
+                <button onClick={handleDelete} style={{ padding: '9px 14px', borderRadius: 8, border: `1.5px solid ${C.red}`, background: C.red + '10', color: C.red, fontWeight: 800, fontSize: 12, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Delete</button>
+              )}
+              <button onClick={closeBooking} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1.5px solid ${C.border}`, background: '#fff', color: C.sub, fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Cancel</button>
+              <button onClick={handleSave} disabled={!form.client_name.trim() || saving}
+                style={{ flex: 2, padding: '9px 0', borderRadius: 8, border: 'none', background: form.client_name.trim() ? C.accent : C.border, color: '#fff', fontWeight: 800, fontSize: 12, cursor: form.client_name.trim() ? 'pointer' : 'not-allowed', fontFamily: 'Montserrat,sans-serif' }}>
+                {saving ? 'Saving…' : booking.session ? 'Update' : 'Book'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── BLOOD WORK PANEL ─────────────────────────────────────────────────────────
 
 const BLOOD_PANELS = [
@@ -8049,11 +8285,14 @@ export default function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {view !== 'roster' && (
             <div style={{ fontSize: 12, color: C.sub }}>
-              {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : view === 'signin' ? 'Sign-In Sheet' : view === 'weightTracker' ? 'Weight Tracker' : view === 'editClient' ? 'Edit Client' : view === 'leads' ? 'CRM Leads' : view === 'subscription' ? 'Subscription' : view === 'bloodWork' ? 'Blood Work' : client?.name}
+              {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : view === 'signin' ? 'Sign-In Sheet' : view === 'weightTracker' ? 'Weight Tracker' : view === 'editClient' ? 'Edit Client' : view === 'leads' ? 'CRM Leads' : view === 'subscription' ? 'Subscription' : view === 'bloodWork' ? 'Blood Work' : view === 'schedule' ? 'Schedule' : client?.name}
             </div>
           )}
           <button onClick={() => setShowBossPanel(true)} style={{ padding: '4px 10px', borderRadius: 6, border: `1.5px solid ${bossCount > 0 ? C.orange : C.border}`, background: bossCount > 0 ? C.orange + '18' : 'transparent', color: bossCount > 0 ? C.orange : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', position: 'relative' }}>
             🎯 Boss{bossCount > 0 ? ` (${bossCount})` : ''}
+          </button>
+          <button onClick={() => setView('schedule')} style={{ padding: '4px 10px', borderRadius: 6, border: `1.5px solid ${view === 'schedule' ? C.accent : C.border}`, background: view === 'schedule' ? C.accent + '18' : 'transparent', color: view === 'schedule' ? C.accent : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+            📅 Schedule
           </button>
           <button onClick={() => setView('leads')} style={{ padding: '4px 10px', borderRadius: 6, border: `1.5px solid ${view === 'leads' ? C.accent : C.border}`, background: view === 'leads' ? C.accent + '18' : 'transparent', color: view === 'leads' ? C.accent : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
             CRM Leads
@@ -8153,6 +8392,7 @@ export default function App() {
         )}
         {view === 'bloodWork' && client && <BloodWorkPanel client={client} onBack={() => setView('client')} />}
         {view === 'leads' && <CrmLeads onBack={() => setView('roster')} onNavigateToRoster={() => setView('roster')} />}
+        {view === 'schedule' && <Schedule onBack={() => setView('roster')} allClients={allClients} />}
       </div>
       {showBossPanel && (
         <CrmBossPanel

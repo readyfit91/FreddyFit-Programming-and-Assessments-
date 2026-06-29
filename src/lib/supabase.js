@@ -271,3 +271,43 @@ export async function deleteBloodWork(id) {
   const { error } = await supabase.from('blood_work').delete().eq('id', id)
   if (error) throw error
 }
+
+// ── SESSIONS ─────────────────────────────────────────────────────────────────
+
+export async function getSessions(startDate, endDate) {
+  const { data, error } = await supabase
+    .from('sessions')
+    .select('*')
+    .gte('date', startDate)
+    .lte('date', endDate)
+    .order('date').order('time')
+  if (error) throw error
+  return data || []
+}
+
+export async function saveSession(session) {
+  const payload = {
+    client_id: session.client_id || null,
+    client_name: session.client_name || '',
+    date: session.date,
+    time: session.time,
+    duration: session.duration || 60,
+    notes: session.notes || '',
+    updated_at: new Date().toISOString()
+  }
+  if (session.id) {
+    const { data, error } = await supabase.from('sessions').update(payload).eq('id', session.id).select()
+    if (error) throw error
+    return data?.[0] || null
+  } else {
+    const insertPayload = { ...payload, id: crypto.randomUUID() }
+    const { data, error } = await supabase.from('sessions').insert(insertPayload).select()
+    if (error) throw error
+    return data?.[0] || null
+  }
+}
+
+export async function deleteSession(id) {
+  const { error } = await supabase.from('sessions').delete().eq('id', id)
+  if (error) throw error
+}
