@@ -6051,11 +6051,11 @@ Intake form data:
 ${lead.notes || 'No additional intake data'}
 
 INSTRUCTIONS:
-- Text message: casual, 2-3 sentences max. Reference their specific goal or barrier. No excessive emojis.
-- Phone call script: 30-second script — opening, why you're calling (reference their form answer), ask to schedule the free consult.
-- Email: subject line + 3-4 sentence body. Personal, not salesy. Reference something specific from their intake.
+- Text message: casual, 2-3 sentences max. Reference their specific goal or barrier. Ask them to share a few good days and times so you can go over their intake form and schedule their in-person consultation. No excessive emojis.
+- Phone call script: 30-second script — opening, why you're calling (reference their form answer), ask to schedule the free in-person consultation to go over their intake.
+- Email: subject line + 3-4 sentence body. Personal, not salesy. Reference something specific from their intake. Mention scheduling an in-person consultation.
 - Cold: one final re-engagement text, acknowledge you don't want to bother them, leave the door open.
-- Always sign off as Freddy from FreddyFit Performance Center.
+- Always sign off as "Freddy | FreddyFit Personal Training".
 - If they said "I am serious and ready to start" — they are HOT. Lead with booking the consult directly.
 - Never be generic. If you know their barrier (e.g. "no accountability"), name it.
 
