@@ -26,13 +26,13 @@ export async function saveClient(client) {
     updated_at: new Date().toISOString()
   }
   if (client.id) {
-    const { data, error } = await supabase.from('clients').update(payload).eq('id', client.id).select().single()
+    const { data, error } = await supabase.from('clients').update(payload).eq('id', client.id).select()
     if (error) throw error
-    return data
+    return data?.[0] || null
   } else {
-    const { data, error } = await supabase.from('clients').insert(payload).select().single()
+    const { data, error } = await supabase.from('clients').insert(payload).select()
     if (error) throw error
-    return data
+    return data?.[0] || null
   }
 }
 
