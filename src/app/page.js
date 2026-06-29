@@ -6246,6 +6246,7 @@ function CrmLeads({ onBack }) {
         consultation_notes: form.consultation_notes || '',
       }
       await saveClient({
+        id: crypto.randomUUID(),
         name: editing.name,
         goal: editing.goal || '',
         dob: '',
