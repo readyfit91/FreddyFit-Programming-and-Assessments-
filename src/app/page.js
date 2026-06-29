@@ -7600,13 +7600,17 @@ function Schedule({ onBack, allClients }) {
             </div>
 
             {/* Recurring */}
-            <div style={{ marginBottom: 14 }}>
-              <button type="button" onClick={() => setRecurring(r => !r)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 8, border: `2px solid ${recurring ? C.accent : C.border}`, background: recurring ? C.accent + '15' : C.faint, cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none', textAlign: 'left' }}>
-                <div style={{ width: 20, height: 20, borderRadius: 4, border: `2px solid ${recurring ? C.accent : C.border}`, background: recurring ? C.accent : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  {recurring && <span style={{ color: '#fff', fontSize: 13, fontWeight: 900, lineHeight: 1 }}>✓</span>}
-                </div>
-                <span style={{ fontSize: 12, fontWeight: 700, color: recurring ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif' }}>🔁 Recurring — repeats weekly</span>
-              </button>
+            <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 8, border: `2px solid ${recurring ? C.accent : C.border}`, background: recurring ? C.accent + '15' : C.faint }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <input
+                  type="checkbox"
+                  id="recurring-toggle"
+                  checked={recurring}
+                  onChange={() => setRecurring(r => !r)}
+                  style={{ width: 22, height: 22, cursor: 'pointer', accentColor: C.accent, flexShrink: 0 }}
+                />
+                <span onClick={() => setRecurring(r => !r)} style={{ fontSize: 12, fontWeight: 700, color: recurring ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', cursor: 'pointer' }}>🔁 Recurring — repeats weekly</span>
+              </div>
             </div>
 
             {/* Notes */}
