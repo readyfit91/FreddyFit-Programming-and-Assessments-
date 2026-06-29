@@ -3,6 +3,12 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+}
+
 // Maps commitment answer → CRM status
 function commitmentToStatus(commitment = '') {
   const c = commitment.toLowerCase()
@@ -27,42 +33,38 @@ function mapSource(src = '') {
 // Build a clean notes block for Form 1 (FunctionalFIT)
 function buildForm1Notes(body) {
   const lines = []
-  if (body.goal)         lines.push(`🎯 Goal: ${body.goal}`)
-  if (body.barrier)      lines.push(`🚧 Barrier: ${body.barrier}`)
+  if (body.goal)          lines.push(`🎯 Goal: ${body.goal}`)
+  if (body.barrier)       lines.push(`🚧 Barrier: ${body.barrier}`)
   if (body.days_per_week) lines.push(`📅 Training days/week: ${body.days_per_week}`)
-  if (body.need)         lines.push(`💡 Needs most: ${body.need}`)
-  if (body.commitment)   lines.push(`✅ Commitment: ${body.commitment}`)
+  if (body.need)          lines.push(`💡 Needs most: ${body.need}`)
+  if (body.commitment)    lines.push(`✅ Commitment: ${body.commitment}`)
   return lines.join('\n')
 }
 
 // Build a clean notes block for Form 2 (General Intake)
 function buildForm2Notes(body) {
   const lines = []
-  if (body.current_weight)        lines.push(`⚖️ Current weight: ${body.current_weight}`)
-  if (body.motivation)            lines.push(`💬 Motivation: ${body.motivation}`)
+  if (body.current_weight)         lines.push(`⚖️ Current weight: ${body.current_weight}`)
+  if (body.motivation)             lines.push(`💬 Motivation: ${body.motivation}`)
   if (body.preferred_contact_time) lines.push(`🕐 Best time to contact: ${body.preferred_contact_time}`)
-  if (body.medical_history)       lines.push(`🏥 Medical/Injuries: ${body.medical_history}`)
-  if (body.medications)           lines.push(`💊 Medications: ${body.medications}`)
-  if (body.additional_info)       lines.push(`📝 Additional: ${body.additional_info}`)
+  if (body.medical_history)        lines.push(`🏥 Medical/Injuries: ${body.medical_history}`)
+  if (body.medications)            lines.push(`💊 Medications: ${body.medications}`)
+  if (body.additional_info)        lines.push(`📝 Additional: ${body.additional_info}`)
   return lines.join('\n')
 }
 
-// POST /api/webhook — Zapier sends intake form data here
-//
-// Form 1 (FunctionalFIT Package) fields:
-//   name, email, phone, goal, barrier, days_per_week, need, commitment
-//
-// Form 2 (General Intake) fields:
-//   name, email, phone, source, current_weight, goal, motivation,
-//   medical_history, medications, preferred_contact_time, additional_info
-//
-// Both forms also accept a legacy `message` field as fallback for notes.
+// OPTIONS — preflight CORS (browsers send this before cross-origin POST)
+export async function OPTIONS() {
+  return new Response(null, { status: 204, headers: CORS })
+}
+
+// POST /api/webhook — receives intake form data from getfreddyfit.com
 export async function POST(request) {
   try {
     const body = await request.json()
 
     if (!supabaseUrl || !supabaseKey) {
-      return Response.json({ error: 'Database not configured' }, { status: 500 })
+      return Response.json({ error: 'Database not configured' }, { status: 500, headers: CORS })
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey)
@@ -71,9 +73,9 @@ export async function POST(request) {
     const isForm1 = !!(body.commitment || body.barrier || body.days_per_week || body.need)
     const isForm2 = !!(body.medical_history || body.motivation || body.current_weight || body.preferred_contact_time)
 
-    const leadName = (body.name || body.first_name
-      ? `${body.first_name || ''} ${body.last_name || ''}`.trim() || body.name
-      : body.email || 'Unknown Lead'
+    const leadName = (body.name
+      ? body.name
+      : `${body.first_name || ''} ${body.last_name || ''}`.trim() || body.email || 'Unknown Lead'
     ).trim() || body.email || 'Unknown Lead'
 
     let status = 'New Lead'
@@ -89,7 +91,6 @@ export async function POST(request) {
       source = mapSource(body.source || body.how_did_you_hear || '')
       notes = buildForm2Notes(body)
     } else {
-      // Legacy / plain webhook (name, email, phone, message)
       source = 'Zapier / Email'
       notes = body.message || ''
     }
@@ -108,21 +109,21 @@ export async function POST(request) {
 
     if (error) throw error
 
-    return Response.json({ success: true, message: 'Lead created', source, status })
+    return Response.json({ success: true, message: 'Lead created', source, status }, { headers: CORS })
   } catch (err) {
-    console.error('Zapier webhook error:', err)
-    return Response.json({ error: err.message || 'Failed to create lead' }, { status: 500 })
+    console.error('Webhook error:', err)
+    return Response.json({ error: err.message || 'Failed to create lead' }, { status: 500, headers: CORS })
   }
 }
 
-// GET — health check so Zapier can verify the endpoint
+// GET — health check
 export async function GET() {
   return Response.json({
     ok: true,
-    endpoint: 'FreddyFit Zapier Webhook',
+    endpoint: 'FreddyFit Webhook',
     forms: {
       form1_functionalfit: ['name', 'email', 'phone', 'goal', 'barrier', 'days_per_week', 'need', 'commitment'],
       form2_general_intake: ['name', 'email', 'phone', 'source', 'current_weight', 'goal', 'motivation', 'medical_history', 'medications', 'preferred_contact_time', 'additional_info']
     }
-  })
+  }, { headers: CORS })
 }
