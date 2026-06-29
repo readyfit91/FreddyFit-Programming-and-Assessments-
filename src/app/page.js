@@ -4144,6 +4144,7 @@ function WeightTracker({ client, onBack }) {
   const [saving, setSaving] = useState(false)
   const [weight, setWeight] = useState('')
   const [bodyFat, setBodyFat] = useState('')
+  const [bmi, setBmi] = useState('')
   const [rating, setRating] = useState('')
   const [behaviorNotes, setBehaviorNotes] = useState('')
   const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0])
@@ -4170,11 +4171,12 @@ function WeightTracker({ client, onBack }) {
       await saveWeightLog(client.id, {
         weight: weight ? parseFloat(weight) : null,
         bodyFat: bodyFat ? parseFloat(bodyFat) : null,
+        bmi: bmi ? parseFloat(bmi) : null,
         rating: rating || null,
         behaviorNotes,
         loggedAt: new Date(logDate + 'T12:00:00').toISOString()
       })
-      setWeight(''); setBodyFat(''); setRating(''); setBehaviorNotes(''); setLogDate(new Date().toISOString().split('T')[0])
+      setWeight(''); setBodyFat(''); setBmi(''); setRating(''); setBehaviorNotes(''); setLogDate(new Date().toISOString().split('T')[0])
       await load()
     } catch (e) { alert('Error saving: ' + e.message) }
     setSaving(false)
@@ -4405,9 +4407,111 @@ function WeightTracker({ client, onBack }) {
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 16px 8px', marginBottom: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>PROGRESS OVER TIME</div>
-            <button onClick={() => setShowJourneyModal(true)} style={{ background: C.accent + '12', border: `1.5px solid ${C.accent}44`, color: C.accent, borderRadius: 8, padding: '5px 14px', fontSize: 10, fontWeight: 800, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', letterSpacing: 1, textTransform: 'uppercase' }}>
-              View Journey
-            </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={async () => {
+                try {
+                  const { jsPDF } = await import('jspdf')
+                  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' })
+                  const W = doc.internal.pageSize.getWidth()
+                  // Header
+                  doc.setFillColor(43, 170, 223)
+                  doc.rect(0, 0, W, 56, 'F')
+                  doc.setFont('helvetica', 'bold')
+                  doc.setFontSize(22)
+                  doc.setTextColor(255, 255, 255)
+                  doc.text('FREDDY', 36, 36)
+                  doc.setTextColor(255, 255, 255)
+                  doc.setFontSize(10)
+                  doc.text('FIT  |  Weight & Body Composition Report', 100, 36)
+                  // Client name
+                  doc.setTextColor(26, 32, 44)
+                  doc.setFontSize(18)
+                  doc.setFont('helvetica', 'bold')
+                  doc.text(client.name, 36, 80)
+                  doc.setFontSize(10)
+                  doc.setFont('helvetica', 'normal')
+                  doc.setTextColor(113, 128, 150)
+                  doc.text(`Generated ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`, 36, 96)
+                  // Stats row
+                  let y = 120
+                  const latestW = [...logs].reverse().find(l => l.weight != null)
+                  const firstW = logs.find(l => l.weight != null)
+                  const latestBF = [...logs].reverse().find(l => l.body_fat != null)
+                  const firstBF = logs.find(l => l.body_fat != null)
+                  const latestBMI = [...logs].reverse().find(l => l.bmi != null)
+                  const stats = [
+                    latestW ? `Current Weight: ${latestW.weight} lbs` : null,
+                    latestW && firstW && latestW !== firstW ? `Change: ${(latestW.weight - firstW.weight) > 0 ? '+' : ''}${(latestW.weight - firstW.weight).toFixed(1)} lbs` : null,
+                    latestBF ? `Body Fat: ${latestBF.body_fat}%` : null,
+                    latestBF && firstBF && latestBF !== firstBF ? `BF Change: ${(latestBF.body_fat - firstBF.body_fat) > 0 ? '+' : ''}${(latestBF.body_fat - firstBF.body_fat).toFixed(1)}%` : null,
+                    latestBMI ? `BMI: ${latestBMI.bmi}` : null,
+                    `Total Check-Ins: ${logs.length}`,
+                  ].filter(Boolean)
+                  doc.setFontSize(11)
+                  doc.setTextColor(26, 32, 44)
+                  doc.setFont('helvetica', 'bold')
+                  stats.forEach((s, i) => {
+                    doc.text(s, 36 + (i % 2) * 240, y + Math.floor(i / 2) * 18)
+                  })
+                  y += Math.ceil(stats.length / 2) * 18 + 16
+                  // Chart image
+                  if (chartRef.current) {
+                    const imgData = chartRef.current.toDataURL('image/png')
+                    const imgH = 200
+                    doc.addImage(imgData, 'PNG', 36, y, W - 72, imgH)
+                    y += imgH + 20
+                  }
+                  // History table
+                  doc.setFontSize(10)
+                  doc.setFont('helvetica', 'bold')
+                  doc.setTextColor(43, 170, 223)
+                  doc.text('WEIGH-IN HISTORY', 36, y)
+                  y += 14
+                  doc.setFont('helvetica', 'normal')
+                  doc.setTextColor(26, 32, 44)
+                  const cols = ['Date', 'Weight', 'Body Fat', 'BMI', 'Rating', 'Notes']
+                  const colW = [80, 70, 70, 50, 70, W - 72 - 340]
+                  let cx = 36
+                  doc.setFont('helvetica', 'bold')
+                  doc.setFontSize(8)
+                  doc.setTextColor(113, 128, 150)
+                  cols.forEach((c, i) => { doc.text(c, cx, y); cx += colW[i] })
+                  y += 12
+                  doc.setFont('helvetica', 'normal')
+                  doc.setTextColor(26, 32, 44);
+                  [...logs].reverse().forEach(l => {
+                    if (y > 700) { doc.addPage(); y = 40 }
+                    const d = new Date(l.logged_at)
+                    const row = [
+                      `${d.getMonth()+1}/${d.getDate()}/${d.getFullYear()}`,
+                      l.weight != null ? `${l.weight} lbs` : '—',
+                      l.body_fat != null ? `${l.body_fat}%` : '—',
+                      l.bmi != null ? `${l.bmi}` : '—',
+                      l.rating ? (l.rating === 'good' ? 'Good' : 'Needs Work') : '—',
+                      l.behavior_notes ? l.behavior_notes.slice(0, 50) : '—',
+                    ]
+                    cx = 36
+                    row.forEach((v, i) => { doc.text(v, cx, y); cx += colW[i] })
+                    y += 14
+                  })
+                  // Footer
+                  const pages = doc.getNumberOfPages()
+                  for (let p = 1; p <= pages; p++) {
+                    doc.setPage(p)
+                    doc.setFontSize(8)
+                    doc.setTextColor(113, 128, 150)
+                    doc.text('FreddyFit LLC — Confidential Client Report', 36, doc.internal.pageSize.getHeight() - 20)
+                    doc.text(`Page ${p} of ${pages}`, W - 36, doc.internal.pageSize.getHeight() - 20, { align: 'right' })
+                  }
+                  doc.save(`${client.name.replace(/\s+/g, '_')}_weight_report.pdf`)
+                } catch(e) { alert('PDF export failed: ' + e.message) }
+              }} style={{ background: C.green + '12', border: `1.5px solid ${C.green}44`, color: C.green, borderRadius: 8, padding: '5px 14px', fontSize: 10, fontWeight: 800, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', letterSpacing: 1, textTransform: 'uppercase' }}>
+                ↓ Export PDF
+              </button>
+              <button onClick={() => setShowJourneyModal(true)} style={{ background: C.accent + '12', border: `1.5px solid ${C.accent}44`, color: C.accent, borderRadius: 8, padding: '5px 14px', fontSize: 10, fontWeight: 800, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', letterSpacing: 1, textTransform: 'uppercase' }}>
+                View Journey
+              </button>
+            </div>
           </div>
           <canvas ref={chartRef} style={{ width: '100%', height: 280, display: 'block' }} />
           <div style={{ display: 'flex', gap: 16, justifyContent: 'center', padding: '8px 0 4px' }}>
@@ -4446,6 +4550,10 @@ function WeightTracker({ client, onBack }) {
           <div>
             <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Body Fat %</label>
             <input type="number" step="0.1" value={bodyFat} onChange={e => setBodyFat(e.target.value)} placeholder="22.5" style={input} />
+          </div>
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>BMI</label>
+            <input type="number" step="0.1" value={bmi} onChange={e => setBmi(e.target.value)} placeholder="24.5" style={input} />
           </div>
         </div>
 
@@ -5113,7 +5221,7 @@ function AssessmentHistoryModal({ assessment, client, onClose, onNewAssessment }
   )
 }
 
-function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onSignInSheet, onWeightTracker, onBack, allClients = [], onSwitchClient }) {
+function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onSignInSheet, onWeightTracker, onSubscription, onBack, allClients = [], onSwitchClient }) {
   const assessmentsDone = Object.keys(client.assessments || {})
   const [showIntake, setShowIntake] = useState(false)
   const [showLinkMenu, setShowLinkMenu] = useState(false)
@@ -5231,6 +5339,7 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Btn onClick={() => onWeightTracker(client)} small color={C.teal}>⚖️ Weight</Btn>
+          <Btn onClick={() => onSubscription(client)} small color={C.indigo}>📅 Subscription</Btn>
           <Btn onClick={() => onSignInSheet(client)} small color={C.green}>📋 Sign-In Sheet</Btn>
           <Btn onClick={() => onProtocolAdvisor(client)} small color={C.orange}>🩺 Protocols</Btn>
           <Btn onClick={() => onGenerateWorkout(client)} small>💪 Workout</Btn>
@@ -5890,6 +5999,361 @@ function CrmLeads({ onBack }) {
   )
 }
 
+// ── SUBSCRIPTION TRACKER ─────────────────────────────────────────────────────
+const SUB_PACKAGES = [
+  { label: 'Signature', sessions: 8 },
+  { label: 'Distinct', sessions: 8 },
+  { label: 'Classic', sessions: 4 },
+  { label: 'Signature (In-Home)', sessions: 8 },
+  { label: 'Distinct (In-Home)', sessions: 6 },
+  { label: 'Classic (In-Home)', sessions: 4 },
+]
+
+function SubscriptionSignaturePad({ value, onChange }) {
+  const canvasRef = useRef(null)
+  const isDrawing = useRef(false)
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    const rect = canvas.getBoundingClientRect()
+    canvas.width = rect.width * 2
+    canvas.height = rect.height * 2
+    ctx.scale(2, 2)
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = 2.5; ctx.strokeStyle = '#1a1a2e'
+    ctx.save(); ctx.strokeStyle = '#ddd'; ctx.lineWidth = 1; ctx.setLineDash([4,4])
+    ctx.beginPath(); ctx.moveTo(20, rect.height - 20); ctx.lineTo(rect.width - 20, rect.height - 20); ctx.stroke()
+    ctx.restore()
+    if (value) { const img = new Image(); img.onload = () => ctx.drawImage(img, 0, 0, rect.width, rect.height); img.src = value }
+  }, [])
+  const getPos = (e) => {
+    const rect = canvasRef.current.getBoundingClientRect()
+    const touch = e.touches ? e.touches[0] : e
+    return { x: touch.clientX - rect.left, y: touch.clientY - rect.top }
+  }
+  const startDraw = (e) => { e.preventDefault(); isDrawing.current = true; const ctx = canvasRef.current.getContext('2d'); ctx.setLineDash([]); ctx.strokeStyle = '#1a1a2e'; ctx.lineWidth = 2.5; const p = getPos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y) }
+  const draw = (e) => { if (!isDrawing.current) return; e.preventDefault(); const ctx = canvasRef.current.getContext('2d'); const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke() }
+  const endDraw = () => { if (!isDrawing.current) return; isDrawing.current = false; onChange(canvasRef.current.toDataURL()) }
+  const clear = () => {
+    const canvas = canvasRef.current; const ctx = canvas.getContext('2d'); const rect = canvas.getBoundingClientRect()
+    ctx.clearRect(0, 0, rect.width * 2, rect.height * 2); onChange('')
+    ctx.save(); ctx.strokeStyle = '#ddd'; ctx.lineWidth = 1; ctx.setLineDash([4,4])
+    ctx.scale(2,2); ctx.beginPath(); ctx.moveTo(20, rect.height - 20); ctx.lineTo(rect.width - 20, rect.height - 20); ctx.stroke(); ctx.restore()
+  }
+  return (
+    <div>
+      <canvas ref={canvasRef} style={{ width: '100%', height: 100, border: `1.5px solid ${C.border}`, borderRadius: 10, background: '#FAFAFA', touchAction: 'none', cursor: 'crosshair', display: 'block' }}
+        onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
+        onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw} />
+      <button type="button" onClick={clear} style={{ marginTop: 6, fontSize: 10, color: C.sub, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Clear</button>
+    </div>
+  )
+}
+
+function SubscriptionTracker({ client, onBack }) {
+  const storageKey = `ff_sub_${client.id}`
+  const loadSub = () => { try { return JSON.parse(localStorage.getItem(storageKey) || 'null') } catch { return null } }
+
+  const [sub, setSub] = useState(() => loadSub())
+  const [setupPkg, setSetupPkg] = useState(SUB_PACKAGES[0].label)
+  const [setupDate, setSetupDate] = useState(new Date().toISOString().split('T')[0])
+  const [signModal, setSignModal] = useState(null)
+  const [sigDate, setSigDate] = useState(new Date().toISOString().split('T')[0])
+  const [sigNotes, setSigNotes] = useState('')
+  const [signature, setSignature] = useState('')
+  const [showCalendar, setShowCalendar] = useState(false)
+  const [calYear, setCalYear] = useState(new Date().getFullYear())
+  const [calMonth, setCalMonth] = useState(new Date().getMonth())
+
+  const saveSub = (updated) => { localStorage.setItem(storageKey, JSON.stringify(updated)); setSub(updated) }
+
+  const getPeriodDates = (startDate, idx) => {
+    const base = new Date(startDate + 'T00:00:00')
+    const s = new Date(base); s.setDate(base.getDate() + idx * 14)
+    const e = new Date(s); e.setDate(s.getDate() + 13)
+    return { start: s, end: e }
+  }
+  const fmt = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+
+  const getPeriodCap = (idx) => {
+    const base = sub?.sessions || 0
+    if (idx % 2 === 0) return base
+    const prevUsed = (sub?.periods[idx - 1]?.sessions || []).length
+    return base + Math.max(0, base - prevUsed)
+  }
+
+  const startSub = () => {
+    const pkg = SUB_PACKAGES.find(p => p.label === setupPkg)
+    saveSub({
+      package: setupPkg,
+      sessions: pkg.sessions,
+      startDate: setupDate,
+      periods: Array.from({ length: 6 }, () => ({ sessions: [], plans: { nutrition: false, macro: false, grocery: false } }))
+    })
+  }
+
+  const resetSub = () => {
+    if (!confirm('Reset this subscription? All session data will be cleared.')) return
+    localStorage.removeItem(storageKey); setSub(null)
+  }
+
+  const openSignModal = (periodIdx) => {
+    setSigDate(new Date().toISOString().split('T')[0]); setSigNotes(''); setSignature('')
+    setSignModal(periodIdx)
+  }
+
+  const confirmSession = () => {
+    if (signModal === null) return
+    const updated = { ...sub, periods: sub.periods.map((p, i) => i === signModal ? { ...p, sessions: [...p.sessions, { id: makeId(), date: sigDate, notes: sigNotes, sig: signature }] } : p) }
+    saveSub(updated); setSignModal(null)
+  }
+
+  const removeSession = (periodIdx, sessionIdx) => {
+    if (!confirm('Remove this session?')) return
+    const updated = { ...sub, periods: sub.periods.map((p, i) => i === periodIdx ? { ...p, sessions: p.sessions.filter((_, j) => j !== sessionIdx) } : p) }
+    saveSub(updated)
+  }
+
+  const togglePlan = (periodIdx, key) => {
+    const updated = { ...sub, periods: sub.periods.map((p, i) => i === periodIdx ? { ...p, plans: { ...p.plans, [key]: !p.plans[key] } } : p) }
+    saveSub(updated)
+  }
+
+  const totalSessions = sub ? sub.periods.reduce((acc, p) => acc + p.sessions.length, 0) : 0
+
+  // Setup screen
+  if (!sub) return (
+    <div style={{ maxWidth: 560, margin: '0 auto', padding: '0 24px 32px', fontFamily: 'Montserrat,sans-serif' }}>
+      <LogoHeader />
+      <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 24 }}>← Back to {client.name}</button>
+      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 4 }}>SUBSCRIPTION TRACKER</div>
+      <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 3, color: C.text, marginBottom: 24 }}>{client.name}</div>
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '24px 24px' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 20 }}>Set Up Coaching Subscription</div>
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Package</label>
+          <select value={setupPkg} onChange={e => setSetupPkg(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 13, background: C.faint, color: C.text, outline: 'none' }}>
+            {SUB_PACKAGES.map(p => <option key={p.label} value={p.label}>{p.label} — {p.sessions} sessions/period</option>)}
+          </select>
+        </div>
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Start Date (P1 begins)</label>
+          <input type="date" value={setupDate} onChange={e => setSetupDate(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 13, background: C.faint, color: C.text, outline: 'none', boxSizing: 'border-box' }} />
+        </div>
+        <div style={{ background: C.faint, borderRadius: 10, padding: '12px 16px', marginBottom: 20, fontSize: 12, color: C.sub, lineHeight: 1.6 }}>
+          <strong style={{ color: C.text }}>6 billing periods</strong> · Each period = 14 days · Unused sessions from odd periods (P1, P3, P5) roll over to the next even period
+        </div>
+        <Btn onClick={startSub}>Start Subscription →</Btn>
+      </div>
+    </div>
+  )
+
+  // Calendar view
+  const CalendarView = () => {
+    const year = calYear, month = calMonth
+    const firstDay = new Date(year, month, 1).getDay()
+    const daysInMonth = new Date(year, month + 1, 0).getDate()
+    const monthName = new Date(year, month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    const getPeriodForDate = (d) => {
+      for (let i = 0; i < 6; i++) {
+        const { start, end } = getPeriodDates(sub.startDate, i)
+        if (d >= start && d <= end) return i
+      }
+      return -1
+    }
+    const sessionDates = new Set(sub.periods.flatMap(p => p.sessions.map(s => s.date)))
+    const periodColors = [C.accent, C.teal, C.sky, C.indigo, C.orange, C.green]
+    return (
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 20px', marginBottom: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <button onClick={() => { const d = new Date(year, month - 1); setCalYear(d.getFullYear()); setCalMonth(d.getMonth()) }} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: C.sub }}>‹</button>
+          <div style={{ fontWeight: 800, fontSize: 14, color: C.text }}>{monthName}</div>
+          <button onClick={() => { const d = new Date(year, month + 1); setCalYear(d.getFullYear()); setCalMonth(d.getMonth()) }} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: C.sub }}>›</button>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 8 }}>
+          {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => <div key={d} style={{ textAlign: 'center', fontSize: 9, fontWeight: 700, color: C.sub, padding: '4px 0' }}>{d}</div>)}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
+          {Array.from({ length: firstDay }, (_, i) => <div key={`e${i}`} />)}
+          {Array.from({ length: daysInMonth }, (_, i) => {
+            const day = i + 1
+            const d = new Date(year, month, day)
+            const dateStr = d.toISOString().split('T')[0]
+            const pIdx = getPeriodForDate(d)
+            const hasSession = sessionDates.has(dateStr)
+            const today = new Date().toISOString().split('T')[0]
+            const isToday = dateStr === today
+            return (
+              <div key={day} style={{ textAlign: 'center', padding: '5px 2px', borderRadius: 6, fontSize: 11, fontWeight: hasSession ? 800 : 400, background: hasSession ? (pIdx >= 0 ? periodColors[pIdx] + '30' : C.faint) : pIdx >= 0 ? periodColors[pIdx] + '10' : 'transparent', color: pIdx >= 0 ? periodColors[pIdx] : C.sub, border: isToday ? `1.5px solid ${C.accent}` : '1.5px solid transparent', position: 'relative' }}>
+                {day}
+                {hasSession && <div style={{ width: 5, height: 5, borderRadius: '50%', background: pIdx >= 0 ? periodColors[pIdx] : C.accent, margin: '2px auto 0' }} />}
+              </div>
+            )
+          })}
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
+          {sub.periods.map((_, i) => {
+            const { start, end } = getPeriodDates(sub.startDate, i)
+            return <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
+              <div style={{ width: 10, height: 10, borderRadius: 3, background: periodColors[i] }} />
+              P{i + 1}: {fmt(start)}–{fmt(end)}
+            </div>
+          })}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 24px 32px', fontFamily: 'Montserrat,sans-serif' }}>
+      <LogoHeader />
+      <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 24 }}>← Back to {client.name}</button>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 4 }}>SUBSCRIPTION TRACKER</div>
+          <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 3, color: C.text }}>{client.name}</div>
+          <div style={{ fontSize: 12, color: C.sub, marginTop: 4 }}>{sub.package} · {sub.sessions} sessions/period · Started {fmt(new Date(sub.startDate + 'T00:00:00'))}</div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button onClick={() => setShowCalendar(!showCalendar)} style={{ padding: '7px 14px', borderRadius: 8, border: `1.5px solid ${C.border}`, background: showCalendar ? C.accent + '15' : 'transparent', color: showCalendar ? C.accent : C.sub, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+            {showCalendar ? '📅 Hide Calendar' : '📅 Calendar'}
+          </button>
+          <button onClick={resetSub} style={{ padding: '7px 14px', borderRadius: 8, border: `1.5px solid ${C.red}44`, background: 'transparent', color: C.red, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>↺ Reset</button>
+        </div>
+      </div>
+
+      {/* Summary cards */}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20 }}>
+        <div style={{ flex: '1 1 140px', background: C.accent + '10', border: `1.5px solid ${C.accent}33`, borderRadius: 12, padding: '14px 18px' }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.accent, letterSpacing: 1.5, textTransform: 'uppercase' }}>Total Sessions</div>
+          <div style={{ fontSize: 28, fontWeight: 800, color: C.text, marginTop: 2 }}>{totalSessions}</div>
+        </div>
+        <div style={{ flex: '1 1 140px', background: C.faint, border: `1.5px solid ${C.border}`, borderRadius: 12, padding: '14px 18px' }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1.5, textTransform: 'uppercase' }}>Package</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: C.text, marginTop: 2 }}>{sub.package}</div>
+        </div>
+        <div style={{ flex: '1 1 140px', background: C.faint, border: `1.5px solid ${C.border}`, borderRadius: 12, padding: '14px 18px' }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1.5, textTransform: 'uppercase' }}>Periods Done</div>
+          <div style={{ fontSize: 28, fontWeight: 800, color: C.text, marginTop: 2 }}>{sub.periods.filter(p => { return false }).length} / 6</div>
+        </div>
+      </div>
+
+      {showCalendar && <CalendarView />}
+
+      {/* Period Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+        {sub.periods.map((period, pIdx) => {
+          const { start, end } = getPeriodDates(sub.startDate, pIdx)
+          const cap = getPeriodCap(pIdx)
+          const used = period.sessions.length
+          const today = new Date()
+          const isActive = today >= start && today <= end
+          const isDone = today > end
+          const isUpcoming = today < start
+          const rollover = pIdx % 2 === 1 ? Math.max(0, sub.sessions - (sub.periods[pIdx - 1]?.sessions?.length || 0)) : 0
+          const periodColors = [C.accent, C.teal, C.sky, C.indigo, C.orange, C.green]
+          const color = periodColors[pIdx]
+          return (
+            <div key={pIdx} style={{ background: C.card, border: `1.5px solid ${isActive ? color : C.border}`, borderRadius: 14, padding: '18px 18px', opacity: isUpcoming ? 0.7 : 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: color }}>Period {pIdx + 1}</div>
+                  <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>{fmt(start)} – {fmt(end)}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: isActive ? color : C.sub }}>
+                    {isActive ? '● Active' : isDone ? '✓ Complete' : '○ Upcoming'}
+                  </div>
+                  {rollover > 0 && <div style={{ fontSize: 10, color: C.orange, fontWeight: 700 }}>+{rollover} rollover</div>}
+                </div>
+              </div>
+
+              {/* Session slots */}
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>Sessions ({used}/{cap})</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {Array.from({ length: cap }, (_, i) => {
+                    const session = period.sessions[i]
+                    return (
+                      <div key={i} style={{ position: 'relative' }}>
+                        {session ? (
+                          <div title={`${session.date}${session.notes ? ' — ' + session.notes : ''}`}
+                            style={{ width: 32, height: 32, borderRadius: 8, background: color + '20', border: `2px solid ${color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, cursor: 'pointer' }}
+                            onClick={() => removeSession(pIdx, i)}>
+                            ✓
+                          </div>
+                        ) : (
+                          <div style={{ width: 32, height: 32, borderRadius: 8, border: `2px dashed ${C.border}`, background: C.faint, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: C.border }} />
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Plans checklist */}
+              <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: 12 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>Plans</div>
+                {[['nutrition', '🥗 Nutrition Plan'], ['macro', '📊 Macro Plan'], ['grocery', '🛒 Grocery List']].map(([key, label]) => (
+                  <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, cursor: 'pointer', fontSize: 12, color: period.plans[key] ? color : C.text, fontWeight: period.plans[key] ? 700 : 400 }}>
+                    <input type="checkbox" checked={!!period.plans[key]} onChange={() => togglePlan(pIdx, key)} style={{ width: 15, height: 15, accentColor: color }} />
+                    {label}
+                  </label>
+                ))}
+              </div>
+
+              {/* Recent sessions list */}
+              {period.sessions.length > 0 && (
+                <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: 12 }}>
+                  {period.sessions.slice(-3).map((s, i) => (
+                    <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 11, color: C.sub }}>
+                      <span style={{ color }}>{new Date(s.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                      {s.notes && <span>— {s.notes.slice(0, 40)}</span>}
+                      {s.sig && <span style={{ fontSize: 9, color: C.green }}>✓ Signed</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button onClick={() => openSignModal(pIdx)} disabled={used >= cap}
+                style={{ width: '100%', padding: '9px', borderRadius: 8, border: `1.5px solid ${used >= cap ? C.border : color}`, background: used >= cap ? C.faint : color + '12', color: used >= cap ? C.sub : color, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: used >= cap ? 'not-allowed' : 'pointer' }}>
+                {used >= cap ? 'Period Full' : '+ Log Session'}
+              </button>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Sign-In Modal */}
+      {signModal !== null && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 16 }}>
+          <div style={{ background: C.panel, borderRadius: 18, maxWidth: 480, width: '100%', padding: 28, boxShadow: '0 12px 40px rgba(0,0,0,0.2)', fontFamily: 'Montserrat,sans-serif' }}>
+            <div style={{ fontWeight: 800, fontSize: 16, color: C.text, marginBottom: 4 }}>Log Session — Period {signModal + 1}</div>
+            <div style={{ fontSize: 11, color: C.sub, marginBottom: 20 }}>{client.name}</div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Session Date</label>
+              <input type="date" value={sigDate} onChange={e => setSigDate(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 13, background: C.faint, color: C.text, outline: 'none', boxSizing: 'border-box' }} />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Notes (optional)</label>
+              <input type="text" value={sigNotes} onChange={e => setSigNotes(e.target.value)} placeholder="e.g. Full body, cardio focus..." style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 13, background: C.faint, color: C.text, outline: 'none', boxSizing: 'border-box' }} />
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Client Signature (optional)</label>
+              <SubscriptionSignaturePad value={signature} onChange={setSignature} />
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <Btn onClick={confirmSession} color={C.green}>✓ Confirm Session</Btn>
+              <Btn onClick={() => setSignModal(null)} outline color={C.sub}>Cancel</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [authed, setAuthed] = useState(false)
@@ -5973,7 +6437,7 @@ export default function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {view !== 'roster' && (
             <div style={{ fontSize: 12, color: C.sub }}>
-              {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : view === 'signin' ? 'Sign-In Sheet' : view === 'weightTracker' ? 'Weight Tracker' : view === 'editClient' ? 'Edit Client' : view === 'leads' ? 'CRM Leads' : client?.name}
+              {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : view === 'signin' ? 'Sign-In Sheet' : view === 'weightTracker' ? 'Weight Tracker' : view === 'editClient' ? 'Edit Client' : view === 'leads' ? 'CRM Leads' : view === 'subscription' ? 'Subscription' : client?.name}
             </div>
           )}
           <button onClick={() => setView('leads')} style={{ padding: '4px 10px', borderRadius: 6, border: `1.5px solid ${view === 'leads' ? C.accent : C.border}`, background: view === 'leads' ? C.accent + '18' : 'transparent', color: view === 'leads' ? C.accent : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
@@ -6004,6 +6468,7 @@ export default function App() {
             onProtocolAdvisor={c => { setClient(c); setView('protocols') }}
             onSignInSheet={c => { setClient(c); setView('signin') }}
             onWeightTracker={c => { setClient(c); setView('weightTracker') }}
+            onSubscription={c => { setClient(c); setView('subscription') }}
             onEditClient={openEditClient}
             onBack={() => setView('roster')}
             allClients={allClients}
@@ -6061,6 +6526,12 @@ export default function App() {
           <ClientIntakeForm
             existingClient={client}
             onSave={(c) => { updateClient({ ...client, ...c }); setView('client') }}
+            onBack={() => setView('client')}
+          />
+        )}
+        {view === 'subscription' && client && (
+          <SubscriptionTracker
+            client={client}
             onBack={() => setView('client')}
           />
         )}
