@@ -305,6 +305,7 @@ export async function saveSession(session) {
     duration: session.duration || 60,
     recurring: session.recurring || false,
     notes: session.notes || '',
+    link: session.link || '',
     exceptions: session.exceptions || [],
     updated_at: new Date().toISOString()
   }
