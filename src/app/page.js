@@ -5990,7 +5990,7 @@ function LoginScreen({ onLogin }) {
 
 // 30-day follow-up sequence — each entry is a scheduled action day
 const OUTREACH_SEQUENCE = [
-  { day: 0,  channel: 'Text',  step: 1,  emoji: '💬', action: 'Intro text — introduce yourself, mention their goal, ask for 2-3 good days/times to go over their intake and schedule their complimentary in-person consultation' },
+  { day: 0,  channel: 'Text',  step: 1,  emoji: '💬', action: 'Intro text — introduce yourself as Freddy with FreddyFit Personal Training, mention their goal, ask for a good day and time to hop on a quick call to confirm their intake form and schedule their complimentary consultation' },
   { day: 1,  channel: 'Text',  step: 2,  emoji: '💬', action: 'Follow-up text — they haven\'t responded yet, keep it short and easy to reply to, ask for availability' },
   { day: 3,  channel: 'Call',  step: 3,  emoji: '📞', action: 'First phone call — texts aren\'t landing, calls convert 8x better. Reference their goal and invite them to their complimentary consultation at FreddyFit Personal Training' },
   { day: 5,  channel: 'Email', step: 4,  emoji: '✉️', action: 'Professional intro email — formal, warm, reference their intake form answers, explain what the consultation covers, include your contact info' },
@@ -6100,7 +6100,7 @@ CHANNEL-SPECIFIC FORMAT:
 ${channelInstruction === 'Text' ? `TEXT MESSAGE RULES:
 - 2-3 sentences max, conversational tone
 - Reference their specific goal or barrier by name
-- Ask them to share 2-3 good days and times to go over their intake form and schedule their complimentary in-person consultation at FreddyFit Personal Training
+- Ask them for a good day and time to hop on a quick call to confirm their intake form and schedule their complimentary consultation at FreddyFit Personal Training
 - Sign off: "— Freddy | FreddyFit Personal Training"
 - No excessive emojis` : ''}
 ${channelInstruction === 'Call' ? `PHONE CALL SCRIPT RULES:
