@@ -1,5 +1,4 @@
 import Anthropic from '@anthropic-ai/sdk'
-import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -29,18 +28,6 @@ const PANEL_MARKERS = {
 
 const ALL_MARKERS = Object.values(PANEL_MARKERS).flat()
 
-async function extractTextFromPdf(buffer) {
-  const uint8 = new Uint8Array(buffer)
-  const pdf = await pdfjsLib.getDocument({ data: uint8, disableWorker: true }).promise
-  let text = ''
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i)
-    const content = await page.getTextContent()
-    text += content.items.map(item => item.str).join(' ') + '\n'
-  }
-  return text
-}
-
 export async function POST(request) {
   try {
     const formData = await request.formData()
@@ -49,18 +36,11 @@ export async function POST(request) {
     if (!file) return Response.json({ error: 'No file provided' }, { status: 400 })
 
     const buffer = Buffer.from(await file.arrayBuffer())
-
-    let rawText = ''
-    try {
-      rawText = await extractTextFromPdf(buffer)
-    } catch (e) {
-      return Response.json({ error: 'Could not read PDF: ' + e.message }, { status: 400 })
+    if (buffer.length === 0) {
+      return Response.json({ error: 'Empty file received' }, { status: 400 })
     }
 
-    if (!rawText || !rawText.trim()) {
-      return Response.json({ error: 'PDF appears to be a scanned image. Please upload a text-based PDF from your lab.' }, { status: 400 })
-    }
-
+    const base64 = buffer.toString('base64')
     const markerList = panelName && PANEL_MARKERS[panelName]
       ? PANEL_MARKERS[panelName]
       : ALL_MARKERS
@@ -74,9 +54,20 @@ export async function POST(request) {
       max_tokens: 1500,
       messages: [{
         role: 'user',
-        content: `You are a medical lab result parser. ${panelContext}
+        content: [
+          {
+            type: 'document',
+            source: {
+              type: 'base64',
+              media_type: 'application/pdf',
+              data: base64,
+            }
+          },
+          {
+            type: 'text',
+            text: `You are a medical lab result parser. ${panelContext}
 
-Extract values from the following lab report and return ONLY a valid JSON object.
+Extract values from this lab report PDF and return ONLY a valid JSON object.
 
 Use exactly these marker names (match by common lab abbreviations and synonyms):
 ${markerList.join(', ')}
@@ -88,8 +79,9 @@ Rules:
 - If a marker appears multiple times, use the most recent result value
 - Return ONLY the JSON object, no explanation or markdown
 
-Lab Report Text:
-${rawText.slice(0, 10000)}`
+Example output format: {"WBC": 6.2, "Hemoglobin": 14.1}`
+          }
+        ]
       }]
     })
 
