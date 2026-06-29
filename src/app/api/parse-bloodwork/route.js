@@ -16,7 +16,8 @@ const PANEL_MARKERS = {
     'Total Bilirubin','ALT','AST','Alkaline Phosphatase'
   ],
   'Hemoglobin A1C': [
-    'HbA1c','Fasting Glucose','Fasting Insulin','HOMA-IR'
+    'HbA1c','Estimated Average Glucose (mg/dL)','Estimated Average Glucose (mmol/L)',
+    'Fasting Glucose','Fasting Insulin','HOMA-IR'
   ],
   'Other / Additional': [
     'Testosterone','Free Testosterone','SHBG','DHEA-S','Estradiol','Cortisol',
@@ -117,7 +118,8 @@ The word "Value" appears above the patient value.
 
 HbA1c SYNONYM MAPPINGS:
   "HEMOGLOBIN A1C" or "HBA1C" or "GLYCOHEMOGLOBIN" or "GLYCATED HEMOGLOBIN" → HbA1c
-  "ESTIMATED AVERAGE GLUCOSE" — SKIP THIS. It is a calculated value derived from HbA1c, not a direct lab measurement.
+  "ESTIMATED AVERAGE GLUCOSE (MG/DL)" or "ESTIMATED AVERAGE GLUCOSE" with mg/dL unit → Estimated Average Glucose (mg/dL)
+  "ESTIMATED AVERAGE GLUCOSE (MMOL/L)" or "ESTIMATED AVERAGE GLUCOSE" with mmol/L unit → Estimated Average Glucose (mmol/L)
   "FASTING GLUCOSE" or "GLUCOSE, FASTING" → Fasting Glucose (only if separately drawn and reported)
   "FASTING INSULIN" or "INSULIN, FASTING" → Fasting Insulin
   "HOMA-IR" or "INSULIN RESISTANCE" → HOMA-IR` : ''

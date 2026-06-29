@@ -7319,10 +7319,12 @@ const BLOOD_PANELS = [
     color: '#059669',
     panelDesc: 'Reflects average blood sugar over the past 90 days. Gold standard for diagnosing pre-diabetes and diabetes — essential for weight loss and metabolic health clients.',
     markers: [
-      { name: 'HbA1c',           unit: '%',      optimal: [0,5.7],   borderline: [5.7,6.4], desc: '3-month blood sugar average. 5.7–6.4% = pre-diabetic. Above 6.5% = diabetic. Drops with exercise and diet changes.' },
-      { name: 'Fasting Glucose', unit: 'mg/dL',  optimal: [70,99],   borderline: [100,125], desc: 'Same-day fasting blood sugar. Cross-reference with HbA1c to separate daily spikes from chronic elevation.' },
-      { name: 'Fasting Insulin', unit: 'µIU/mL', optimal: [2,20],    borderline: [20,30],   desc: 'High fasting insulin signals resistance even before glucose rises — the earliest metabolic warning sign.' },
-      { name: 'HOMA-IR',         unit: 'index',  optimal: [0,1.5],   borderline: [1.5,3.0], desc: 'Calculated insulin resistance score (Glucose × Insulin ÷ 405). Above 1.9 = insulin resistance.' },
+      { name: 'HbA1c',                              unit: '%',       optimal: [0,5.7],    borderline: [5.7,6.4],  desc: '3-month blood sugar average. 5.7–6.4% = pre-diabetic. Above 6.5% = diabetic. Drops with exercise and diet changes.' },
+      { name: 'Estimated Average Glucose (mg/dL)', unit: 'mg/dL',  optimal: [70,120],   borderline: [120,154],  desc: 'Calculated 3-month average glucose in mg/dL derived from HbA1c. Below 120 is ideal for non-diabetics.' },
+      { name: 'Estimated Average Glucose (mmol/L)',unit: 'mmol/L', optimal: [3.9,6.7],  borderline: [6.7,8.6],  desc: 'Calculated 3-month average glucose in mmol/L derived from HbA1c. International unit equivalent.' },
+      { name: 'Fasting Glucose',                   unit: 'mg/dL',  optimal: [70,99],    borderline: [100,125],  desc: 'Same-day fasting blood sugar. Cross-reference with HbA1c to separate daily spikes from chronic elevation.' },
+      { name: 'Fasting Insulin',                   unit: 'µIU/mL', optimal: [2,20],     borderline: [20,30],    desc: 'High fasting insulin signals resistance even before glucose rises — the earliest metabolic warning sign.' },
+      { name: 'HOMA-IR',                           unit: 'index',  optimal: [0,1.5],    borderline: [1.5,3.0],  desc: 'Calculated insulin resistance score (Glucose × Insulin ÷ 405). Above 1.9 = insulin resistance.' },
     ],
   },
   {
