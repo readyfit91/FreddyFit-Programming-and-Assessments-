@@ -7379,8 +7379,14 @@ function SubscriptionTracker({ client, onBack }) {
 // ── SCHEDULE ─────────────────────────────────────────────────────────────────
 
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 6) // 6am–7pm
-const DURATIONS = [30, 45, 60, 90]
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const SESSION_TYPES = [
+  { label: 'FIT60',        duration: 60,  color: '#2563EB' },
+  { label: 'FIT30',        duration: 30,  color: '#0891B2' },
+  { label: 'Consultation', duration: 60,  color: '#059669' },
+  { label: 'Video Call',   duration: 30,  color: '#7C3AED' },
+  { label: 'Phone Call',   duration: 20,  color: '#D97706' },
+]
 
 function Schedule({ onBack, allClients }) {
   const today = new Date()
@@ -7392,7 +7398,7 @@ function Schedule({ onBack, allClients }) {
   })
   const [sessions, setSessions] = useState([])
   const [booking, setBooking] = useState(null) // { date, time } or { session } for editing
-  const [form, setForm] = useState({ client_name: '', client_id: null, duration: 60, notes: '' })
+  const [form, setForm] = useState({ client_name: '', client_id: null, session_type: 'FIT60', duration: 60, recurring: false, notes: '' })
   const [clientSearch, setClientSearch] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -7422,13 +7428,13 @@ function Schedule({ onBack, allClients }) {
 
   const openNew = (date, hour) => {
     const time = `${String(hour).padStart(2, '0')}:00`
-    setForm({ client_name: '', client_id: null, duration: 60, notes: '' })
+    setForm({ client_name: '', client_id: null, session_type: 'FIT60', duration: 60, recurring: false, notes: '' })
     setClientSearch('')
     setBooking({ date: fmt(date), time })
   }
 
   const openEdit = (session) => {
-    setForm({ client_name: session.client_name, client_id: session.client_id, duration: session.duration, notes: session.notes })
+    setForm({ client_name: session.client_name, client_id: session.client_id, session_type: session.session_type || 'FIT60', duration: session.duration, recurring: session.recurring || false, notes: session.notes })
     setClientSearch(session.client_name)
     setBooking({ session })
   }
@@ -7520,13 +7526,16 @@ function Schedule({ onBack, allClients }) {
                       style={{ borderLeft: `1px solid ${C.border}`, minHeight: 52, padding: 3, cursor: 'pointer', background: isToday(d) ? C.accent + '04' : 'transparent', transition: 'background .1s' }}
                       onMouseEnter={e => { if (!slots.length) e.currentTarget.style.background = C.faint }}
                       onMouseLeave={e => { e.currentTarget.style.background = isToday(d) ? C.accent + '04' : 'transparent' }}>
-                      {slots.map(s => (
+                      {slots.map(s => {
+                        const stype = SESSION_TYPES.find(t => t.label === s.session_type) || SESSION_TYPES[0]
+                        return (
                         <div key={s.id} onClick={e => { e.stopPropagation(); openEdit(s) }}
-                          style={{ background: C.accent, borderRadius: 6, padding: '4px 6px', marginBottom: 2, cursor: 'pointer' }}>
+                          style={{ background: stype.color, borderRadius: 6, padding: '4px 6px', marginBottom: 2, cursor: 'pointer' }}>
                           <div style={{ fontSize: 11, fontWeight: 800, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.client_name}</div>
-                          <div style={{ fontSize: 9, color: '#fff', opacity: .8 }}>{s.time.slice(0,5)} · {s.duration}min</div>
+                          <div style={{ fontSize: 9, color: '#fff', opacity: .8 }}>{s.time.slice(0,5)} · {s.session_type || 'FIT60'}{s.recurring ? ' 🔁' : ''}</div>
                         </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )
                 })}
@@ -7573,17 +7582,28 @@ function Schedule({ onBack, allClients }) {
               )}
             </div>
 
-            {/* Duration */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 5 }}>Duration</div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                {DURATIONS.map(d => (
-                  <button key={d} onClick={() => setForm(f => ({ ...f, duration: d }))}
-                    style={{ flex: 1, padding: '7px 0', borderRadius: 7, border: `1.5px solid ${form.duration === d ? C.accent : C.border}`, background: form.duration === d ? C.accent + '18' : '#fff', color: form.duration === d ? C.accent : C.sub, fontWeight: 800, fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
-                    {d}m
+            {/* Session Type */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 7 }}>Session Type</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {SESSION_TYPES.map(t => (
+                  <button key={t.label} onClick={() => setForm(f => ({ ...f, session_type: t.label, duration: t.duration }))}
+                    style={{ padding: '7px 13px', borderRadius: 7, border: `1.5px solid ${form.session_type === t.label ? t.color : C.border}`, background: form.session_type === t.label ? t.color + '18' : '#fff', color: form.session_type === t.label ? t.color : C.sub, fontWeight: 800, fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+                    {t.label}
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Recurring */}
+            <div style={{ marginBottom: 14 }}>
+              <button onClick={() => setForm(f => ({ ...f, recurring: !f.recurring }))}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 8, border: `1.5px solid ${form.recurring ? C.accent : C.border}`, background: form.recurring ? C.accent + '12' : '#fff', cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', width: '100%' }}>
+                <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${form.recurring ? C.accent : C.border}`, background: form.recurring ? C.accent : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  {form.recurring && <span style={{ color: '#fff', fontSize: 11, fontWeight: 900, lineHeight: 1 }}>✓</span>}
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 700, color: form.recurring ? C.accent : C.sub }}>🔁 Recurring — repeats weekly</span>
+              </button>
             </div>
 
             {/* Notes */}

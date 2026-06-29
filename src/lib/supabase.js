@@ -291,7 +291,9 @@ export async function saveSession(session) {
     client_name: session.client_name || '',
     date: session.date,
     time: session.time,
+    session_type: session.session_type || 'FIT60',
     duration: session.duration || 60,
+    recurring: session.recurring || false,
     notes: session.notes || '',
     updated_at: new Date().toISOString()
   }
