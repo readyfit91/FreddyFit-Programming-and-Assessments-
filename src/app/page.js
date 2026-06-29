@@ -5994,21 +5994,99 @@ function LoginScreen({ onLogin }) {
 
 // ── CRM LEADS ────────────────────────────────────────────────────────────────
 
-// Simple stage-based funnel — no day counting, just move leads forward when you're done
-const FUNNEL_STAGES = {
-  'New Lead':  { action: 'Send intro text',           channel: 'Text',  emoji: '💬', next: 'Contacted',
-    prompt: 'Intro text — introduce yourself as Freddy with FreddyFit Personal Training. Mention their goal by name. Ask for a good day and time to hop on a quick call to confirm their intake form and schedule their complimentary consultation at FreddyFit Personal Training. Sign off: "— Freddy | FreddyFit Personal Training". 2-3 sentences max.' },
-  'Contacted': { action: 'Follow up or call',          channel: 'Call',  emoji: '📞', next: 'Follow Up',
-    prompt: 'Follow-up call script (30 seconds spoken): they haven\'t booked yet. Reference their specific goal. Invite them to schedule their complimentary in-person consultation at FreddyFit Personal Training. Phone calls convert 8× better. Opening: "Hi [Name], this is Freddy with FreddyFit Personal Training..." Leave your number if voicemail.' },
-  'Follow Up': { action: 'Schedule consultation',      channel: 'Text',  emoji: '📅', next: 'Booked',
-    prompt: 'Scheduling text — they\'ve shown interest, now lock in the consultation. Ask for a specific day and time. Keep it easy and low pressure. Mention it\'s a complimentary in-person consultation at FreddyFit Personal Training. Sign off: "— Freddy | FreddyFit Personal Training".' },
-  'Booked':    { action: 'Confirm & run consultation', channel: 'Text',  emoji: '🤝', next: null,
-    prompt: 'Confirmation reminder text for their upcoming consultation at FreddyFit Personal Training (6047 Telegraph Rd, Saint Louis, MO 63123). Be warm and excited for them. Ask if they have any questions beforehand. Sign off: "— Freddy | FreddyFit Personal Training".' },
+// 30-day statistically-optimized outreach sequence
+// Studies: texts open 98% in 3 min, calls convert 8x better, email nurtures long-term
+const OUTREACH_SEQUENCE = [
+  { day: 0,  step: 1, channel: 'Text',  emoji: '💬',
+    action: 'Intro text — introduce yourself as Freddy with FreddyFit Personal Training, mention their goal by name, ask for a good day and time to hop on a quick call to confirm their intake form and schedule their complimentary consultation',
+    why: 'Texts open 98% within 3 minutes. Strike while they're hot.' },
+  { day: 1,  step: 2, channel: 'Text',  emoji: '💬',
+    action: 'Follow-up text — they haven\'t replied yet, keep it short and easy to respond to, reference their goal again',
+    why: '50% of deals go to whoever follows up first. Most people forget to reply, not ignore.' },
+  { day: 3,  step: 3, channel: 'Call',  emoji: '📞',
+    action: 'Phone call — texts aren\'t landing, calls convert 8x better. Reference their goal. Invite them to their complimentary consultation at FreddyFit Personal Training. Leave a voicemail if no answer.',
+    why: 'Phone calls convert 8x better than texts for consultations. Try 4–6pm.' },
+  { day: 5,  step: 4, channel: 'Email', emoji: '✉️',
+    action: 'Warm intro email — personal tone, reference their intake answers, explain what the complimentary consultation covers, include your contact info. Subject line first.',
+    why: 'Reaching on a 3rd channel catches people who missed texts/calls.' },
+  { day: 7,  step: 5, channel: 'Text',  emoji: '💬',
+    action: 'Check-in text — casual and low pressure, acknowledge they may be busy, ask if this week works for a quick call',
+    why: '80% of sales require 5+ touchpoints. Keep showing up.' },
+  { day: 10, step: 6, channel: 'Call',  emoji: '📞',
+    action: 'Second call attempt — try a different time of day. If voicemail, leave a brief personalized message referencing their goal and your number',
+    why: 'Call at a different hour — morning vs evening changes answer rates dramatically.' },
+  { day: 14, step: 7, channel: 'Email', emoji: '✉️',
+    action: 'Value email — share a specific tip directly tied to their stated goal. Soft invite at the end to book their complimentary consultation at FreddyFit Personal Training.',
+    why: 'Give before you ask. Value emails have 40% higher open rates.' },
+  { day: 21, step: 8, channel: 'Text',  emoji: '💬',
+    action: 'Re-engagement text — acknowledge it\'s been a few weeks, ask if they\'re still looking for support, reference their goal. Zero pressure.',
+    why: 'Life gets in the way. Re-engaging after a gap often catches people at a better moment.' },
+  { day: 30, step: 9, channel: 'Email', emoji: '✉️',
+    action: 'Final email — make it count. Warm, direct, personal. Leave on great terms. Mention the door is always open at FreddyFit Personal Training.',
+    why: 'Final touchpoint before moving to Cold. Some leads convert months later because of this.' },
+]
+
+// Given a lead, calculate which step to show and its status
+function getOutreachStep(lead) {
+  if (['Client', 'Cold', 'Booked'].includes(lead.status)) return null
+  const dateAdded = lead.date_added ? new Date(lead.date_added + 'T00:00:00') : null
+  if (!dateAdded) return null
+
+  const today = new Date()
+  const daysSinceAdded = Math.floor((today - dateAdded) / 86400000)
+
+  // Which step was last completed — inferred from last_contact_date
+  let completedUpToDay = -1
+  if (lead.last_contact_date) {
+    const lastContact = new Date(lead.last_contact_date + 'T00:00:00')
+    const daysAtContact = Math.floor((lastContact - dateAdded) / 86400000)
+    for (const s of OUTREACH_SEQUENCE) {
+      if (s.day <= daysAtContact) completedUpToDay = s.day
+    }
+  }
+
+  // Find the next step to do (first uncompleted step)
+  const nextStep = OUTREACH_SEQUENCE.find(s => s.day > completedUpToDay)
+
+  if (!nextStep) {
+    // All 9 steps completed
+    return { channel: 'Cold', emoji: '🥶', step: 10, day: daysSinceAdded, isComplete: true,
+      label: '✅ All 9 steps done', action: 'You\'ve done everything. Mark Cold or archive.', why: '', isDue: true, isOverdue: false }
+  }
+
+  if (daysSinceAdded > 30 && completedUpToDay < 0) {
+    return { channel: 'Cold', emoji: '🥶', step: 0, day: daysSinceAdded, isComplete: false,
+      label: `Day ${daysSinceAdded} — 30-day window passed`, action: 'Consider marking Cold. If you restart, set last_contact_date to today.', why: '', isDue: true, isOverdue: true }
+  }
+
+  const isDue = nextStep.day <= daysSinceAdded
+  const daysOverdue = isDue ? daysSinceAdded - nextStep.day : 0
+  const daysUntil = isDue ? 0 : nextStep.day - daysSinceAdded
+
+  return {
+    channel: nextStep.channel,
+    emoji: nextStep.emoji,
+    step: nextStep.step,
+    day: nextStep.day,
+    daysSinceAdded,
+    action: nextStep.action,
+    why: nextStep.why,
+    isDue,
+    isOverdue: daysOverdue > 0,
+    daysOverdue,
+    daysUntil,
+    label: isDue
+      ? (daysOverdue > 0 ? `Day ${nextStep.day + 1} — ${nextStep.channel} (${daysOverdue}d overdue)` : `Day ${nextStep.day + 1} — ${nextStep.channel} due TODAY`)
+      : `Day ${nextStep.day + 1} — ${nextStep.channel} in ${daysUntil} day${daysUntil !== 1 ? 's' : ''}`,
+    progress: Math.min(Math.round((daysSinceAdded / 30) * 100), 100),
+    completedSteps: OUTREACH_SEQUENCE.filter(s => s.day <= completedUpToDay).length,
+  }
 }
 
 function getStageInfo(lead) {
-  if (['Client', 'Cold'].includes(lead.status)) return null
-  return FUNNEL_STAGES[lead.status] || FUNNEL_STAGES['New Lead']
+  // Alias used by bossCount — returns step only when action is due
+  const step = getOutreachStep(lead)
+  return (step && step.isDue) ? step : null
 }
 
 const CHANNEL_COLORS = {
@@ -6029,35 +6107,41 @@ const LEAD_STATUS_COLORS = {
 }
 const LEAD_SOURCES = ['Instagram', 'Facebook', 'Referral', 'Walk-in', 'Website', 'Email', 'Zapier / Email', 'Other']
 
-function AiCoachModal({ lead, onClose, stageOverride }) {
+function AiCoachModal({ lead, onClose, stepOverride }) {
   const [msg, setMsg] = useState('')
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
-  const stage = stageOverride || getStageInfo(lead) || FUNNEL_STAGES['New Lead']
-  const chCol = CHANNEL_COLORS[stage.channel] || CHANNEL_COLORS.Text
+  const step = stepOverride || getOutreachStep(lead) || OUTREACH_SEQUENCE[0]
+  const chCol = CHANNEL_COLORS[step.channel] || CHANNEL_COLORS.Text
 
   const generate = async () => {
     setLoading(true)
     setMsg('')
     try {
+      const channelFormat = step.channel === 'Text'
+        ? `TEXT MESSAGE RULES:\n- 2-3 sentences max, conversational tone\n- Reference their specific goal or barrier by name\n- Sign off: "— Freddy | FreddyFit Personal Training"\n- No excessive emojis`
+        : step.channel === 'Call'
+        ? `PHONE CALL SCRIPT (30 seconds spoken):\n- Opening: "Hi [Name], this is Freddy with FreddyFit Personal Training..."\n- Middle: Reference their specific goal (1 sentence)\n- Invite them to their complimentary in-person consultation at FreddyFit Personal Training\n- Closing: Leave your number if voicemail\n- Natural conversational language`
+        : `EMAIL FORMAT:\n- Subject line first (starting with "Subject:")\n- Professional warm tone, like a real person not a marketing blast\n- Reference something specific from their intake\n- Mention FreddyFit Personal Training's complimentary consultation\n- Sign off: "Warm regards,\\nFreddy\\nFreddyFit Personal Training\\n6047 Telegraph Rd, Saint Louis, MO 63123\\n314-584-9389"`
+
       const prompt = `You are writing on behalf of Freddy at FreddyFit Personal Training in Saint Louis, MO (6047 Telegraph Rd).
 
-Generate a personalized outreach message. Use the lead's actual intake answers to make it feel personal — not a template blast.
+Generate a personalized outreach message. Use the lead's actual intake data to make it feel personal.
 
-LEAD DETAILS:
+LEAD:
 Name: ${lead.name}
 Goal: ${lead.goal || 'Not specified'}
-Source: ${lead.source || 'Unknown'}
-Current stage: ${lead.status}
 Phone: ${lead.phone || 'N/A'}
-Intake notes:
-${lead.notes || 'No additional intake data'}
+Intake notes: ${lead.notes || 'None'}
 
-TASK FOR THIS MESSAGE:
-${stage.prompt}
+SEQUENCE CONTEXT:
+This is Step ${step.step} of 9 in the 30-day follow-up (Day ${step.day + 1}).
+What this message should accomplish: ${step.action}
 
-Output only the message itself. No explanation, no label, just the message.`
-      const result = await callClaude([{ role: 'user', content: prompt }], 400)
+${channelFormat}
+
+Output only the message. Nothing else.`
+      const result = await callClaude([{ role: 'user', content: prompt }], 500)
       setMsg(result)
     } catch (e) { setMsg('Error generating message. Please try again.') }
     setLoading(false)
@@ -6072,18 +6156,15 @@ Output only the message itself. No explanation, no label, just the message.`
       <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '20px 20px 0 0', width: '100%', maxWidth: 560, padding: '24px 24px 36px', maxHeight: '80vh', overflowY: 'auto', fontFamily: 'Montserrat,sans-serif' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <div>
-            <div style={{ fontWeight: 800, fontSize: 16, color: C.text }}>🤖 AI Message</div>
-            <div style={{ fontSize: 12, color: C.sub, marginTop: 2 }}>{lead.name} — {stage.action}</div>
+            <div style={{ fontWeight: 800, fontSize: 16, color: C.text }}>🤖 AI {step.channel} Message</div>
+            <div style={{ fontSize: 12, color: C.sub, marginTop: 2 }}>{lead.name} — Step {step.step}/9 · Day {(step.day || 0) + 1}/30</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: C.sub }}>×</button>
         </div>
 
         <div style={{ background: chCol.bg, border: `1.5px solid ${chCol.border}`, borderRadius: 10, padding: '10px 14px', marginBottom: 14 }}>
-          <div style={{ fontWeight: 800, fontSize: 12, color: chCol.text }}>{stage.emoji} {stage.channel} — {stage.action}</div>
-          <div style={{ fontSize: 11, color: chCol.text, marginTop: 3, opacity: 0.8 }}>
-            {stage.channel === 'Text' && 'Texts have a 98% open rate. Best time: 10am–12pm or 5pm–7pm.'}
-            {stage.channel === 'Call' && 'Calls convert 8× better for consultations. Try 4pm–6pm.'}
-          </div>
+          <div style={{ fontWeight: 800, fontSize: 12, color: chCol.text }}>{step.emoji} {step.channel.toUpperCase()} — Step {step.step} of 9</div>
+          <div style={{ fontSize: 11, color: chCol.text, marginTop: 4, lineHeight: 1.5, opacity: 0.85 }}>{step.why}</div>
         </div>
 
         <Btn onClick={generate} disabled={loading} style={{ width: '100%', marginBottom: 14 }}>
@@ -6103,7 +6184,7 @@ Output only the message itself. No explanation, no label, just the message.`
         )}
         {!msg && !loading && (
           <div style={{ fontSize: 11, color: C.sub, textAlign: 'center', marginTop: 8 }}>
-            AI will write a {stage.channel.toLowerCase()} message tailored to {lead.name}'s goal and current stage.
+            AI will write a personalized {step.channel.toLowerCase()} message for {lead.name} based on their intake.
           </div>
         )}
       </div>
@@ -6131,20 +6212,23 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
     setLoading(false)
   }, [])
 
-  const advanceLead = async (lead) => {
-    const stage = getStageInfo(lead)
-    if (!stage) return
+  // "Mark Done" — records today as last_contact_date so the sequence advances to next step
+  const markStepDone = async (lead) => {
     setAdvancing(lead.id)
     try {
-      const nextStatus = stage.next || lead.status
-      await saveLead({ ...lead, status: nextStatus, last_contact_date: today })
+      // Auto-advance status based on how far into the sequence we are
+      const step = getOutreachStep(lead)
+      let newStatus = lead.status
+      if (step && step.step >= 3 && lead.status === 'New Lead') newStatus = 'Contacted'
+      if (step && step.step >= 5 && lead.status === 'Contacted') newStatus = 'Follow Up'
+      await saveLead({ ...lead, status: newStatus, last_contact_date: today })
       await load()
     } catch (e) { alert('Error: ' + e.message) }
     setAdvancing(null)
   }
 
   const markCold = async (lead) => {
-    if (!confirm(`Mark ${lead.name} as Cold?`)) return
+    if (!confirm(`Mark ${lead.name} as Cold? You can always reactivate them later.`)) return
     setAdvancing(lead.id)
     try {
       await saveLead({ ...lead, status: 'Cold', last_contact_date: today })
@@ -6233,12 +6317,14 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
   })
 
   const actionItems = leads
-    .map(l => ({ lead: l, stage: getStageInfo(l) }))
-    .filter(({ stage }) => !!stage)
-    .sort((a, b) => {
-      const order = { 'New Lead': 0, 'Contacted': 1, 'Follow Up': 2, 'Booked': 3 }
-      return (order[a.lead.status] ?? 99) - (order[b.lead.status] ?? 99)
-    })
+    .map(l => ({ lead: l, step: getOutreachStep(l) }))
+    .filter(({ step }) => step && step.isDue && !step.isComplete)
+    .sort((a, b) => (b.step.daysOverdue || 0) - (a.step.daysOverdue || 0))
+
+  const upcomingItems = leads
+    .map(l => ({ lead: l, step: getOutreachStep(l) }))
+    .filter(({ step }) => step && !step.isDue && !step.isComplete)
+    .sort((a, b) => (a.step.daysUntil || 0) - (b.step.daysUntil || 0))
 
   // ── FORM VIEW ──
   if (editing !== null) {
@@ -6354,57 +6440,101 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
       </div>
 
       {/* ── BOSS MODE: Action Items ── */}
-      {!loading && actionItems.length > 0 && (
-        <div style={{ background: '#FFFBEB', border: '2px solid #F59E0B', borderRadius: 14, padding: '16px 18px', marginBottom: 20 }}>
-          <div style={{ fontWeight: 800, fontSize: 13, color: '#92400E', letterSpacing: 1, marginBottom: 14 }}>
-            🎯 ACTION NEEDED — {actionItems.length} lead{actionItems.length !== 1 ? 's' : ''}
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {actionItems.map(({ lead, stage }) => {
-              const chCol = CHANNEL_COLORS[stage.channel] || CHANNEL_COLORS.Text
-              const sc = LEAD_STATUS_COLORS[lead.status] || LEAD_STATUS_COLORS['New Lead']
-              const busy = advancing === lead.id
-              return (
-                <div key={lead.id} style={{ background: '#fff', border: `1.5px solid ${chCol.border}`, borderRadius: 12, padding: '12px 14px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                    <div>
-                      <div style={{ fontWeight: 800, fontSize: 14, color: C.text }}>{lead.name}</div>
-                      {lead.goal && <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>🎯 {lead.goal}</div>}
-                      {lead.phone && <div style={{ fontSize: 11, color: C.sub, marginTop: 1 }}>📞 {lead.phone}</div>}
+      {!loading && (actionItems.length > 0 || upcomingItems.length > 0) && (
+        <div style={{ marginBottom: 20 }}>
+          {actionItems.length > 0 && (
+            <div style={{ background: '#FFFBEB', border: '2px solid #F59E0B', borderRadius: 14, padding: '16px 18px', marginBottom: 12 }}>
+              <div style={{ fontWeight: 800, fontSize: 13, color: '#92400E', letterSpacing: 1, marginBottom: 14 }}>
+                🎯 ACT NOW — {actionItems.length} lead{actionItems.length !== 1 ? 's' : ''} need outreach
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {actionItems.map(({ lead, step }) => {
+                  const chCol = CHANNEL_COLORS[step.channel] || CHANNEL_COLORS.Text
+                  const busy = advancing === lead.id
+                  return (
+                    <div key={lead.id} style={{ background: '#fff', border: `2px solid ${step.isOverdue ? C.red : chCol.border}`, borderRadius: 12, padding: '14px 14px' }}>
+                      {/* Header */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>{lead.name}</div>
+                          {lead.goal && <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>🎯 {lead.goal}</div>}
+                          {lead.phone && <div style={{ fontSize: 11, color: C.sub, marginTop: 1 }}>📞 {lead.phone}</div>}
+                        </div>
+                        <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
+                          <div style={{ fontSize: 11, fontWeight: 800, color: step.isOverdue ? C.red : chCol.text }}>
+                            {step.isOverdue ? `⚠️ ${step.daysOverdue}d overdue` : '⚡ Due today'}
+                          </div>
+                          <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>Day {step.day + 1}/30 · Step {step.step}/9</div>
+                        </div>
+                      </div>
+
+                      {/* 30-day progress dots */}
+                      <div style={{ display: 'flex', gap: 3, marginBottom: 10, alignItems: 'center' }}>
+                        {OUTREACH_SEQUENCE.map((s) => {
+                          const isDone = step.completedSteps >= s.step
+                          const isCurrent = s.step === step.step
+                          const dotColor = isDone ? C.green : isCurrent ? (step.isOverdue ? C.red : C.orange) : C.border
+                          const chC = CHANNEL_COLORS[s.channel] || CHANNEL_COLORS.Text
+                          return (
+                            <div key={s.step} title={`Day ${s.day + 1}: ${s.channel}`}
+                              style={{ flex: 1, height: isCurrent ? 10 : 6, borderRadius: 4, background: isCurrent ? (step.isOverdue ? C.red : C.orange) : isDone ? C.green : C.border, transition: 'all .2s' }} />
+                          )
+                        })}
+                        <span style={{ fontSize: 9, color: C.sub, flexShrink: 0, marginLeft: 4 }}>{step.progress}%</span>
+                      </div>
+
+                      {/* Action box */}
+                      <div style={{ background: chCol.bg, border: `1.5px solid ${chCol.border}`, borderRadius: 8, padding: '9px 12px', marginBottom: 10 }}>
+                        <div style={{ fontWeight: 800, fontSize: 12, color: chCol.text, marginBottom: 3 }}>{step.emoji} {step.channel.toUpperCase()} — Step {step.step} of 9</div>
+                        <div style={{ fontSize: 11, color: chCol.text, opacity: 0.85, lineHeight: 1.5 }}>{step.why}</div>
+                      </div>
+
+                      {/* Buttons */}
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <button onClick={() => setAiCoachLead(lead)}
+                          style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.accent}44`, background: C.accent + '18', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
+                          ✨ Write {step.channel}
+                        </button>
+                        <button onClick={() => markStepDone(lead)} disabled={busy}
+                          style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1 }}>
+                          {busy ? '…' : '✅ Mark Done'}
+                        </button>
+                        <button onClick={() => openEdit(lead)}
+                          style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
+                          ⭐ Convert
+                        </button>
+                        <button onClick={() => markCold(lead)} disabled={busy}
+                          style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer' }}>
+                          🥶 Cold
+                        </button>
+                      </div>
                     </div>
-                    <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 12, background: sc.bg, color: sc.text, border: `1px solid ${sc.border}`, flexShrink: 0, marginLeft: 8 }}>
-                      {lead.status}
-                    </span>
-                  </div>
-                  <div style={{ background: chCol.bg, border: `1px solid ${chCol.border}`, borderRadius: 8, padding: '8px 12px', marginBottom: 10 }}>
-                    <div style={{ fontWeight: 800, fontSize: 12, color: chCol.text }}>{stage.emoji} Next: {stage.action}</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    <button onClick={() => setAiCoachLead(lead)}
-                      style={{ padding: '7px 12px', borderRadius: 8, border: `1.5px solid ${C.accent}44`, background: C.accent + '18', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
-                      ✨ Write Message
-                    </button>
-                    {stage.next && (
-                      <button onClick={() => advanceLead(lead)} disabled={busy}
-                        style={{ padding: '7px 12px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1 }}>
-                        {busy ? '…' : `✅ Done → ${stage.next}`}
-                      </button>
-                    )}
-                    {lead.status === 'Booked' && (
-                      <button onClick={() => { setEditing(lead); setForm({ name: lead.name || '', phone: lead.phone || '', email: lead.email || '', source: lead.source || '', goal: lead.goal || '', status: lead.status || 'New Lead', last_contact_date: lead.last_contact_date || '', notes: lead.notes || '', consultation_notes: lead.consultation_notes || '' }) }}
-                        style={{ padding: '7px 12px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green, color: '#fff', fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
-                        ⭐ Convert to Client
-                      </button>
-                    )}
-                    <button onClick={() => markCold(lead)} disabled={busy}
-                      style={{ padding: '7px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer' }}>
-                      🥶 Cold
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Upcoming — not due yet */}
+          {upcomingItems.length > 0 && (
+            <div style={{ background: C.faint, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 16px' }}>
+              <div style={{ fontWeight: 800, fontSize: 11, color: C.sub, letterSpacing: 1, marginBottom: 10 }}>📅 COMING UP</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {upcomingItems.slice(0, 5).map(({ lead, step }) => {
+                  const chCol = CHANNEL_COLORS[step.channel] || CHANNEL_COLORS.Text
+                  return (
+                    <div key={lead.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 9px', borderRadius: 8, background: chCol.bg, color: chCol.text, border: `1px solid ${chCol.border}`, flexShrink: 0 }}>
+                        {step.emoji} {step.channel} in {step.daysUntil}d
+                      </span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{lead.name}</span>
+                      <span style={{ fontSize: 11, color: C.sub }}>Step {step.step}/9 · Day {step.day + 1}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -6431,15 +6561,15 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {filtered.map(lead => {
             const sc = LEAD_STATUS_COLORS[lead.status] || LEAD_STATUS_COLORS['New Lead']
-            const stage = getStageInfo(lead)
-            const chCol = stage ? (CHANNEL_COLORS[stage.channel] || CHANNEL_COLORS.Text) : null
+            const step = getOutreachStep(lead)
+            const chCol = step ? (CHANNEL_COLORS[step.channel] || CHANNEL_COLORS.Text) : null
             const dateAdded = lead.date_added ? new Date(lead.date_added + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
             const lastContact = lead.last_contact_date ? new Date(lead.last_contact_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null
             const busy = advancing === lead.id
 
             return (
               <div key={lead.id}
-                style={{ background: C.card, border: `1.5px solid ${stage ? (chCol?.border || C.border) : C.border}`, borderRadius: 14, padding: '16px 18px', position: 'relative' }}>
+                style={{ background: C.card, border: `1.5px solid ${step?.isDue && step?.isOverdue ? C.red + '66' : step?.isDue ? C.orange + '66' : C.border}`, borderRadius: 14, padding: '16px 18px', position: 'relative' }}>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                   <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => openEdit(lead)}>
@@ -6454,9 +6584,9 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
                   <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 12, background: sc.bg, color: sc.text, border: `1px solid ${sc.border}` }}>
                     {lead.status}
                   </span>
-                  {stage && (
-                    <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 12, background: chCol?.bg, color: chCol?.text, border: `1px solid ${chCol?.border}` }}>
-                      {stage.emoji} {stage.action}
+                  {step && !step.isComplete && (
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 12, background: step.isDue ? (step.isOverdue ? C.red + '18' : C.orange + '18') : C.faint, color: step.isDue ? (step.isOverdue ? C.red : C.orange) : C.sub, border: `1px solid ${step.isDue ? (step.isOverdue ? C.red + '44' : C.orange + '44') : C.border}` }}>
+                      {step.emoji} {step.label}
                     </span>
                   )}
                   {lead.source && (
@@ -6466,28 +6596,36 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
                   )}
                 </div>
 
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 11, color: C.sub, marginBottom: stage ? 10 : 0 }}>
+                {step && !step.isComplete && (
+                  <div style={{ display: 'flex', gap: 3, marginBottom: 8, alignItems: 'center' }}>
+                    {OUTREACH_SEQUENCE.map((s) => {
+                      const isDone = (step.completedSteps || 0) >= s.step
+                      const isCurrent = s.step === step.step
+                      return (
+                        <div key={s.step}
+                          style={{ flex: 1, height: isCurrent ? 8 : 5, borderRadius: 3, background: isCurrent ? (step.isOverdue ? C.red : C.orange) : isDone ? C.green : C.border }} />
+                      )
+                    })}
+                    <span style={{ fontSize: 9, color: C.sub, flexShrink: 0, marginLeft: 4 }}>Step {step.step}/9</span>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 11, color: C.sub, marginBottom: step && step.isDue ? 10 : 0 }}>
                   {lead.phone && <span>📞 {lead.phone}</span>}
                   {lead.email && <span>✉️ {lead.email}</span>}
                   <span>Added {dateAdded}</span>
                   {lastContact && <span>Last contact: {lastContact}</span>}
                 </div>
 
-                {stage && (
+                {step && step.isDue && !step.isComplete && (
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
                     <button onClick={() => setAiCoachLead(lead)}
                       style={{ padding: '5px 10px', borderRadius: 8, border: `1.5px solid ${C.accent}44`, background: C.accent + '18', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer' }}>
-                      ✨ Write Message
+                      ✨ Write {step.channel}
                     </button>
-                    {stage.next && (
-                      <button onClick={() => advanceLead(lead)} disabled={busy}
-                        style={{ padding: '5px 10px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1 }}>
-                        {busy ? '…' : `✅ Done → ${stage.next}`}
-                      </button>
-                    )}
-                    <button onClick={() => openEdit(lead)}
-                      style={{ padding: '5px 10px', borderRadius: 8, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer' }}>
-                      ✏️ Edit
+                    <button onClick={() => markStepDone(lead)} disabled={busy}
+                      style={{ padding: '5px 10px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1 }}>
+                      {busy ? '…' : '✅ Mark Done'}
                     </button>
                     <button onClick={() => markCold(lead)} disabled={busy}
                       style={{ padding: '5px 10px', borderRadius: 8, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: busy ? 'not-allowed' : 'pointer' }}>
@@ -6527,41 +6665,42 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
 }
 
 // ── CRM BOSS PANEL (floating) ────────────────────────────────────────────────
-function CrmBossPanel({ onClose, onGoToCrm, onConvertToClient }) {
+function CrmBossPanel({ onClose, onGoToCrm }) {
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
   const [aiCoachLead, setAiCoachLead] = useState(null)
-  const [advancing, setAdvancing] = useState(null)
+  const [busy, setBusy] = useState(null)
   const today = new Date().toISOString().split('T')[0]
 
   const load = () => getAllLeads().then(setLeads).catch(() => {}).finally(() => setLoading(false))
   useEffect(() => { load() }, [])
 
   const actionItems = leads
-    .map(l => ({ lead: l, stage: getStageInfo(l) }))
-    .filter(({ stage }) => !!stage)
-    .sort((a, b) => {
-      const order = { 'New Lead': 0, 'Contacted': 1, 'Follow Up': 2, 'Booked': 3 }
-      return (order[a.lead.status] ?? 99) - (order[b.lead.status] ?? 99)
-    })
+    .map(l => ({ lead: l, step: getOutreachStep(l) }))
+    .filter(({ step }) => step && step.isDue && !step.isComplete)
+    .sort((a, b) => (b.step.daysOverdue || 0) - (a.step.daysOverdue || 0))
 
-  const advance = async (lead, stage) => {
-    setAdvancing(lead.id)
+  const markDone = async (lead) => {
+    setBusy(lead.id)
     try {
-      await saveLead({ ...lead, status: stage.next || lead.status, last_contact_date: today })
+      const step = getOutreachStep(lead)
+      let newStatus = lead.status
+      if (step && step.step >= 3 && lead.status === 'New Lead') newStatus = 'Contacted'
+      if (step && step.step >= 5 && lead.status === 'Contacted') newStatus = 'Follow Up'
+      await saveLead({ ...lead, status: newStatus, last_contact_date: today })
       await load()
     } catch (e) { alert('Error: ' + e.message) }
-    setAdvancing(null)
+    setBusy(null)
   }
 
-  const cold = async (lead) => {
+  const markCold = async (lead) => {
     if (!confirm(`Mark ${lead.name} as Cold?`)) return
-    setAdvancing(lead.id)
+    setBusy(lead.id)
     try {
       await saveLead({ ...lead, status: 'Cold', last_contact_date: today })
       await load()
     } catch (e) { alert('Error: ' + e.message) }
-    setAdvancing(null)
+    setBusy(null)
   }
 
   return (
@@ -6574,7 +6713,7 @@ function CrmBossPanel({ onClose, onGoToCrm, onConvertToClient }) {
             <div>
               <div style={{ fontWeight: 800, fontSize: 16, color: C.text }}>🎯 Boss Mode</div>
               <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
-                {loading ? 'Loading…' : actionItems.length === 0 ? 'All caught up!' : `${actionItems.length} lead${actionItems.length !== 1 ? 's' : ''} need action`}
+                {loading ? 'Loading…' : actionItems.length === 0 ? 'All caught up!' : `${actionItems.length} lead${actionItems.length !== 1 ? 's' : ''} need outreach now`}
               </div>
             </div>
             <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: C.sub }}>×</button>
@@ -6586,48 +6725,60 @@ function CrmBossPanel({ onClose, onGoToCrm, onConvertToClient }) {
             <div style={{ textAlign: 'center', padding: 48 }}>
               <div style={{ fontSize: 40, marginBottom: 12 }}>✅</div>
               <div style={{ fontWeight: 700, color: C.text, marginBottom: 6 }}>All caught up!</div>
-              <div style={{ fontSize: 12, color: C.sub }}>No action needed right now. Great work!</div>
+              <div style={{ fontSize: 12, color: C.sub }}>No outreach due right now. Check back tomorrow.</div>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {actionItems.map(({ lead, stage }) => {
-                const chCol = CHANNEL_COLORS[stage.channel] || CHANNEL_COLORS.Text
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {actionItems.map(({ lead, step }) => {
+                const chCol = CHANNEL_COLORS[step.channel] || CHANNEL_COLORS.Text
                 const sc = LEAD_STATUS_COLORS[lead.status] || LEAD_STATUS_COLORS['New Lead']
-                const busy = advancing === lead.id
+                const isBusy = busy === lead.id
                 return (
-                  <div key={lead.id} style={{ background: C.faint, border: `1.5px solid ${chCol.border}`, borderRadius: 14, padding: '14px 14px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                  <div key={lead.id} style={{ background: C.faint, border: `2px solid ${step.isOverdue ? C.red + '66' : chCol.border}`, borderRadius: 14, padding: '14px' }}>
+                    {/* Name + timing */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                       <div>
                         <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>{lead.name}</div>
                         {lead.goal && <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>🎯 {lead.goal}</div>}
                         {lead.phone && <div style={{ fontSize: 11, color: C.sub, marginTop: 1 }}>📞 {lead.phone}</div>}
                       </div>
-                      <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 12, background: sc.bg, color: sc.text, border: `1px solid ${sc.border}`, flexShrink: 0, marginLeft: 8 }}>
-                        {lead.status}
-                      </span>
+                      <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: step.isOverdue ? C.red : C.orange }}>
+                          {step.isOverdue ? `⚠️ ${step.daysOverdue}d overdue` : '⚡ Due today'}
+                        </div>
+                        <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>Step {step.step}/9 · Day {step.day + 1}/30</div>
+                      </div>
                     </div>
+
+                    {/* Progress bar */}
+                    <div style={{ display: 'flex', gap: 2, marginBottom: 10 }}>
+                      {OUTREACH_SEQUENCE.map((s) => {
+                        const isDone = (step.completedSteps || 0) >= s.step
+                        const isCurrent = s.step === step.step
+                        return (
+                          <div key={s.step} style={{ flex: 1, height: isCurrent ? 8 : 5, borderRadius: 3, background: isCurrent ? (step.isOverdue ? C.red : C.orange) : isDone ? C.green : C.border }} />
+                        )
+                      })}
+                    </div>
+
+                    {/* Channel box */}
                     <div style={{ background: chCol.bg, border: `1px solid ${chCol.border}`, borderRadius: 8, padding: '8px 12px', marginBottom: 10 }}>
-                      <div style={{ fontWeight: 800, fontSize: 12, color: chCol.text }}>{stage.emoji} {stage.action}</div>
+                      <div style={{ fontWeight: 800, fontSize: 12, color: chCol.text }}>{step.emoji} {step.channel.toUpperCase()} — Step {step.step} of 9</div>
+                      <div style={{ fontSize: 11, color: chCol.text, opacity: 0.8, marginTop: 3 }}>{step.why}</div>
                     </div>
+
+                    {/* Action buttons */}
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       <button onClick={() => setAiCoachLead(lead)}
                         style={{ padding: '7px 11px', borderRadius: 8, border: `1.5px solid ${C.accent}44`, background: C.accent + '18', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
-                        ✨ Write Message
+                        ✨ Write {step.channel}
                       </button>
-                      {stage.next && (
-                        <button onClick={() => advance(lead, stage)} disabled={busy}
-                          style={{ padding: '7px 11px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1 }}>
-                          {busy ? '…' : `✅ Done → ${stage.next}`}
-                        </button>
-                      )}
-                      {lead.status === 'Booked' && onConvertToClient && (
-                        <button onClick={() => { onClose(); onConvertToClient(lead) }}
-                          style={{ padding: '7px 11px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green, color: '#fff', fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
-                          ⭐ Convert
-                        </button>
-                      )}
-                      <button onClick={() => cold(lead)} disabled={busy}
-                        style={{ padding: '7px 11px', borderRadius: 8, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer' }}>
+                      <button onClick={() => markDone(lead)} disabled={isBusy}
+                        style={{ padding: '7px 11px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer', opacity: isBusy ? 0.6 : 1 }}>
+                        {isBusy ? '…' : '✅ Mark Done'}
+                      </button>
+                      <button onClick={() => markCold(lead)} disabled={isBusy}
+                        style={{ padding: '7px 11px', borderRadius: 8, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer' }}>
                         🥶 Cold
                       </button>
                     </div>
@@ -7036,7 +7187,7 @@ export default function App() {
 
   const refreshBossCount = useCallback(() => {
     getAllLeads().then(leads => {
-      const count = leads.filter(l => !!getStageInfo(l)).length
+      const count = leads.filter(l => { const s = getOutreachStep(l); return s && s.isDue && !s.isComplete }).length
       setBossCount(count)
     }).catch(() => {})
   }, [])
@@ -7204,7 +7355,6 @@ export default function App() {
         <CrmBossPanel
           onClose={() => setShowBossPanel(false)}
           onGoToCrm={() => { setShowBossPanel(false); setView('leads') }}
-          onConvertToClient={() => { setShowBossPanel(false); setView('leads') }}
         />
       )}
     </div>
