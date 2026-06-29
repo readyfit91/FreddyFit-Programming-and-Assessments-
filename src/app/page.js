@@ -7549,8 +7549,8 @@ function Schedule({ onBack, allClients }) {
 
       {/* Booking modal */}
       {booking && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={closeBooking}>
-          <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 340, boxShadow: '0 8px 40px rgba(0,0,0,0.18)' }} onClick={e => e.stopPropagation()}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={e => { if (e.target === e.currentTarget) closeBooking() }}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 340, boxShadow: '0 8px 40px rgba(0,0,0,0.18)', maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: 2, color: C.text, marginBottom: 4 }}>
               {booking.session ? 'Edit Session' : 'Book Session'}
             </div>
@@ -7599,7 +7599,7 @@ function Schedule({ onBack, allClients }) {
 
             {/* Recurring */}
             <div style={{ marginBottom: 14 }}>
-              <button onClick={e => { e.stopPropagation(); setForm(f => ({ ...f, recurring: !f.recurring })) }}
+              <button onClick={() => setForm(f => ({ ...f, recurring: !f.recurring }))}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 8, border: `2px solid ${form.recurring ? C.accent : C.border}`, background: form.recurring ? C.accent + '15' : C.faint, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', width: '100%', boxSizing: 'border-box' }}>
                 <div style={{ width: 20, height: 20, borderRadius: 4, border: `2px solid ${form.recurring ? C.accent : C.border}`, background: form.recurring ? C.accent : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all .15s' }}>
                   {form.recurring && <span style={{ color: '#fff', fontSize: 12, fontWeight: 900, lineHeight: 1 }}>✓</span>}
