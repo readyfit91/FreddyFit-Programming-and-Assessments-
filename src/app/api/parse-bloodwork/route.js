@@ -65,21 +65,24 @@ export async function POST(request) {
           },
           {
             type: 'text',
-            text: `You are a medical lab result parser. ${panelContext}
+            text: `You are a precise medical lab result transcriber. ${panelContext}
 
-Extract values from this lab report PDF and return ONLY a valid JSON object.
+Your job is to read the RESULT column values exactly as printed in this lab report — do not estimate, calculate, or infer any value.
 
-Use exactly these marker names (match by common lab abbreviations and synonyms):
+Map each lab result to one of these marker names:
 ${markerList.join(', ')}
 
-Rules:
-- Only include markers that appear in the report with a clear numeric result
-- Use the exact marker name from the list above (not the lab's abbreviation)
-- Values must be numeric only — no units, flags, or reference ranges
-- If a marker appears multiple times, use the most recent result value
-- Return ONLY the JSON object, no explanation or markdown
+STRICT RULES:
+1. ONLY include a marker if you can see its numeric result value printed clearly in the PDF
+2. Copy the result number EXACTLY as it appears — do not round or modify it
+3. Use the RESULT value only — never use the reference range as the value
+4. If a test appears but the result is missing, flagged as invalid, or unreadable — skip it
+5. If a marker name on the report is ambiguous and you are not certain it maps to one of the listed names — skip it
+6. Do NOT include reference ranges, units, flags (H/L/A), or any non-result numbers
+7. Return ONLY a JSON object with no explanation, no markdown, no commentary
 
-Example output format: {"WBC": 6.2, "Hemoglobin": 14.1}`
+Correct example: {"WBC": 6.2, "Hemoglobin": 14.1, "Platelets": 245}
+Wrong example (includes range): {"WBC": "4.5-11.0"}`
           }
         ]
       }]
