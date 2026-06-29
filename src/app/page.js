@@ -6037,25 +6037,29 @@ function AiCoachModal({ lead, onClose }) {
     setMsg('')
     try {
       const channelNote = step ? `Recommended channel: ${step.channel}. Reason: ${step.label}.` : 'General follow-up.'
-      const prompt = `You are a warm, professional personal trainer assistant for FreddyFit Performance Center in Saint Louis, MO.
+      const prompt = `You are a warm, professional personal trainer assistant for FreddyFit Performance Center in Saint Louis, MO (6047 Telegraph Rd).
 
-Generate an outreach message for the following lead:
+Generate a personalized outreach message for the following lead. Use the intake details to make it specific to THEM — reference their actual goal, barrier, or situation so it feels like you actually read their form, not a generic blast.
+
+LEAD DETAILS:
 Name: ${lead.name}
 Goal: ${lead.goal || 'Not specified'}
 Source: ${lead.source || 'Unknown'}
 Status: ${lead.status}
 ${channelNote}
-Notes: ${lead.notes || 'None'}
+Intake form data:
+${lead.notes || 'No additional intake data'}
 
-Instructions:
-- If the channel is Text: write a casual, friendly text message under 3 sentences. Do NOT use emojis excessively.
-- If the channel is Call: write a 30-second phone script (opening, purpose, ask for consultation).
-- If the channel is Email: write a short email with subject line and 3-4 sentence body.
-- If Cold: suggest a brief re-engagement text or confirm it is time to move on.
-- Sign off as "Freddy" from FreddyFit Performance Center.
-- Never be pushy or salesy. Be genuine and goal-focused.
+INSTRUCTIONS:
+- Text message: casual, 2-3 sentences max. Reference their specific goal or barrier. No excessive emojis.
+- Phone call script: 30-second script — opening, why you're calling (reference their form answer), ask to schedule the free consult.
+- Email: subject line + 3-4 sentence body. Personal, not salesy. Reference something specific from their intake.
+- Cold: one final re-engagement text, acknowledge you don't want to bother them, leave the door open.
+- Always sign off as Freddy from FreddyFit Performance Center.
+- If they said "I am serious and ready to start" — they are HOT. Lead with booking the consult directly.
+- Never be generic. If you know their barrier (e.g. "no accountability"), name it.
 
-Output only the message, nothing else.`
+Output only the message itself, nothing else.`
       const result = await callClaude([{ role: 'user', content: prompt }], 400)
       setMsg(result)
     } catch (e) { setMsg('Error generating message. Please try again.') }
@@ -6434,8 +6438,16 @@ function CrmLeads({ onBack }) {
                 </div>
 
                 {lead.notes && (
-                  <div style={{ marginTop: 8, fontSize: 12, color: C.sub, fontStyle: 'italic', borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
-                    {lead.notes.length > 100 ? lead.notes.slice(0, 100) + '…' : lead.notes}
+                  <div style={{ marginTop: 8, borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
+                    {lead.notes.includes('\n') ? (
+                      lead.notes.split('\n').map((line, i) => (
+                        <div key={i} style={{ fontSize: 11, color: C.sub, lineHeight: 1.7 }}>{line}</div>
+                      ))
+                    ) : (
+                      <div style={{ fontSize: 12, color: C.sub, fontStyle: 'italic' }}>
+                        {lead.notes.length > 120 ? lead.notes.slice(0, 120) + '…' : lead.notes}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
