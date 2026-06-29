@@ -7398,7 +7398,8 @@ function Schedule({ onBack, allClients }) {
   })
   const [sessions, setSessions] = useState([])
   const [booking, setBooking] = useState(null) // { date, time } or { session } for editing
-  const [form, setForm] = useState({ client_name: '', client_id: null, session_type: 'FIT60', duration: 60, recurring: false, notes: '' })
+  const [form, setForm] = useState({ client_name: '', client_id: null, session_type: 'FIT60', duration: 60, notes: '' })
+  const [recurring, setRecurring] = useState(false)
   const [clientSearch, setClientSearch] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -7428,13 +7429,15 @@ function Schedule({ onBack, allClients }) {
 
   const openNew = (date, hour) => {
     const time = `${String(hour).padStart(2, '0')}:00`
-    setForm({ client_name: '', client_id: null, session_type: 'FIT60', duration: 60, recurring: false, notes: '' })
+    setForm({ client_name: '', client_id: null, session_type: 'FIT60', duration: 60, notes: '' })
+    setRecurring(false)
     setClientSearch('')
     setBooking({ date: fmt(date), time })
   }
 
   const openEdit = (session) => {
-    setForm({ client_name: session.client_name, client_id: session.client_id, session_type: session.session_type || 'FIT60', duration: session.duration, recurring: session.recurring || false, notes: session.notes })
+    setForm({ client_name: session.client_name, client_id: session.client_id, session_type: session.session_type || 'FIT60', duration: session.duration, notes: session.notes || '' })
+    setRecurring(session.recurring || false)
     setClientSearch(session.client_name)
     setBooking({ session })
   }
@@ -7446,8 +7449,8 @@ function Schedule({ onBack, allClients }) {
     setSaving(true)
     try {
       const payload = booking.session
-        ? { ...booking.session, ...form }
-        : { date: booking.date, time: booking.time, ...form }
+        ? { ...booking.session, ...form, recurring }
+        : { date: booking.date, time: booking.time, ...form, recurring }
       const saved = await saveSession(payload)
       setSessions(prev => {
         const filtered = prev.filter(s => s.id !== saved.id)
@@ -7567,7 +7570,6 @@ function Schedule({ onBack, allClients }) {
                 value={clientSearch}
                 onChange={e => { setClientSearch(e.target.value); setForm(f => ({ ...f, client_name: e.target.value, client_id: null })) }}
                 placeholder="Type client name..."
-                autoFocus
                 style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600, fontFamily: 'Montserrat,sans-serif', color: C.text, boxSizing: 'border-box' }}
               />
               {filteredClients.length > 0 && (
@@ -7599,11 +7601,11 @@ function Schedule({ onBack, allClients }) {
 
             {/* Recurring */}
             <div style={{ marginBottom: 14 }}>
-              <button type="button" onClick={() => setForm(f => ({ ...f, recurring: !f.recurring }))} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 8, border: `2px solid ${form.recurring ? C.accent : C.border}`, background: form.recurring ? C.accent + '15' : C.faint, cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none', textAlign: 'left' }}>
-                <div style={{ width: 20, height: 20, borderRadius: 4, border: `2px solid ${form.recurring ? C.accent : C.border}`, background: form.recurring ? C.accent : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  {form.recurring && <span style={{ color: '#fff', fontSize: 13, fontWeight: 900, lineHeight: 1 }}>✓</span>}
+              <button type="button" onClick={() => setRecurring(r => !r)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 8, border: `2px solid ${recurring ? C.accent : C.border}`, background: recurring ? C.accent + '15' : C.faint, cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none', textAlign: 'left' }}>
+                <div style={{ width: 20, height: 20, borderRadius: 4, border: `2px solid ${recurring ? C.accent : C.border}`, background: recurring ? C.accent : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  {recurring && <span style={{ color: '#fff', fontSize: 13, fontWeight: 900, lineHeight: 1 }}>✓</span>}
                 </div>
-                <span style={{ fontSize: 12, fontWeight: 700, color: form.recurring ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif' }}>🔁 Recurring — repeats weekly</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: recurring ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif' }}>🔁 Recurring — repeats weekly</span>
               </button>
             </div>
 
