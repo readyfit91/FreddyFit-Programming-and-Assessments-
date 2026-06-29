@@ -274,6 +274,16 @@ export async function deleteBloodWork(id) {
 
 // ── SESSIONS ─────────────────────────────────────────────────────────────────
 
+export async function getRecurringSessions() {
+  const { data, error } = await supabase
+    .from('sessions')
+    .select('*')
+    .eq('recurring', true)
+    .order('date').order('time')
+  if (error) throw error
+  return data || []
+}
+
 export async function getSessions(startDate, endDate) {
   const { data, error } = await supabase
     .from('sessions')

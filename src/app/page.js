@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog, getAllLeads, saveLead, deleteLead, getBloodWork, saveBloodWork, deleteBloodWork, getSessions, saveSession, deleteSession } from '../lib/supabase'
+import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog, getAllLeads, saveLead, deleteLead, getBloodWork, saveBloodWork, deleteBloodWork, getSessions, getRecurringSessions, saveSession, deleteSession } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
 import { FIELD_MODIFIERS } from '../lib/modifiers'
 import { QRCodeCanvas } from 'qrcode.react'
@@ -7409,7 +7409,28 @@ function Schedule({ onBack, allClients }) {
   const fmt = d => d.toISOString().slice(0, 10)
 
   useEffect(() => {
-    getSessions(fmt(weekStart), fmt(weekEnd)).then(setSessions).catch(console.error)
+    const load = async () => {
+      const weekEnd = new Date(weekStart)
+      weekEnd.setDate(weekEnd.getDate() + 6)
+      const [week, allRecurring] = await Promise.all([
+        getSessions(fmt(weekStart), fmt(weekEnd)),
+        getRecurringSessions()
+      ])
+      // Project recurring sessions onto current week by day-of-week
+      const virtual = []
+      for (const r of allRecurring) {
+        const origDate = new Date(r.date + 'T12:00:00')
+        if (origDate >= weekStart) continue // already in range or future, skip projection
+        const dow = origDate.getDay() // 0=Sun
+        const projected = new Date(weekStart)
+        projected.setDate(projected.getDate() + dow)
+        const projStr = fmt(projected)
+        const alreadyReal = week.some(s => s.date === projStr && s.time === r.time && s.client_id === r.client_id)
+        if (!alreadyReal) virtual.push({ ...r, date: projStr, _virtualOf: r.id })
+      }
+      setSessions([...week, ...virtual].sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : a.time < b.time ? -1 : 1))
+    }
+    load().catch(console.error)
   }, [weekStart])
 
   const weekDates = Array.from({ length: 7 }, (_, i) => {
@@ -7436,10 +7457,14 @@ function Schedule({ onBack, allClients }) {
   }
 
   const openEdit = (session) => {
-    setForm({ client_name: session.client_name, client_id: session.client_id, session_type: session.session_type || 'FIT60', duration: session.duration, notes: session.notes || '' })
-    setRecurring(session.recurring || false)
-    setClientSearch(session.client_name)
-    setBooking({ session })
+    // If virtual (projected recurring), find and edit the original session
+    const target = session._virtualOf
+      ? sessions.find(s => s.id === session._virtualOf) || session
+      : session
+    setForm({ client_name: target.client_name, client_id: target.client_id, session_type: target.session_type || 'FIT60', duration: target.duration, notes: target.notes || '' })
+    setRecurring(target.recurring || false)
+    setClientSearch(target.client_name)
+    setBooking({ session: target })
   }
 
   const closeBooking = () => setBooking(null)
