@@ -7497,15 +7497,15 @@ function Schedule({ onBack, allClients }) {
       </div>
 
       {/* Calendar grid */}
-      <div style={{ overflowX: 'auto' }}>
-        <div style={{ minWidth: 640 }}>
+      <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+        <div style={{ minWidth: 420 }}>
           {/* Day headers */}
-          <div style={{ display: 'grid', gridTemplateColumns: '52px repeat(7, 1fr)', borderBottom: `1px solid ${C.border}` }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '44px repeat(7, 1fr)', borderBottom: `1px solid ${C.border}` }}>
             <div />
             {weekDates.map((d, i) => (
-              <div key={i} style={{ textAlign: 'center', padding: '8px 4px', borderLeft: `1px solid ${C.border}` }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1 }}>{DAYS[i]}</div>
-                <div style={{ fontSize: 18, fontWeight: 900, color: isToday(d) ? C.accent : C.text, background: isToday(d) ? C.accent + '18' : 'transparent', borderRadius: 8, width: 32, height: 32, lineHeight: '32px', margin: '2px auto 0' }}>
+              <div key={i} style={{ textAlign: 'center', padding: '6px 2px', borderLeft: `1px solid ${C.border}`, minWidth: 0 }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 0.5 }}>{DAYS[i]}</div>
+                <div style={{ fontSize: 15, fontWeight: 900, color: isToday(d) ? C.accent : C.text, background: isToday(d) ? C.accent + '18' : 'transparent', borderRadius: 6, width: 26, height: 26, lineHeight: '26px', margin: '2px auto 0' }}>
                   {d.getDate()}
                 </div>
               </div>
@@ -7513,26 +7513,26 @@ function Schedule({ onBack, allClients }) {
           </div>
 
           {/* Time rows */}
-          <div style={{ maxHeight: 560, overflowY: 'auto' }}>
+          <div style={{ maxHeight: 560, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
             {HOURS.map(hour => (
-              <div key={hour} style={{ display: 'grid', gridTemplateColumns: '52px repeat(7, 1fr)', borderBottom: `1px solid ${C.border}22` }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, padding: '10px 6px 0', textAlign: 'right', paddingRight: 8 }}>
-                  {hour === 12 ? '12pm' : hour < 12 ? `${hour}am` : `${hour - 12}pm`}
+              <div key={hour} style={{ display: 'grid', gridTemplateColumns: '44px repeat(7, 1fr)', borderBottom: `1px solid ${C.border}22` }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, padding: '10px 4px 0', textAlign: 'right' }}>
+                  {hour === 12 ? '12p' : hour < 12 ? `${hour}a` : `${hour - 12}p`}
                 </div>
                 {weekDates.map((d, di) => {
                   const slots = sessionAt(d, hour)
                   return (
                     <div key={di} onClick={() => openNew(d, hour)}
-                      style={{ borderLeft: `1px solid ${C.border}`, minHeight: 52, padding: 3, cursor: 'pointer', background: isToday(d) ? C.accent + '04' : 'transparent', transition: 'background .1s' }}
+                      style={{ borderLeft: `1px solid ${C.border}`, minHeight: 48, padding: 2, cursor: 'pointer', background: isToday(d) ? C.accent + '04' : 'transparent', transition: 'background .1s', overflow: 'hidden', minWidth: 0 }}
                       onMouseEnter={e => { if (!slots.length) e.currentTarget.style.background = C.faint }}
                       onMouseLeave={e => { e.currentTarget.style.background = isToday(d) ? C.accent + '04' : 'transparent' }}>
                       {slots.map(s => {
                         const stype = SESSION_TYPES.find(t => t.label === s.session_type) || SESSION_TYPES[0]
                         return (
                         <div key={s.id} onClick={e => { e.stopPropagation(); openEdit(s) }}
-                          style={{ background: stype.color, borderRadius: 6, padding: '4px 6px', marginBottom: 2, cursor: 'pointer' }}>
-                          <div style={{ fontSize: 11, fontWeight: 800, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.client_name}</div>
-                          <div style={{ fontSize: 9, color: '#fff', opacity: .8 }}>{s.time.slice(0,5)} · {s.session_type || 'FIT60'}{s.recurring ? ' 🔁' : ''}</div>
+                          style={{ background: stype.color, borderRadius: 5, padding: '3px 4px', marginBottom: 2, cursor: 'pointer', overflow: 'hidden', minWidth: 0 }}>
+                          <div style={{ fontSize: 10, fontWeight: 800, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.client_name}</div>
+                          <div style={{ fontSize: 8, color: '#fff', opacity: .85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.session_type || 'FIT60'}{s.recurring ? ' 🔁' : ''}</div>
                         </div>
                         )
                       })}
@@ -8350,32 +8350,27 @@ export default function App() {
   return (
     <div style={{ minHeight: '100dvh', background: C.bg, display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
-      <div style={{ padding: '12px 24px', borderBottom: `1px solid ${C.border}`, background: C.panel, display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', flexShrink: 0 }} className="no-print">
-        <button onClick={() => setView('roster')} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ padding: '8px 12px', borderBottom: `1px solid ${C.border}`, background: C.panel, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', flexShrink: 0 }} className="no-print">
+        <button onClick={() => setView('roster')} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           <div>
-            <span style={{ fontWeight: 800, fontSize: 15, letterSpacing: 2, color: '#8C9199' }}>FREDDY</span>
-            <span style={{ fontWeight: 800, fontSize: 15, letterSpacing: 2, color: C.accent, marginLeft: 3 }}>FIT</span>
+            <span style={{ fontWeight: 800, fontSize: 14, letterSpacing: 2, color: '#8C9199' }}>FREDDY</span>
+            <span style={{ fontWeight: 800, fontSize: 14, letterSpacing: 2, color: C.accent, marginLeft: 3 }}>FIT</span>
           </div>
-          <div style={{ width: 1, height: 20, background: C.border }} />
-          <div style={{ fontSize: 11, color: C.sub, letterSpacing: 2, fontWeight: 600, textTransform: 'uppercase' }}>TrainDesk</div>
+          <div style={{ width: 1, height: 18, background: C.border }} />
+          <div style={{ fontSize: 10, color: C.sub, letterSpacing: 2, fontWeight: 600, textTransform: 'uppercase' }}>TrainDesk</div>
         </button>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {view !== 'roster' && (
-            <div style={{ fontSize: 12, color: C.sub }}>
-              {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : view === 'signin' ? 'Sign-In Sheet' : view === 'weightTracker' ? 'Weight Tracker' : view === 'editClient' ? 'Edit Client' : view === 'leads' ? 'CRM Leads' : view === 'subscription' ? 'Subscription' : view === 'bloodWork' ? 'Blood Work' : view === 'schedule' ? 'Schedule' : client?.name}
-            </div>
-          )}
-          <button onClick={() => setShowBossPanel(true)} style={{ padding: '4px 10px', borderRadius: 6, border: `1.5px solid ${bossCount > 0 ? C.orange : C.border}`, background: bossCount > 0 ? C.orange + '18' : 'transparent', color: bossCount > 0 ? C.orange : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', position: 'relative' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+          <button onClick={() => setShowBossPanel(true)} style={{ padding: '4px 8px', borderRadius: 6, border: `1.5px solid ${bossCount > 0 ? C.orange : C.border}`, background: bossCount > 0 ? C.orange + '18' : 'transparent', color: bossCount > 0 ? C.orange : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', whiteSpace: 'nowrap' }}>
             🎯 Boss{bossCount > 0 ? ` (${bossCount})` : ''}
           </button>
-          <button onClick={() => setView('schedule')} style={{ padding: '4px 10px', borderRadius: 6, border: `1.5px solid ${view === 'schedule' ? C.accent : C.border}`, background: view === 'schedule' ? C.accent + '18' : 'transparent', color: view === 'schedule' ? C.accent : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+          <button onClick={() => setView('schedule')} style={{ padding: '4px 8px', borderRadius: 6, border: `1.5px solid ${view === 'schedule' ? C.accent : C.border}`, background: view === 'schedule' ? C.accent + '18' : 'transparent', color: view === 'schedule' ? C.accent : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', whiteSpace: 'nowrap' }}>
             📅 Schedule
           </button>
-          <button onClick={() => setView('leads')} style={{ padding: '4px 10px', borderRadius: 6, border: `1.5px solid ${view === 'leads' ? C.accent : C.border}`, background: view === 'leads' ? C.accent + '18' : 'transparent', color: view === 'leads' ? C.accent : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
-            CRM Leads
+          <button onClick={() => setView('leads')} style={{ padding: '4px 8px', borderRadius: 6, border: `1.5px solid ${view === 'leads' ? C.accent : C.border}`, background: view === 'leads' ? C.accent + '18' : 'transparent', color: view === 'leads' ? C.accent : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', whiteSpace: 'nowrap' }}>
+            CRM
           </button>
-          <button onClick={async () => { await fetch('/api/auth', { method: 'DELETE' }); setAuthed(false) }} style={{ padding: '4px 10px', borderRadius: 6, border: `1px solid ${C.border}`, background: 'transparent', color: C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
-            Log Out
+          <button onClick={async () => { await fetch('/api/auth', { method: 'DELETE' }); setAuthed(false) }} style={{ padding: '4px 8px', borderRadius: 6, border: `1px solid ${C.border}`, background: 'transparent', color: C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', whiteSpace: 'nowrap' }}>
+            Out
           </button>
         </div>
       </div>
