@@ -7484,6 +7484,24 @@ function Schedule({ onBack, allClients }) {
         const filtered = prev.filter(s => s.id !== saved.id)
         return [...filtered, saved].sort((a, b) => a.time.localeCompare(b.time))
       })
+      // Send confirmation email if client has an email on file
+      const clientRecord = allClients.find(c => c.id === form.client_id)
+      const clientEmail = clientRecord?.email || ''
+      if (clientEmail && !booking.session) {
+        fetch('/api/send-confirmation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clientName: form.client_name,
+            clientEmail,
+            date: payload.date,
+            time: payload.time,
+            sessionType: form.session_type,
+            notes: form.notes,
+            recurring,
+          })
+        }).catch(() => {}) // fire-and-forget, don't block UI
+      }
       closeBooking()
     } catch(e) {
       alert('Failed to save session: ' + e.message)
