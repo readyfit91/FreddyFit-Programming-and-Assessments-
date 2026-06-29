@@ -4219,10 +4219,13 @@ function WeightTracker({ client, onBack }) {
     const ctx = canvas.getContext('2d')
     const dpr = window.devicePixelRatio || 1
     const rect = canvas.getBoundingClientRect()
-    canvas.width = rect.width * dpr
-    canvas.height = rect.height * dpr
+    const W = rect.width > 0 ? rect.width : canvas.width / dpr
+    const H = rect.height > 0 ? rect.height : canvas.height / dpr
+    if (rect.width > 0) {
+      canvas.width = rect.width * dpr
+      canvas.height = rect.height * dpr
+    }
     ctx.scale(dpr, dpr)
-    const W = rect.width, H = rect.height
     const pad = { top: 30, right: showBehavior ? 50 : 20, bottom: 50, left: 50 }
     const cW = W - pad.left - pad.right, cH = H - pad.top - pad.bottom
 
@@ -4527,8 +4530,11 @@ function WeightTracker({ client, onBack }) {
                   const chartAreaW = W - 72
                   const pieW = 160
                   const lineChartW = chartAreaW - pieW - 16
-                  if (chartRef.current) {
-                    const imgData = chartRef.current.toDataURL('image/png')
+                  if (logs.length >= 2) {
+                    const offChart = document.createElement('canvas')
+                    offChart.width = 800; offChart.height = 300
+                    drawChart(offChart, false)
+                    const imgData = offChart.toDataURL('image/png')
                     doc.addImage(imgData, 'PNG', 36, y, lineChartW, 190)
                   }
                   // Pie chart
@@ -6190,7 +6196,7 @@ Output only the message itself, nothing else.`
   )
 }
 
-function CrmLeads({ onBack }) {
+function CrmLeads({ onBack, onNavigateToRoster }) {
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -6258,6 +6264,7 @@ function CrmLeads({ onBack }) {
       await load()
       setEditing(null)
       alert(`${editing.name} has been added as a client! Find them in your client roster.`)
+      if (onNavigateToRoster) onNavigateToRoster()
     } catch (e) { alert('Error converting lead: ' + e.message) }
     setConverting(false)
   }
@@ -7228,7 +7235,7 @@ export default function App() {
             onBack={() => setView('client')}
           />
         )}
-        {view === 'leads' && <CrmLeads onBack={() => setView('roster')} />}
+        {view === 'leads' && <CrmLeads onBack={() => setView('roster')} onNavigateToRoster={() => setView('roster')} />}
       </div>
       {showBossPanel && (
         <CrmBossPanel
