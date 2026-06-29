@@ -235,3 +235,39 @@ export async function deleteLead(leadId) {
   const { error } = await supabase.from('leads').delete().eq('id', leadId)
   if (error) throw error
 }
+
+// ── BLOOD WORK ────────────────────────────────────────────────────────────────
+
+export async function getBloodWork(clientId) {
+  const { data, error } = await supabase.from('blood_work').select('*').eq('client_id', clientId).order('year', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+
+export async function saveBloodWork(record) {
+  const payload = {
+    client_id: record.client_id,
+    year: record.year,
+    period: record.period,
+    frequency: record.frequency,
+    test_date: record.test_date || null,
+    markers: record.markers || {},
+    notes: record.notes || '',
+    updated_at: new Date().toISOString()
+  }
+  if (record.id) {
+    const { data, error } = await supabase.from('blood_work').update(payload).eq('id', record.id).select()
+    if (error) throw error
+    return data?.[0] || null
+  } else {
+    const insertPayload = { ...payload, id: crypto.randomUUID() }
+    const { data, error } = await supabase.from('blood_work').insert(insertPayload).select()
+    if (error) throw error
+    return data?.[0] || null
+  }
+}
+
+export async function deleteBloodWork(id) {
+  const { error } = await supabase.from('blood_work').delete().eq('id', id)
+  if (error) throw error
+}

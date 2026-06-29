@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog, getAllLeads, saveLead, deleteLead } from '../lib/supabase'
+import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog, getAllLeads, saveLead, deleteLead, getBloodWork, saveBloodWork, deleteBloodWork } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
 import { FIELD_MODIFIERS } from '../lib/modifiers'
 import { QRCodeCanvas } from 'qrcode.react'
@@ -5473,7 +5473,7 @@ function AssessmentHistoryModal({ assessment, client, onClose, onNewAssessment }
   )
 }
 
-function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onSignInSheet, onWeightTracker, onSubscription, onBack, allClients = [], onSwitchClient }) {
+function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onSignInSheet, onWeightTracker, onSubscription, onBloodWork, onBack, allClients = [], onSwitchClient }) {
   const assessmentsDone = Object.keys(client.assessments || {})
   const [showIntake, setShowIntake] = useState(false)
   const [showLinkMenu, setShowLinkMenu] = useState(false)
@@ -5590,6 +5590,7 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
           {client.goal && <div style={{ fontSize: 13, color: C.sub, marginTop: 4 }}>Goal: {client.goal}</div>}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Btn onClick={() => onBloodWork(client)} small color={C.red}>🩸 Blood Work</Btn>
           <Btn onClick={() => onWeightTracker(client)} small color={C.teal}>⚖️ Weight</Btn>
           <Btn onClick={() => onSubscription(client)} small color={C.indigo}>📅 Subscription</Btn>
           <Btn onClick={() => onSignInSheet(client)} small color={C.green}>📋 Sign-In Sheet</Btn>
@@ -7201,6 +7202,453 @@ function SubscriptionTracker({ client, onBack }) {
   )
 }
 
+// ── BLOOD WORK PANEL ─────────────────────────────────────────────────────────
+
+const MARKERS = {
+  'Total Cholesterol': { unit: 'mg/dL', optimal: [0, 200], borderline: [200, 239] },
+  'LDL': { unit: 'mg/dL', optimal: [0, 100], borderline: [100, 159] },
+  'HDL': { unit: 'mg/dL', optimal: [60, 999], borderline: [40, 60] },
+  'Triglycerides': { unit: 'mg/dL', optimal: [0, 150], borderline: [150, 199] },
+  'Glucose': { unit: 'mg/dL', optimal: [70, 99], borderline: [100, 125] },
+  'HbA1c': { unit: '%', optimal: [0, 5.7], borderline: [5.7, 6.4] },
+  'WBC': { unit: 'K/µL', optimal: [4.5, 11.0], borderline: [11.0, 13.0] },
+  'RBC': { unit: 'M/µL', optimal: [4.5, 5.9], borderline: [4.0, 4.5] },
+  'Hemoglobin': { unit: 'g/dL', optimal: [13.5, 17.5], borderline: [12.0, 13.5] },
+  'Hematocrit': { unit: '%', optimal: [41, 53], borderline: [36, 41] },
+  'Platelets': { unit: 'K/µL', optimal: [150, 400], borderline: [100, 150] },
+  'BUN': { unit: 'mg/dL', optimal: [7, 25], borderline: [25, 30] },
+  'Creatinine': { unit: 'mg/dL', optimal: [0.74, 1.35], borderline: [1.35, 1.7] },
+  'eGFR': { unit: 'mL/min', optimal: [60, 999], borderline: [45, 60] },
+  'Sodium': { unit: 'mEq/L', optimal: [136, 145], borderline: [130, 136] },
+  'Potassium': { unit: 'mEq/L', optimal: [3.5, 5.1], borderline: [3.0, 3.5] },
+  'Testosterone': { unit: 'ng/dL', optimal: [400, 1000], borderline: [300, 400] },
+  'TSH': { unit: 'mIU/L', optimal: [0.4, 4.0], borderline: [4.0, 10.0] },
+  'Cortisol': { unit: 'µg/dL', optimal: [6, 23], borderline: [23, 30] },
+  'Vitamin D': { unit: 'ng/mL', optimal: [40, 100], borderline: [20, 40] },
+  'B12': { unit: 'pg/mL', optimal: [400, 900], borderline: [200, 400] },
+  'Ferritin': { unit: 'ng/mL', optimal: [30, 300], borderline: [12, 30] },
+  'Iron': { unit: 'µg/dL', optimal: [60, 170], borderline: [40, 60] },
+  'CRP': { unit: 'mg/L', optimal: [0, 1.0], borderline: [1.0, 3.0] },
+  'Homocysteine': { unit: 'µmol/L', optimal: [0, 10], borderline: [10, 15] },
+}
+
+const MARKER_CATEGORIES = {
+  'Lipids': ['Total Cholesterol', 'LDL', 'HDL', 'Triglycerides'],
+  'Blood Sugar': ['Glucose', 'HbA1c'],
+  'CBC': ['WBC', 'RBC', 'Hemoglobin', 'Hematocrit', 'Platelets'],
+  'Metabolic': ['BUN', 'Creatinine', 'eGFR', 'Sodium', 'Potassium'],
+  'Hormones': ['Testosterone', 'TSH', 'Cortisol'],
+  'Vitamins & Minerals': ['Vitamin D', 'B12', 'Ferritin', 'Iron'],
+  'Inflammation': ['CRP', 'Homocysteine'],
+}
+
+const HIGHER_IS_BETTER = new Set(['HDL', 'Hemoglobin', 'Vitamin D', 'Testosterone', 'eGFR', 'B12', 'Iron', 'Ferritin', 'RBC', 'Hematocrit'])
+
+function getMarkerStatus(name, value) {
+  const m = MARKERS[name]
+  if (!m || value === '' || value === null || value === undefined) return 'empty'
+  const v = parseFloat(value)
+  if (isNaN(v)) return 'empty'
+  const [oLow, oHigh] = m.optimal
+  const [bLow, bHigh] = m.borderline
+  if (v >= oLow && v <= oHigh) return 'optimal'
+  if ((v >= bLow && v <= bHigh) || (v > oHigh && v <= bHigh) || (v < oLow && v >= bLow)) return 'borderline'
+  return 'out'
+}
+
+function statusColor(status) {
+  if (status === 'optimal') return C.green
+  if (status === 'borderline') return C.orange
+  if (status === 'out') return C.red
+  return C.border
+}
+
+function BloodWorkPieChart({ records }) {
+  const canvasRef = useRef(null)
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    let opt = 0, bord = 0, out = 0
+    for (const rec of records) {
+      for (const [name, val] of Object.entries(rec.markers || {})) {
+        const s = getMarkerStatus(name, val)
+        if (s === 'optimal') opt++
+        else if (s === 'borderline') bord++
+        else if (s === 'out') out++
+      }
+    }
+    const total = opt + bord + out
+    if (total === 0) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      ctx.fillStyle = C.sub
+      ctx.font = '12px Montserrat,sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText('No data', 80, 80)
+      return
+    }
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    const slices = [
+      { count: opt, color: C.green, label: 'Optimal' },
+      { count: bord, color: C.orange, label: 'Borderline' },
+      { count: out, color: C.red, label: 'Out of Range' },
+    ]
+    let startAngle = -Math.PI / 2
+    const cx = 80, cy = 80, r = 65
+    for (const s of slices) {
+      if (s.count === 0) continue
+      const angle = (s.count / total) * 2 * Math.PI
+      ctx.beginPath()
+      ctx.moveTo(cx, cy)
+      ctx.arc(cx, cy, r, startAngle, startAngle + angle)
+      ctx.closePath()
+      ctx.fillStyle = s.color
+      ctx.fill()
+      startAngle += angle
+    }
+    ctx.beginPath()
+    ctx.arc(cx, cy, 30, 0, 2 * Math.PI)
+    ctx.fillStyle = C.card
+    ctx.fill()
+    ctx.fillStyle = C.text
+    ctx.font = 'bold 13px Montserrat,sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText(total, cx, cy + 5)
+  }, [records])
+
+  const counts = { opt: 0, bord: 0, out: 0 }
+  for (const rec of records) {
+    for (const [name, val] of Object.entries(rec.markers || {})) {
+      const s = getMarkerStatus(name, val)
+      if (s === 'optimal') counts.opt++
+      else if (s === 'borderline') counts.bord++
+      else if (s === 'out') counts.out++
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+      <canvas ref={canvasRef} width={160} height={160} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {[['optimal', C.green, 'Optimal', counts.opt], ['borderline', C.orange, 'Borderline', counts.bord], ['out', C.red, 'Out of Range', counts.out]].map(([k, color, label, count]) => (
+          <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 12, height: 12, borderRadius: '50%', background: color }} />
+            <span style={{ fontSize: 12, color: C.text }}>{label}</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color }}>{count}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function BloodWorkPanel({ client, onBack }) {
+  const currentYear = new Date().getFullYear()
+  const years = [currentYear, currentYear - 1, currentYear - 2, currentYear - 3, currentYear - 4]
+  const [frequency, setFrequency] = useState('Annual')
+  const [records, setRecords] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [expandedYear, setExpandedYear] = useState(currentYear)
+  const [expandedPeriod, setExpandedPeriod] = useState(null)
+  const [drafts, setDrafts] = useState({})
+  const [saving, setSaving] = useState({})
+  const [aiResult, setAiResult] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
+  const [showComparison, setShowComparison] = useState(false)
+
+  const periods = frequency === 'Quarterly' ? ['Q1', 'Q2', 'Q3', 'Q4'] : frequency === 'Semi-Annual' ? ['H1', 'H2'] : ['Annual']
+
+  useEffect(() => {
+    setLoading(true)
+    getBloodWork(client.id).then(data => {
+      setRecords(data)
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }, [client.id])
+
+  function getRecord(year, period) {
+    return records.find(r => r.year === year && r.period === period) || null
+  }
+
+  function getDraftKey(year, period) { return `${year}-${period}` }
+
+  function getDraft(year, period) {
+    const key = getDraftKey(year, period)
+    if (drafts[key]) return drafts[key]
+    const rec = getRecord(year, period)
+    return rec ? { ...rec.markers } : {}
+  }
+
+  function setMarker(year, period, name, value) {
+    const key = getDraftKey(year, period)
+    setDrafts(d => ({ ...d, [key]: { ...(d[key] || getDraft(year, period)), [name]: value } }))
+  }
+
+  async function handleSave(year, period) {
+    const key = getDraftKey(year, period)
+    setSaving(s => ({ ...s, [key]: true }))
+    try {
+      const existing = getRecord(year, period)
+      const saved = await saveBloodWork({
+        id: existing?.id,
+        client_id: client.id,
+        year,
+        period,
+        frequency,
+        markers: drafts[key] || getDraft(year, period),
+        notes: existing?.notes || '',
+        test_date: existing?.test_date || null,
+      })
+      setRecords(recs => {
+        const others = recs.filter(r => !(r.year === year && r.period === period))
+        return saved ? [...others, saved] : others
+      })
+      setDrafts(d => { const nd = { ...d }; delete nd[key]; return nd })
+    } catch (e) {
+      alert('Save failed: ' + e.message)
+    }
+    setSaving(s => ({ ...s, [key]: false }))
+  }
+
+  async function handleDelete(year, period) {
+    const rec = getRecord(year, period)
+    if (!rec) return
+    if (!confirm('Delete this blood work record?')) return
+    await deleteBloodWork(rec.id)
+    setRecords(recs => recs.filter(r => r.id !== rec.id))
+  }
+
+  async function handleAiAnalysis() {
+    setAiLoading(true)
+    setAiResult('')
+    try {
+      const dataStr = records.map(r => `${r.year} ${r.period}: ${Object.entries(r.markers || {}).map(([k, v]) => `${k}=${v}`).join(', ')}`).join('\n')
+      const text = await callClaude([{
+        role: 'user',
+        content: `You are a health & fitness advisor. Analyze this client's blood work data across time periods and provide actionable insights for their personal trainer Freddy.\n\nClient: ${client.name}\nBlood Work History:\n${dataStr || 'No data yet'}\n\nProvide analysis in exactly 3 sections:\n✅ Improving\n⚠️ Needs Attention\n🎯 Freddy's Focus (specific fitness/nutrition priorities)\n\nBe concise and specific.`
+      }], 1200)
+      setAiResult(text)
+    } catch (e) {
+      setAiResult('Error: ' + e.message)
+    }
+    setAiLoading(false)
+  }
+
+  function getTrendArrow(markerName, vals) {
+    if (vals.length < 2) return '→'
+    const last = parseFloat(vals[vals.length - 1])
+    const prev = parseFloat(vals[vals.length - 2])
+    if (isNaN(last) || isNaN(prev)) return '→'
+    const diff = last - prev
+    if (Math.abs(diff) < 0.001) return '→'
+    const higherBetter = HIGHER_IS_BETTER.has(markerName)
+    if (higherBetter) return diff > 0 ? '▲' : '▼'
+    return diff < 0 ? '▲' : '▼'
+  }
+
+  function getTrendColor(markerName, vals) {
+    const arrow = getTrendArrow(markerName, vals)
+    if (arrow === '→') return C.sub
+    if (arrow === '▲') return C.green
+    return C.red
+  }
+
+  const allPeriodKeys = []
+  for (const y of [...years].reverse()) {
+    for (const p of periods) {
+      if (getRecord(y, p)) allPeriodKeys.push(`${y} ${p}`)
+    }
+  }
+
+  const allMarkerNames = Object.keys(MARKERS)
+
+  return (
+    <div style={{ maxWidth: 900, margin: '0 auto', padding: '24px 16px', fontFamily: 'Montserrat,sans-serif' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+        <Btn onClick={onBack} outline small color={C.sub}>← Back</Btn>
+        <div style={{ fontWeight: 800, fontSize: 22, letterSpacing: 3, color: C.text }}>🩸 Blood Work</div>
+        <div style={{ fontSize: 13, color: C.sub }}>{client.name}</div>
+      </div>
+
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
+        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 12 }}>Frequency</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {['Quarterly', 'Semi-Annual', 'Annual'].map(f => (
+            <button key={f} onClick={() => setFrequency(f)} style={{ padding: '8px 16px', borderRadius: 8, border: `1.5px solid ${frequency === f ? C.accent : C.border}`, background: frequency === f ? C.accent + '18' : 'transparent', color: frequency === f ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>{f}</button>
+          ))}
+        </div>
+      </div>
+
+      {records.length > 1 && (
+        <div style={{ marginBottom: 20 }}>
+          <button onClick={() => setShowComparison(!showComparison)} style={{ padding: '8px 16px', borderRadius: 8, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
+            {showComparison ? '▲ Hide' : '▼ Show'} Year-over-Year Comparison
+          </button>
+        </div>
+      )}
+
+      {showComparison && allPeriodKeys.length > 1 && (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 20, overflowX: 'auto' }}>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 12 }}>Year-over-Year Comparison</div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left', padding: '6px 8px', color: C.sub, fontWeight: 700, borderBottom: `1px solid ${C.border}`, minWidth: 120 }}>Marker</th>
+                {allPeriodKeys.map(pk => (
+                  <th key={pk} style={{ textAlign: 'center', padding: '6px 8px', color: C.sub, fontWeight: 700, borderBottom: `1px solid ${C.border}`, minWidth: 70 }}>{pk}</th>
+                ))}
+                <th style={{ textAlign: 'center', padding: '6px 8px', color: C.sub, fontWeight: 700, borderBottom: `1px solid ${C.border}` }}>Trend</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allMarkerNames.map(markerName => {
+                const vals = allPeriodKeys.map(pk => {
+                  const [y, p] = pk.split(' ')
+                  const rec = getRecord(parseInt(y), p)
+                  return rec?.markers?.[markerName] ?? ''
+                })
+                if (vals.every(v => v === '')) return null
+                const numVals = vals.filter(v => v !== '')
+                return (
+                  <tr key={markerName}>
+                    <td style={{ padding: '5px 8px', color: C.text, fontWeight: 600, borderBottom: `1px solid ${C.border}22` }}>{markerName}</td>
+                    {vals.map((v, i) => {
+                      const s = getMarkerStatus(markerName, v)
+                      return (
+                        <td key={i} style={{ textAlign: 'center', padding: '5px 8px', borderBottom: `1px solid ${C.border}22` }}>
+                          {v !== '' ? (
+                            <span style={{ color: statusColor(s), fontWeight: 700 }}>{v}</span>
+                          ) : <span style={{ color: C.border }}>—</span>}
+                        </td>
+                      )
+                    })}
+                    <td style={{ textAlign: 'center', padding: '5px 8px', borderBottom: `1px solid ${C.border}22`, fontWeight: 800, fontSize: 14, color: getTrendColor(markerName, numVals) }}>
+                      {getTrendArrow(markerName, numVals)}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {loading ? <Spinner /> : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {years.map(year => {
+            const yearRecords = records.filter(r => r.year === year)
+            const isExpanded = expandedYear === year
+            return (
+              <div key={year} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden' }}>
+                <div onClick={() => setExpandedYear(isExpanded ? null : year)} style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span style={{ fontWeight: 800, fontSize: 16, color: C.text }}>{year}</span>
+                    {yearRecords.length > 0 && (
+                      <span style={{ fontSize: 10, background: C.accent + '18', color: C.accent, borderRadius: 10, padding: '2px 10px', fontWeight: 700 }}>{yearRecords.length} record{yearRecords.length > 1 ? 's' : ''}</span>
+                    )}
+                  </div>
+                  <span style={{ fontSize: 11, color: C.sub }}>{isExpanded ? '▲' : '▼'}</span>
+                </div>
+
+                {isExpanded && (
+                  <div style={{ borderTop: `1px solid ${C.border}`, padding: '16px 20px' }}>
+                    {yearRecords.length > 0 && (
+                      <div style={{ marginBottom: 20 }}>
+                        <BloodWorkPieChart records={yearRecords} />
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {periods.map(period => {
+                        const rec = getRecord(year, period)
+                        const pKey = getDraftKey(year, period)
+                        const isExpP = expandedPeriod === pKey
+                        const draft = getDraft(year, period)
+                        const isDirty = !!drafts[pKey]
+
+                        return (
+                          <div key={period} style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
+                            <div onClick={() => setExpandedPeriod(isExpP ? null : pKey)} style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', background: C.faint }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <span style={{ fontWeight: 700, fontSize: 13, color: C.text }}>{period}</span>
+                                {rec && <span style={{ fontSize: 10, color: C.green, fontWeight: 700 }}>● Saved</span>}
+                                {isDirty && <span style={{ fontSize: 10, color: C.orange, fontWeight: 700 }}>● Unsaved changes</span>}
+                              </div>
+                              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                {rec && (
+                                  <button onClick={e => { e.stopPropagation(); handleDelete(year, period) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.red, fontSize: 11, fontWeight: 700 }}>Delete</button>
+                                )}
+                                <span style={{ fontSize: 11, color: C.sub }}>{isExpP ? '▲' : '▼'}</span>
+                              </div>
+                            </div>
+
+                            {isExpP && (
+                              <div style={{ padding: '16px' }}>
+                                {Object.entries(MARKER_CATEGORIES).map(([catName, markerNames]) => (
+                                  <div key={catName} style={{ marginBottom: 16 }}>
+                                    <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>{catName}</div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
+                                      {markerNames.map(name => {
+                                        const m = MARKERS[name]
+                                        const val = draft[name] ?? ''
+                                        const status = getMarkerStatus(name, val)
+                                        const borderCol = status === 'empty' ? C.border : statusColor(status)
+                                        return (
+                                          <div key={name}>
+                                            <div style={{ fontSize: 10, color: C.sub, marginBottom: 3, fontWeight: 600 }}>{name} <span style={{ color: C.border }}>({m.unit})</span></div>
+                                            <input
+                                              type="number"
+                                              step="any"
+                                              value={val}
+                                              onChange={e => setMarker(year, period, name, e.target.value)}
+                                              placeholder={`${m.optimal[0]}–${m.optimal[1] === 999 ? '↑' : m.optimal[1]}`}
+                                              style={{ width: '100%', padding: '6px 10px', borderRadius: 6, border: `2px solid ${borderCol}`, background: C.bg, color: C.text, fontFamily: 'Montserrat,sans-serif', fontSize: 12, boxSizing: 'border-box', outline: 'none' }}
+                                            />
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
+                                  </div>
+                                ))}
+
+                                <div style={{ marginTop: 16, display: 'flex', gap: 10 }}>
+                                  <Btn onClick={() => handleSave(year, period)} disabled={saving[pKey]} small color={C.accent}>
+                                    {saving[pKey] ? 'Saving…' : 'Save'}
+                                  </Btn>
+                                  {isDirty && (
+                                    <Btn onClick={() => setDrafts(d => { const nd = { ...d }; delete nd[pKey]; return nd })} outline small color={C.sub}>Discard</Btn>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <div style={{ marginTop: 24, background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase' }}>AI Analysis</div>
+          <Btn onClick={handleAiAnalysis} disabled={aiLoading || records.length === 0} small color={C.accent}>
+            {aiLoading ? '⏳ Analyzing…' : '🤖 AI Analysis'}
+          </Btn>
+        </div>
+        {aiResult && (
+          <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, color: C.text, lineHeight: 1.7, borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>{aiResult}</div>
+        )}
+        {records.length === 0 && <div style={{ fontSize: 12, color: C.sub }}>Add blood work data to enable AI analysis.</div>}
+      </div>
+    </div>
+  )
+}
+
 // ── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [authed, setAuthed] = useState(false)
@@ -7295,7 +7743,7 @@ export default function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {view !== 'roster' && (
             <div style={{ fontSize: 12, color: C.sub }}>
-              {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : view === 'signin' ? 'Sign-In Sheet' : view === 'weightTracker' ? 'Weight Tracker' : view === 'editClient' ? 'Edit Client' : view === 'leads' ? 'CRM Leads' : view === 'subscription' ? 'Subscription' : client?.name}
+              {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : view === 'signin' ? 'Sign-In Sheet' : view === 'weightTracker' ? 'Weight Tracker' : view === 'editClient' ? 'Edit Client' : view === 'leads' ? 'CRM Leads' : view === 'subscription' ? 'Subscription' : view === 'bloodWork' ? 'Blood Work' : client?.name}
             </div>
           )}
           <button onClick={() => setShowBossPanel(true)} style={{ padding: '4px 10px', borderRadius: 6, border: `1.5px solid ${bossCount > 0 ? C.orange : C.border}`, background: bossCount > 0 ? C.orange + '18' : 'transparent', color: bossCount > 0 ? C.orange : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', position: 'relative' }}>
@@ -7330,6 +7778,7 @@ export default function App() {
             onSignInSheet={c => { setClient(c); setView('signin') }}
             onWeightTracker={c => { setClient(c); setView('weightTracker') }}
             onSubscription={c => { setClient(c); setView('subscription') }}
+            onBloodWork={c => { setClient(c); setView('bloodWork') }}
             onEditClient={openEditClient}
             onBack={() => setView('roster')}
             allClients={allClients}
@@ -7396,6 +7845,7 @@ export default function App() {
             onBack={() => setView('client')}
           />
         )}
+        {view === 'bloodWork' && client && <BloodWorkPanel client={client} onBack={() => setView('client')} />}
         {view === 'leads' && <CrmLeads onBack={() => setView('roster')} onNavigateToRoster={() => setView('roster')} />}
       </div>
       {showBossPanel && (
