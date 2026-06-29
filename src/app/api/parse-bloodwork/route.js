@@ -8,7 +8,7 @@ const PANEL_MARKERS = {
     'RBC','Hemoglobin','Hematocrit','MCV','MCH','MCHC','Platelets'
   ],
   'Lipid Panel': [
-    'Total Cholesterol','LDL','HDL','Triglycerides','Non-HDL Cholesterol','LDL/HDL Ratio'
+    'Total Cholesterol','LDL','HDL','Triglycerides','Non-HDL','Cholesterol/HDL Ratio'
   ],
   'Comprehensive Metabolic Panel': [
     'Glucose','BUN','Creatinine','eGFR','BUN/Creatinine Ratio','Sodium','Potassium',
@@ -67,22 +67,32 @@ export async function POST(request) {
             type: 'text',
             text: `You are a precise medical lab result transcriber. ${panelContext}
 
-Your job is to read the RESULT column values exactly as printed in this lab report — do not estimate, calculate, or infer any value.
+Your ONLY job is to read the patient's actual result values exactly as printed — do not estimate, calculate, or infer anything.
 
 Map each lab result to one of these marker names:
 ${markerList.join(', ')}
 
-STRICT RULES:
-1. ONLY include a marker if you can see its numeric result value printed clearly in the PDF
-2. Copy the result number EXACTLY as it appears — do not round or modify it
-3. Use the RESULT value only — never use the reference range as the value
-4. If a test appears but the result is missing, flagged as invalid, or unreadable — skip it
-5. If a marker name on the report is ambiguous and you are not certain it maps to one of the listed names — skip it
-6. Do NOT include reference ranges, units, flags (H/L/A), or any non-result numbers
-7. Return ONLY a JSON object with no explanation, no markdown, no commentary
+Common lab name synonyms to help you map correctly:
+- "CHOLESTEROL" or "TOTAL CHOLESTEROL" → Total Cholesterol
+- "LDL CALCULATED" or "LDL-C" or "LDL CHOL" → LDL
+- "TRIGLYCERIDE" or "TRIG" → Triglycerides
+- "CHOL/HDL RATIO" or "CHOLESTEROL/HDL" or "TOTAL CHOL/HDL" → Cholesterol/HDL Ratio
+- "NON-HDL" or "NON HDL CHOLESTEROL" → Non-HDL
+- "HEMOGLOBIN A1C" or "GLYCOHEMOGLOBIN" → HbA1c
+- "GLUCOSE, SERUM" → Glucose
+- "CREATININE, SERUM" → Creatinine
+- "BUN" or "UREA NITROGEN" → BUN
 
-Correct example: {"WBC": 6.2, "Hemoglobin": 14.1, "Platelets": 245}
-Wrong example (includes range): {"WBC": "4.5-11.0"}`
+STRICT RULES:
+1. Many lab reports show results in a "Value" field — that number is the patient result. Ignore "Normal value", "Reference range", "Desirable range" — those are NOT the patient's result.
+2. Copy the result number EXACTLY as it appears — do not round or modify it.
+3. NEVER use a reference range number (e.g. "<100", ">50", "4.5-11.0") as a result value.
+4. If a test name is ambiguous or doesn't clearly match one of the listed marker names — skip it.
+5. If the result is flagged as invalid, cancelled, or missing — skip it.
+6. Return ONLY a valid JSON object. No explanation, no markdown, no units in the values.
+
+Correct: {"Total Cholesterol": 170, "HDL": 75, "LDL": 82, "Triglycerides": 46}
+Wrong (used reference range): {"LDL": 100}`
           }
         ]
       }]

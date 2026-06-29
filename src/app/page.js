@@ -7285,8 +7285,8 @@ const BLOOD_PANELS = [
       { name: 'LDL',               unit: 'mg/dL', optimal: [0,100],   borderline: [100,159], desc: '"Bad" cholesterol — deposits in artery walls. The primary cardiovascular risk driver.' },
       { name: 'HDL',               unit: 'mg/dL', optimal: [60,999],  borderline: [40,60],   desc: '"Good" cholesterol — clears LDL from arteries. Higher is better. Cardio exercise raises HDL.' },
       { name: 'Triglycerides',     unit: 'mg/dL', optimal: [0,150],   borderline: [150,199], desc: 'Blood fats driven by sugar and refined carb excess. High levels drive metabolic syndrome.' },
-      { name: 'Non-HDL',           unit: 'mg/dL', optimal: [0,130],   borderline: [130,159], desc: 'All atherogenic (artery-clogging) cholesterol combined. Better risk predictor than LDL alone.' },
-      { name: 'VLDL',              unit: 'mg/dL', optimal: [5,40],    borderline: [40,60],   desc: 'Carries triglycerides in the blood. High VLDL signals excess sugar intake and metabolic stress.' },
+      { name: 'Non-HDL',                unit: 'mg/dL', optimal: [0,130],  borderline: [130,159], desc: 'All atherogenic (artery-clogging) cholesterol combined. Better risk predictor than LDL alone.' },
+      { name: 'Cholesterol/HDL Ratio',  unit: 'ratio',  optimal: [0,5.0], borderline: [5.0,7.0], desc: 'Total cholesterol divided by HDL. Below 5 is ideal. High ratio = elevated cardiovascular risk.' },
     ],
   },
   {
