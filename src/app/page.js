@@ -7457,6 +7457,15 @@ function BloodWorkPieChart({ records }) {
   )
 }
 
+async function parsePdfBloodWork(file) {
+  const fd = new FormData()
+  fd.append('pdf', file)
+  const res = await fetch('/api/parse-bloodwork', { method: 'POST', body: fd })
+  const data = await res.json()
+  if (data.error) throw new Error(data.error)
+  return data
+}
+
 function BloodWorkPanel({ client, onBack }) {
   const currentYear = new Date().getFullYear()
   const years = [currentYear, currentYear - 1, currentYear - 2, currentYear - 3, currentYear - 4]
@@ -7467,9 +7476,12 @@ function BloodWorkPanel({ client, onBack }) {
   const [expandedPeriod, setExpandedPeriod] = useState(null)
   const [drafts, setDrafts] = useState({})
   const [saving, setSaving] = useState({})
+  const [parsing, setParsing] = useState({})
   const [aiResult, setAiResult] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
   const [showComparison, setShowComparison] = useState(false)
+  const [showManual, setShowManual] = useState({})
+  const fileInputRefs = useRef({})
 
   const periods = frequency === 'Quarterly' ? ['Q1', 'Q2', 'Q3', 'Q4'] : frequency === 'Semi-Annual' ? ['H1', 'H2'] : ['Annual']
 
@@ -7497,6 +7509,26 @@ function BloodWorkPanel({ client, onBack }) {
   function setMarker(year, period, name, value) {
     const key = getDraftKey(year, period)
     setDrafts(d => ({ ...d, [key]: { ...(d[key] || getDraft(year, period)), [name]: value } }))
+  }
+
+  async function handlePdfUpload(year, period, file) {
+    if (!file) return
+    const key = getDraftKey(year, period)
+    setParsing(p => ({ ...p, [key]: true }))
+    try {
+      const { markers, count } = await parsePdfBloodWork(file)
+      if (!count || count === 0) {
+        alert('Could not extract marker values from this PDF. Try uploading a text-based (not scanned) PDF, or enter values manually.')
+        setParsing(p => ({ ...p, [key]: false }))
+        return
+      }
+      setDrafts(d => ({ ...d, [key]: { ...(d[key] || getDraft(year, period)), ...markers } }))
+      setExpandedPeriod(key)
+      setShowManual(m => ({ ...m, [key]: true }))
+    } catch (e) {
+      alert('PDF parsing failed: ' + e.message)
+    }
+    setParsing(p => ({ ...p, [key]: false }))
   }
 
   async function handleSave(year, period) {
@@ -7540,8 +7572,8 @@ function BloodWorkPanel({ client, onBack }) {
       const dataStr = records.map(r => `${r.year} ${r.period}: ${Object.entries(r.markers || {}).map(([k, v]) => `${k}=${v}`).join(', ')}`).join('\n')
       const text = await callClaude([{
         role: 'user',
-        content: `You are a health & fitness advisor. Analyze this client's blood work data across time periods and provide actionable insights for their personal trainer Freddy.\n\nClient: ${client.name}\nBlood Work History:\n${dataStr || 'No data yet'}\n\nProvide analysis in exactly 3 sections:\n✅ Improving\n⚠️ Needs Attention\n🎯 Freddy's Focus (specific fitness/nutrition priorities)\n\nBe concise and specific.`
-      }], 1200)
+        content: `You are a health & fitness advisor analyzing blood work for a personal trainer named Freddy.\n\nClient: ${client.name}\nBlood Work History:\n${dataStr || 'No data yet'}\n\nProvide analysis in exactly 4 sections:\n✅ What's Improving\n⚠️ Needs Attention (list specific markers and why they matter)\n🎯 Freddy's Focus (specific training & nutrition actions to take)\n📈 Year-over-Year Summary (highlight the most important trends)\n\nBe concise, specific, and actionable.`
+      }], 1500)
       setAiResult(text)
     } catch (e) {
       setAiResult('Error: ' + e.message)
@@ -7577,6 +7609,21 @@ function BloodWorkPanel({ client, onBack }) {
 
   const allMarkerNames = Object.keys(MARKERS)
 
+  // Per-year pie data for multi-year comparison
+  const yearSummaries = years.map(year => {
+    const yearRecords = records.filter(r => r.year === year)
+    let opt = 0, bord = 0, out = 0
+    for (const rec of yearRecords) {
+      for (const [name, val] of Object.entries(rec.markers || {})) {
+        const s = getMarkerStatus(name, val)
+        if (s === 'optimal') opt++
+        else if (s === 'borderline') bord++
+        else if (s === 'out') out++
+      }
+    }
+    return { year, opt, bord, out, total: opt + bord + out }
+  }).filter(s => s.total > 0)
+
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', padding: '24px 16px', fontFamily: 'Montserrat,sans-serif' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
@@ -7585,8 +7632,9 @@ function BloodWorkPanel({ client, onBack }) {
         <div style={{ fontSize: 13, color: C.sub }}>{client.name}</div>
       </div>
 
-      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
-        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 12 }}>Frequency</div>
+      {/* Frequency selector */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '14px 20px', marginBottom: 16 }}>
+        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 10 }}>Testing Frequency</div>
         <div style={{ display: 'flex', gap: 8 }}>
           {['Quarterly', 'Semi-Annual', 'Annual'].map(f => (
             <button key={f} onClick={() => setFrequency(f)} style={{ padding: '8px 16px', borderRadius: 8, border: `1.5px solid ${frequency === f ? C.accent : C.border}`, background: frequency === f ? C.accent + '18' : 'transparent', color: frequency === f ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>{f}</button>
@@ -7594,21 +7642,42 @@ function BloodWorkPanel({ client, onBack }) {
         </div>
       </div>
 
-      {records.length > 1 && (
-        <div style={{ marginBottom: 20 }}>
+      {/* Multi-year pie comparison */}
+      {yearSummaries.length > 0 && (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 14 }}>Year-over-Year Snapshot</div>
+          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            {yearSummaries.map(({ year, opt, bord, out, total }) => (
+              <div key={year} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, minWidth: 120 }}>
+                <BloodWorkPieChart records={records.filter(r => r.year === year)} />
+                <div style={{ fontWeight: 800, fontSize: 13, color: C.text }}>{year}</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
+                  {opt > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: C.green }}>✅ {opt}</span>}
+                  {bord > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: C.orange }}>⚠️ {bord}</span>}
+                  {out > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: C.red }}>❌ {out}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Year-over-year marker table */}
+      {allPeriodKeys.length > 1 && (
+        <div style={{ marginBottom: 16 }}>
           <button onClick={() => setShowComparison(!showComparison)} style={{ padding: '8px 16px', borderRadius: 8, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
-            {showComparison ? '▲ Hide' : '▼ Show'} Year-over-Year Comparison
+            {showComparison ? '▲ Hide' : '▼ Show'} Marker Comparison Table
           </button>
         </div>
       )}
 
       {showComparison && allPeriodKeys.length > 1 && (
-        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 20, overflowX: 'auto' }}>
-          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 12 }}>Year-over-Year Comparison</div>
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 16, overflowX: 'auto' }}>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 12 }}>All Markers Over Time</div>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
             <thead>
               <tr>
-                <th style={{ textAlign: 'left', padding: '6px 8px', color: C.sub, fontWeight: 700, borderBottom: `1px solid ${C.border}`, minWidth: 120 }}>Marker</th>
+                <th style={{ textAlign: 'left', padding: '6px 8px', color: C.sub, fontWeight: 700, borderBottom: `1px solid ${C.border}`, minWidth: 130 }}>Marker</th>
                 {allPeriodKeys.map(pk => (
                   <th key={pk} style={{ textAlign: 'center', padding: '6px 8px', color: C.sub, fontWeight: 700, borderBottom: `1px solid ${C.border}`, minWidth: 70 }}>{pk}</th>
                 ))}
@@ -7618,7 +7687,7 @@ function BloodWorkPanel({ client, onBack }) {
             <tbody>
               {allMarkerNames.map(markerName => {
                 const vals = allPeriodKeys.map(pk => {
-                  const [y, p] = pk.split(' ')
+                  const [y, ...rest] = pk.split(' '); const p = rest.join(' ')
                   const rec = getRecord(parseInt(y), p)
                   return rec?.markers?.[markerName] ?? ''
                 })
@@ -7631,9 +7700,7 @@ function BloodWorkPanel({ client, onBack }) {
                       const s = getMarkerStatus(markerName, v)
                       return (
                         <td key={i} style={{ textAlign: 'center', padding: '5px 8px', borderBottom: `1px solid ${C.border}22` }}>
-                          {v !== '' ? (
-                            <span style={{ color: statusColor(s), fontWeight: 700 }}>{v}</span>
-                          ) : <span style={{ color: C.border }}>—</span>}
+                          {v !== '' ? <span style={{ color: statusColor(s), fontWeight: 700 }}>{v}</span> : <span style={{ color: C.border }}>—</span>}
                         </td>
                       )
                     })}
@@ -7648,6 +7715,20 @@ function BloodWorkPanel({ client, onBack }) {
         </div>
       )}
 
+      {/* AI Analysis */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: aiResult ? 12 : 0 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', flex: 1 }}>🤖 AI Analysis & Focus Areas</div>
+          <Btn onClick={handleAiAnalysis} disabled={aiLoading || records.length === 0} small color={C.accent}>
+            {aiLoading ? '⏳ Analyzing…' : records.length === 0 ? 'Upload records first' : '✨ Run Analysis'}
+          </Btn>
+        </div>
+        {aiResult && (
+          <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, color: C.text, lineHeight: 1.8, borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>{aiResult}</div>
+        )}
+      </div>
+
+      {/* Year accordions */}
       {loading ? <Spinner /> : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {years.map(year => {
@@ -7659,7 +7740,7 @@ function BloodWorkPanel({ client, onBack }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <span style={{ fontWeight: 800, fontSize: 16, color: C.text }}>{year}</span>
                     {yearRecords.length > 0 && (
-                      <span style={{ fontSize: 10, background: C.accent + '18', color: C.accent, borderRadius: 10, padding: '2px 10px', fontWeight: 700 }}>{yearRecords.length} record{yearRecords.length > 1 ? 's' : ''}</span>
+                      <span style={{ fontSize: 10, background: C.green + '18', color: C.green, borderRadius: 10, padding: '2px 10px', fontWeight: 700 }}>✅ {yearRecords.length} record{yearRecords.length > 1 ? 's' : ''}</span>
                     )}
                   </div>
                   <span style={{ fontSize: 11, color: C.sub }}>{isExpanded ? '▲' : '▼'}</span>
@@ -7667,12 +7748,6 @@ function BloodWorkPanel({ client, onBack }) {
 
                 {isExpanded && (
                   <div style={{ borderTop: `1px solid ${C.border}`, padding: '16px 20px' }}>
-                    {yearRecords.length > 0 && (
-                      <div style={{ marginBottom: 20 }}>
-                        <BloodWorkPieChart records={yearRecords} />
-                      </div>
-                    )}
-
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                       {periods.map(period => {
                         const rec = getRecord(year, period)
@@ -7680,14 +7755,18 @@ function BloodWorkPanel({ client, onBack }) {
                         const isExpP = expandedPeriod === pKey
                         const draft = getDraft(year, period)
                         const isDirty = !!drafts[pKey]
+                        const isParsing = !!parsing[pKey]
+                        const isManual = !!showManual[pKey]
+                        const markerCount = Object.keys(draft).filter(k => draft[k] !== '' && draft[k] !== null && draft[k] !== undefined).length
 
                         return (
-                          <div key={period} style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
-                            <div onClick={() => setExpandedPeriod(isExpP ? null : pKey)} style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', background: C.faint }}>
+                          <div key={period} style={{ border: `1.5px solid ${rec ? C.green + '55' : C.border}`, borderRadius: 10, overflow: 'hidden' }}>
+                            <div onClick={() => setExpandedPeriod(isExpP ? null : pKey)} style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', background: rec ? C.green + '08' : C.faint }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                 <span style={{ fontWeight: 700, fontSize: 13, color: C.text }}>{period}</span>
-                                {rec && <span style={{ fontSize: 10, color: C.green, fontWeight: 700 }}>● Saved</span>}
-                                {isDirty && <span style={{ fontSize: 10, color: C.orange, fontWeight: 700 }}>● Unsaved changes</span>}
+                                {rec && <span style={{ fontSize: 10, color: C.green, fontWeight: 700 }}>● {markerCount} markers saved</span>}
+                                {isDirty && !rec && <span style={{ fontSize: 10, color: C.orange, fontWeight: 700 }}>● {markerCount} markers ready to save</span>}
+                                {isDirty && rec && <span style={{ fontSize: 10, color: C.orange, fontWeight: 700 }}>● Unsaved changes</span>}
                               </div>
                               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                                 {rec && (
@@ -7699,41 +7778,81 @@ function BloodWorkPanel({ client, onBack }) {
 
                             {isExpP && (
                               <div style={{ padding: '16px' }}>
-                                {Object.entries(MARKER_CATEGORIES).map(([catName, markerNames]) => (
-                                  <div key={catName} style={{ marginBottom: 16 }}>
-                                    <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>{catName}</div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
-                                      {markerNames.map(name => {
-                                        const m = MARKERS[name]
-                                        const val = draft[name] ?? ''
-                                        const status = getMarkerStatus(name, val)
-                                        const borderCol = status === 'empty' ? C.border : statusColor(status)
-                                        return (
-                                          <div key={name}>
-                                            <div style={{ fontSize: 10, color: C.sub, marginBottom: 3, fontWeight: 600 }}>{name} <span style={{ color: C.border }}>({m.unit})</span></div>
-                                            <input
-                                              type="number"
-                                              step="any"
-                                              value={val}
-                                              onChange={e => setMarker(year, period, name, e.target.value)}
-                                              placeholder={`${m.optimal[0]}–${m.optimal[1] === 999 ? '↑' : m.optimal[1]}`}
-                                              style={{ width: '100%', padding: '6px 10px', borderRadius: 6, border: `2px solid ${borderCol}`, background: C.bg, color: C.text, fontFamily: 'Montserrat,sans-serif', fontSize: 12, boxSizing: 'border-box', outline: 'none' }}
-                                            />
-                                          </div>
-                                        )
-                                      })}
+                                {/* PDF Upload — primary action */}
+                                <div style={{ background: C.accent + '0a', border: `1.5px dashed ${C.accent}55`, borderRadius: 10, padding: '16px', marginBottom: 14, textAlign: 'center' }}>
+                                  <div style={{ fontSize: 13, fontWeight: 700, color: C.accent, marginBottom: 6 }}>📄 Upload Lab Report PDF</div>
+                                  <div style={{ fontSize: 11, color: C.sub, marginBottom: 12 }}>AI will automatically extract all marker values from your lab report</div>
+                                  <input
+                                    ref={el => { fileInputRefs.current[pKey] = el }}
+                                    type="file"
+                                    accept=".pdf"
+                                    style={{ display: 'none' }}
+                                    onChange={e => { if (e.target.files?.[0]) handlePdfUpload(year, period, e.target.files[0]); e.target.value = '' }}
+                                  />
+                                  <button onClick={() => fileInputRefs.current[pKey]?.click()} disabled={isParsing}
+                                    style={{ padding: '10px 24px', borderRadius: 8, border: 'none', background: C.accent, color: '#fff', fontFamily: 'Montserrat,sans-serif', fontWeight: 800, fontSize: 12, cursor: isParsing ? 'not-allowed' : 'pointer', opacity: isParsing ? 0.7 : 1 }}>
+                                    {isParsing ? '⏳ Extracting markers…' : rec ? '↺ Replace with new PDF' : '📤 Choose PDF'}
+                                  </button>
+                                  {!isManual && (
+                                    <div style={{ marginTop: 10 }}>
+                                      <button onClick={e => { e.stopPropagation(); setShowManual(m => ({ ...m, [pKey]: true })); setExpandedPeriod(pKey) }}
+                                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: C.sub, fontWeight: 600, textDecoration: 'underline' }}>
+                                        Or enter values manually
+                                      </button>
                                     </div>
-                                  </div>
-                                ))}
-
-                                <div style={{ marginTop: 16, display: 'flex', gap: 10 }}>
-                                  <Btn onClick={() => handleSave(year, period)} disabled={saving[pKey]} small color={C.accent}>
-                                    {saving[pKey] ? 'Saving…' : 'Save'}
-                                  </Btn>
-                                  {isDirty && (
-                                    <Btn onClick={() => setDrafts(d => { const nd = { ...d }; delete nd[pKey]; return nd })} outline small color={C.sub}>Discard</Btn>
                                   )}
                                 </div>
+
+                                {/* Manual entry or post-PDF review */}
+                                {(isManual || isDirty || rec) && (
+                                  <div>
+                                    <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 12 }}>
+                                      {isDirty && !rec ? 'Review Extracted Values' : 'Marker Values'}
+                                    </div>
+                                    {BLOOD_PANELS.map(panel => (
+                                      <div key={panel.name} style={{ marginBottom: 16 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                                          <div style={{ width: 10, height: 10, borderRadius: '50%', background: panel.color, flexShrink: 0 }} />
+                                          <div style={{ fontSize: 11, fontWeight: 800, color: C.text }}>{panel.name}</div>
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 8 }}>
+                                          {panel.markers.map(m => {
+                                            const val = draft[m.name] ?? ''
+                                            const status = getMarkerStatus(m.name, val)
+                                            const borderCol = status === 'empty' ? C.border : statusColor(status)
+                                            return (
+                                              <div key={m.name}>
+                                                <div style={{ fontSize: 10, color: C.sub, marginBottom: 3, fontWeight: 600 }}>{m.name} <span style={{ color: C.border }}>({m.unit})</span></div>
+                                                <input
+                                                  type="number"
+                                                  step="any"
+                                                  value={val}
+                                                  onChange={e => setMarker(year, period, m.name, e.target.value)}
+                                                  placeholder={`${m.optimal[0]}–${m.optimal[1] === 999 ? '↑' : m.optimal[1]}`}
+                                                  style={{ width: '100%', padding: '6px 10px', borderRadius: 6, border: `2px solid ${borderCol}`, background: status !== 'empty' ? statusColor(status) + '0a' : C.bg, color: C.text, fontFamily: 'Montserrat,sans-serif', fontSize: 12, boxSizing: 'border-box', outline: 'none' }}
+                                                />
+                                                {val !== '' && status !== 'empty' && (
+                                                  <div style={{ fontSize: 9, marginTop: 2, color: statusColor(status), fontWeight: 700 }}>
+                                                    {status === 'optimal' ? '✅ Optimal' : status === 'borderline' ? '⚠️ Borderline' : '❌ Out of range'}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            )
+                                          })}
+                                        </div>
+                                      </div>
+                                    ))}
+
+                                    <div style={{ marginTop: 16, display: 'flex', gap: 10 }}>
+                                      <Btn onClick={() => handleSave(year, period)} disabled={saving[pKey]} small color={C.accent}>
+                                        {saving[pKey] ? 'Saving…' : '💾 Save'}
+                                      </Btn>
+                                      {isDirty && (
+                                        <Btn onClick={() => setDrafts(d => { const nd = { ...d }; delete nd[pKey]; return nd })} outline small color={C.sub}>Discard</Btn>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
@@ -7747,19 +7866,6 @@ function BloodWorkPanel({ client, onBack }) {
           })}
         </div>
       )}
-
-      <div style={{ marginTop: 24, background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase' }}>AI Analysis</div>
-          <Btn onClick={handleAiAnalysis} disabled={aiLoading || records.length === 0} small color={C.accent}>
-            {aiLoading ? '⏳ Analyzing…' : '🤖 AI Analysis'}
-          </Btn>
-        </div>
-        {aiResult && (
-          <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, color: C.text, lineHeight: 1.7, borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>{aiResult}</div>
-        )}
-        {records.length === 0 && <div style={{ fontSize: 12, color: C.sub }}>Add blood work data to enable AI analysis.</div>}
-      </div>
     </div>
   )
 }
