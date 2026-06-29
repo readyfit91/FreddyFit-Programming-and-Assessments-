@@ -5988,24 +5988,66 @@ function LoginScreen({ onLogin }) {
 
 // ── CRM LEADS ────────────────────────────────────────────────────────────────
 
+// 30-day follow-up sequence — each entry is a scheduled action day
+const OUTREACH_SEQUENCE = [
+  { day: 0,  channel: 'Text',  step: 1,  emoji: '💬', action: 'Intro text — introduce yourself, mention their goal, ask for 2-3 good days/times to go over their intake and schedule their free in-person consultation' },
+  { day: 1,  channel: 'Text',  step: 2,  emoji: '💬', action: 'Follow-up text — they haven\'t responded yet, keep it short and easy to reply to, ask for availability' },
+  { day: 3,  channel: 'Call',  step: 3,  emoji: '📞', action: 'First phone call — texts aren\'t landing, calls convert 8x better. Reference their goal and invite them to the free consultation' },
+  { day: 5,  channel: 'Email', step: 4,  emoji: '✉️', action: 'Professional intro email — formal, warm, reference their intake form answers, explain what the consultation covers, include your contact info' },
+  { day: 7,  channel: 'Text',  step: 5,  emoji: '💬', action: 'Check-in text — casual, no pressure, acknowledge they may be busy, ask if this week works for a quick call' },
+  { day: 10, channel: 'Call',  step: 6,  emoji: '📞', action: 'Second call attempt — try a different time of day. If voicemail, leave a brief personalized message referencing their goal' },
+  { day: 14, channel: 'Email', step: 7,  emoji: '✉️', action: 'Value email — share a specific tip or insight related to their stated goal. Soft CTA at the end to book their free consultation. Professional tone.' },
+  { day: 21, channel: 'Text',  step: 8,  emoji: '💬', action: 'Re-engagement text — reference their goal, acknowledge it\'s been a few weeks, ask if they\'re still looking for support. Keep door open.' },
+  { day: 30, channel: 'Email', step: 9,  emoji: '✉️', action: 'Final professional email — last outreach attempt. Make it count. Warm but direct. Leave on great terms. Mention the door is always open at FreddyFit Personal Training.' },
+]
+
 function getOutreachStep(lead) {
   if (['Client', 'Cold', 'Booked'].includes(lead.status)) return null
   const today = new Date()
-  const ref = lead.last_contact_date
-    ? new Date(lead.last_contact_date + 'T00:00:00')
-    : lead.date_added ? new Date(lead.date_added + 'T00:00:00') : null
-  if (!ref) return null
-  const days = Math.floor((today - ref) / 86400000)
-  const contacted = !!lead.last_contact_date
-  if (!contacted && days === 0) return { channel: 'Text', priority: 'today', days, label: 'New lead — send intro text now', emoji: '💬' }
-  if (!contacted && days >= 1) return { channel: 'Text', priority: 'urgent', days, label: `${days}d since added — send intro text`, emoji: '💬' }
-  if (contacted && days >= 0 && days < 2) return { channel: 'Text', priority: 'soon', days, label: days === 0 ? 'Contacted today — check in tomorrow if no response' : 'Follow-up text (1 day no response)', emoji: '💬' }
-  if (contacted && days >= 2 && days < 4) return { channel: 'Text', priority: 'urgent', days, label: `${days}d no response — follow-up text`, emoji: '💬' }
-  if (contacted && days >= 4 && days < 6) return { channel: 'Call', priority: 'urgent', days, label: `${days}d silence — call them directly`, emoji: '📞' }
-  if (contacted && days >= 6 && days < 8) return { channel: 'Email', priority: 'urgent', days, label: `${days}d — try email outreach`, emoji: '✉️' }
-  if (contacted && days >= 8 && days < 14) return { channel: 'Text', priority: 'urgent', days, label: `${days}d — send final check-in text`, emoji: '🚨' }
-  if (days >= 14) return { channel: 'Cold', priority: 'cold', days, label: `${days}d no response — consider marking Cold`, emoji: '🥶' }
-  return null
+  const added = lead.date_added ? new Date(lead.date_added + 'T00:00:00') : null
+  if (!added) return null
+  const daysSinceAdded = Math.floor((today - added) / 86400000)
+
+  // After 30 days with no status change → suggest Cold
+  if (daysSinceAdded > 30) {
+    return { channel: 'Cold', priority: 'cold', days: daysSinceAdded, step: 0, emoji: '🥶', label: `Day ${daysSinceAdded} — 30-day sequence complete. Move to Cold or restart.`, action: 'Consider marking this lead Cold. If you want to try again, send a value offer or referral ask.' }
+  }
+
+  // Find the current scheduled step (most recent sequence day that has passed)
+  let current = null
+  let next = null
+  for (let i = 0; i < OUTREACH_SEQUENCE.length; i++) {
+    if (OUTREACH_SEQUENCE[i].day <= daysSinceAdded) {
+      current = OUTREACH_SEQUENCE[i]
+    } else if (!next) {
+      next = OUTREACH_SEQUENCE[i]
+    }
+  }
+
+  if (!current) {
+    // Before day 0 action (shouldn't happen but just in case)
+    return { channel: 'Text', priority: 'today', days: daysSinceAdded, step: 1, emoji: '💬', label: 'New lead — send intro text now', action: OUTREACH_SEQUENCE[0].action }
+  }
+
+  const isToday = current.day === daysSinceAdded
+  const daysUntilNext = next ? next.day - daysSinceAdded : null
+  const priority = isToday ? 'today' : daysSinceAdded - current.day <= 1 ? 'urgent' : 'soon'
+
+  const label = isToday
+    ? `Day ${daysSinceAdded + 1} — ${current.channel} today`
+    : `Day ${daysSinceAdded + 1} — ${current.channel} overdue (was due Day ${current.day + 1})`
+
+  return {
+    channel: current.channel,
+    priority,
+    days: daysSinceAdded,
+    step: current.step,
+    emoji: current.emoji,
+    label,
+    action: current.action,
+    next: next ? `Next: ${next.channel} on Day ${next.day + 1} (in ${daysUntilNext} day${daysUntilNext !== 1 ? 's' : ''})` : 'Final step of 30-day sequence',
+    progress: Math.round((daysSinceAdded / 30) * 100),
+  }
 }
 
 const CHANNEL_COLORS = {
@@ -6036,28 +6078,50 @@ function AiCoachModal({ lead, onClose }) {
     setLoading(true)
     setMsg('')
     try {
-      const channelNote = step ? `Recommended channel: ${step.channel}. Reason: ${step.label}.` : 'General follow-up.'
-      const prompt = `You are a warm, professional personal trainer assistant for FreddyFit Performance Center in Saint Louis, MO (6047 Telegraph Rd).
+      const seqStep = step ? `Step ${step.step} of 9 (Day ${(step.days || 0) + 1} of 30-day sequence)` : 'General outreach'
+      const channelInstruction = step?.channel || 'Text'
+      const specificAction = step?.action || 'Reach out and invite them to schedule a free consultation'
+      const prompt = `You are writing on behalf of Freddy at FreddyFit Personal Training in Saint Louis, MO (6047 Telegraph Rd).
 
-Generate a personalized outreach message for the following lead. Use the intake details to make it specific to THEM — reference their actual goal, barrier, or situation so it feels like you actually read their form, not a generic blast.
+Generate a personalized outreach message. Use the lead's actual intake answers to make it feel personal — not a template blast.
 
 LEAD DETAILS:
 Name: ${lead.name}
 Goal: ${lead.goal || 'Not specified'}
 Source: ${lead.source || 'Unknown'}
 Status: ${lead.status}
-${channelNote}
+Sequence position: ${seqStep}
+Channel: ${channelInstruction}
+What this message should accomplish: ${specificAction}
 Intake form data:
 ${lead.notes || 'No additional intake data'}
 
-INSTRUCTIONS:
-- Text message: casual, 2-3 sentences max. Reference their specific goal or barrier. Ask them to share a few good days and times so you can go over their intake form and schedule their in-person consultation. No excessive emojis.
-- Phone call script: 30-second script — opening, why you're calling (reference their form answer), ask to schedule the free in-person consultation to go over their intake.
-- Email: subject line + 3-4 sentence body. Personal, not salesy. Reference something specific from their intake. Mention scheduling an in-person consultation.
-- Cold: one final re-engagement text, acknowledge you don't want to bother them, leave the door open.
-- Always sign off as "Freddy | FreddyFit Personal Training".
-- If they said "I am serious and ready to start" — they are HOT. Lead with booking the consult directly.
-- Never be generic. If you know their barrier (e.g. "no accountability"), name it.
+CHANNEL-SPECIFIC FORMAT:
+${channelInstruction === 'Text' ? `TEXT MESSAGE RULES:
+- 2-3 sentences max, conversational tone
+- Reference their specific goal or barrier by name
+- Ask them to share 2-3 good days and times to go over their intake form and schedule their free in-person consultation
+- Sign off: "— Freddy | FreddyFit Personal Training"
+- No excessive emojis` : ''}
+${channelInstruction === 'Call' ? `PHONE CALL SCRIPT RULES:
+- Write a 30-second spoken script
+- Opening: "Hi [Name], this is Freddy with FreddyFit Personal Training..."
+- Middle: Reference their specific goal or intake answer (1 sentence)
+- Ask: Invite them to schedule their free in-person consultation to go over their intake form together
+- Closing: Leave your number if voicemail
+- Natural conversational language` : ''}
+${channelInstruction === 'Email' ? `EMAIL RULES:
+- Subject line first (on its own line starting with "Subject:")
+- Professional, warm tone — like a letter from a real person not a marketing blast
+- Paragraph 1: Personal greeting, reference something specific from their intake
+- Paragraph 2: What FreddyFit Personal Training offers that directly addresses their goal/barrier
+- Paragraph 3: Invite them to their free in-person consultation, mention it's no pressure
+- Sign off: "Warm regards,\\nFreddy\\nFreddyFit Personal Training\\n6047 Telegraph Rd, Saint Louis, MO 63123\\n314-584-9389"` : ''}
+${channelInstruction === 'Cold' ? `COLD RE-ENGAGEMENT RULES:
+- Short, warm, zero pressure
+- Acknowledge you don't want to bother them
+- Leave the door permanently open
+- Sign off: "— Freddy | FreddyFit Personal Training"` : ''}
 
 Output only the message itself, nothing else.`
       const result = await callClaude([{ role: 'user', content: prompt }], 400)
@@ -6191,8 +6255,8 @@ function CrmLeads({ onBack }) {
 
   const actionItems = leads
     .map(l => ({ lead: l, step: getOutreachStep(l) }))
-    .filter(({ step }) => step && step.priority !== 'soon' && step.channel !== 'Cold')
-    .sort((a, b) => b.step.days - a.step.days)
+    .filter(({ step }) => step && step.channel !== 'Cold')
+    .sort((a, b) => (b.step.days || 0) - (a.step.days || 0))
 
   const coldItems = leads
     .map(l => ({ lead: l, step: getOutreachStep(l) }))
@@ -6313,21 +6377,31 @@ function CrmLeads({ onBack }) {
               {actionItems.map(({ lead, step }) => {
                 const chCol = CHANNEL_COLORS[step.channel] || CHANNEL_COLORS.Cold
                 return (
-                  <div key={lead.id} style={{ background: '#fff', border: `1.5px solid ${chCol.border}`, borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 800, fontSize: 13, color: C.text }}>{lead.name}</div>
-                      <div style={{ fontSize: 11, color: chCol.text, marginTop: 2 }}>{step.emoji} {step.label}</div>
-                      {lead.phone && <div style={{ fontSize: 11, color: C.sub, marginTop: 1 }}>📞 {lead.phone}</div>}
+                  <div key={lead.id} style={{ background: '#fff', border: `1.5px solid ${chCol.border}`, borderRadius: 10, padding: '10px 14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 800, fontSize: 13, color: C.text }}>{lead.name}</div>
+                        <div style={{ fontSize: 11, color: chCol.text, marginTop: 2 }}>{step.emoji} {step.label}</div>
+                        {lead.phone && <div style={{ fontSize: 11, color: C.sub, marginTop: 1 }}>📞 {lead.phone}</div>}
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                        <span style={{ fontSize: 10, fontWeight: 800, padding: '4px 10px', borderRadius: 12, background: chCol.bg, color: chCol.text, border: `1px solid ${chCol.border}` }}>
+                          {step.channel}
+                        </span>
+                        <button onClick={() => setAiCoachLead(lead)}
+                          style={{ padding: '4px 10px', borderRadius: 10, border: `1.5px solid ${C.accent}44`, background: C.accent + '18', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                          ✨ Write Message
+                        </button>
+                      </div>
                     </div>
-                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                      <span style={{ fontSize: 10, fontWeight: 800, padding: '4px 10px', borderRadius: 12, background: chCol.bg, color: chCol.text, border: `1px solid ${chCol.border}` }}>
-                        {step.channel}
-                      </span>
-                      <button onClick={() => setAiCoachLead(lead)}
-                        style={{ padding: '4px 10px', borderRadius: 10, border: `1.5px solid ${C.accent}44`, background: C.accent + '18', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                        ✨ Write Message
-                      </button>
-                    </div>
+                    {step.progress !== undefined && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ flex: 1, height: 3, background: C.border, borderRadius: 4, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${Math.min(step.progress, 100)}%`, background: C.accent, borderRadius: 4 }} />
+                        </div>
+                        <span style={{ fontSize: 9, color: C.sub, flexShrink: 0 }}>Day {(step.days || 0) + 1}/30</span>
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -6396,16 +6470,27 @@ function CrmLeads({ onBack }) {
               <div key={lead.id}
                 style={{ background: C.card, border: `1.5px solid ${needsAction ? (chCol?.border || C.border) : C.border}`, borderRadius: 14, padding: '16px 18px', transition: 'box-shadow .15s', position: 'relative' }}>
 
-                {step && step.priority !== 'soon' && (
-                  <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 10, background: chCol?.bg, color: chCol?.text, border: `1px solid ${chCol?.border}` }}>
-                      {step.emoji} {step.channel}
-                    </span>
-                    <span style={{ fontSize: 11, color: chCol?.text }}>{step.label}</span>
-                    <button onClick={() => setAiCoachLead(lead)}
-                      style={{ marginLeft: 'auto', padding: '3px 10px', borderRadius: 10, border: `1.5px solid ${C.accent}44`, background: C.accent + '18', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer' }}>
-                      ✨ AI Message
-                    </button>
+                {step && (
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                      <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 10, background: chCol?.bg, color: chCol?.text, border: `1px solid ${chCol?.border}` }}>
+                        {step.emoji} {step.channel}
+                      </span>
+                      <span style={{ fontSize: 11, color: chCol?.text, flex: 1 }}>{step.label}</span>
+                      <button onClick={() => setAiCoachLead(lead)}
+                        style={{ padding: '3px 10px', borderRadius: 10, border: `1.5px solid ${C.accent}44`, background: C.accent + '18', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer', flexShrink: 0 }}>
+                        ✨ AI Message
+                      </button>
+                    </div>
+                    {step.progress !== undefined && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ flex: 1, height: 4, background: C.border, borderRadius: 4, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${Math.min(step.progress, 100)}%`, background: step.progress >= 100 ? C.red : C.accent, borderRadius: 4, transition: 'width .3s' }} />
+                        </div>
+                        <span style={{ fontSize: 9, color: C.sub, flexShrink: 0 }}>Day {(step.days || 0) + 1}/30</span>
+                      </div>
+                    )}
+                    {step.next && <div style={{ fontSize: 10, color: C.sub, marginTop: 3 }}>{step.next}</div>}
                   </div>
                 )}
 
@@ -6471,8 +6556,8 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
 
   const actionItems = leads
     .map(l => ({ lead: l, step: getOutreachStep(l) }))
-    .filter(({ step }) => step && step.priority !== 'soon' && step.channel !== 'Cold')
-    .sort((a, b) => b.step.days - a.step.days)
+    .filter(({ step }) => step && step.channel !== 'Cold')
+    .sort((a, b) => (b.step.days || 0) - (a.step.days || 0))
 
   return (
     <>
@@ -6923,7 +7008,7 @@ export default function App() {
     getAllLeads().then(leads => {
       const count = leads.filter(l => {
         const step = getOutreachStep(l)
-        return step && step.priority !== 'soon' && step.channel !== 'Cold'
+        return step && step.channel !== 'Cold'
       }).length
       setBossCount(count)
     }).catch(() => {})
