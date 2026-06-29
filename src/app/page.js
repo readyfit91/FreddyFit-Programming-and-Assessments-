@@ -4176,6 +4176,7 @@ function WeightTracker({ client, onBack }) {
   const [showJourneyModal, setShowJourneyModal] = useState(false)
   const chartRef = useRef(null)
   const modalChartRef = useRef(null)
+  const pieChartRef = useRef(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -4385,6 +4386,46 @@ function WeightTracker({ client, onBack }) {
     }
   }, [showJourneyModal, drawChart])
 
+  const PIE_COLORS = ['#EF4444','#F59E0B','#8B5CF6','#EC4899','#14B8A6','#F97316','#3B82F6','#6B7280']
+
+  const drawPieChart = useCallback((canvas) => {
+    if (!canvas) return
+    const tagCounts = {}
+    logs.forEach(l => { (l.behavior_tags || []).forEach(tag => { tagCounts[tag] = (tagCounts[tag] || 0) + 1 }) })
+    const entries = Object.entries(tagCounts).sort((a, b) => b[1] - a[1])
+    if (entries.length === 0) return
+    const total = entries.reduce((s, [, v]) => s + v, 0)
+    const dpr = window.devicePixelRatio || 1
+    const rect = canvas.getBoundingClientRect()
+    canvas.width = rect.width * dpr; canvas.height = rect.height * dpr
+    const ctx = canvas.getContext('2d')
+    ctx.scale(dpr, dpr)
+    const size = Math.min(rect.width, rect.height)
+    const cx = rect.width / 2, cy = rect.height / 2, r = size / 2 - 10
+    let angle = -Math.PI / 2
+    entries.forEach(([, count], i) => {
+      const slice = (count / total) * Math.PI * 2
+      ctx.beginPath(); ctx.moveTo(cx, cy)
+      ctx.arc(cx, cy, r, angle, angle + slice)
+      ctx.closePath()
+      ctx.fillStyle = PIE_COLORS[i % PIE_COLORS.length]
+      ctx.fill()
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke()
+      angle += slice
+    })
+    ctx.beginPath(); ctx.arc(cx, cy, r * 0.50, 0, Math.PI * 2)
+    ctx.fillStyle = C.card; ctx.fill()
+    const badCount = logs.filter(l => l.rating === 'bad').length
+    const pct = logs.length > 0 ? Math.round((badCount / logs.length) * 100) : 0
+    ctx.fillStyle = C.text; ctx.font = `bold ${Math.round(r * 0.36)}px Montserrat,sans-serif`
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.fillText(`${pct}%`, cx, cy - 6)
+    ctx.fillStyle = C.sub; ctx.font = `${Math.round(r * 0.18)}px Montserrat,sans-serif`
+    ctx.fillText('barriers', cx, cy + r * 0.22)
+  }, [logs])
+
+  useEffect(() => { drawPieChart(pieChartRef.current) }, [drawPieChart])
+
   const input = { width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 13, color: C.text, outline: 'none', background: C.faint, boxSizing: 'border-box' }
 
   const latestWeight = [...logs].reverse().find(l => l.weight != null)
@@ -4482,13 +4523,92 @@ function WeightTracker({ client, onBack }) {
                     doc.text(s, 36 + (i % 2) * 240, y + Math.floor(i / 2) * 18)
                   })
                   y += Math.ceil(stats.length / 2) * 18 + 16
-                  // Chart image
+                  // Charts side by side
+                  const chartAreaW = W - 72
+                  const pieW = 160
+                  const lineChartW = chartAreaW - pieW - 16
                   if (chartRef.current) {
                     const imgData = chartRef.current.toDataURL('image/png')
-                    const imgH = 200
-                    doc.addImage(imgData, 'PNG', 36, y, W - 72, imgH)
-                    y += imgH + 20
+                    doc.addImage(imgData, 'PNG', 36, y, lineChartW, 190)
                   }
+                  // Pie chart
+                  const tagCounts = {}
+                  logs.forEach(l => { (l.behavior_tags || []).forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1 }) })
+                  const pieEntries = Object.entries(tagCounts).sort((a, b) => b[1] - a[1])
+                  const pieTotal = pieEntries.reduce((s, [, v]) => s + v, 0)
+                  const PIE_PDF_COLORS = [
+                    [239,68,68],[245,158,11],[139,92,246],[236,72,153],[20,184,166],[249,115,22],[59,130,246],[107,114,128]
+                  ]
+                  if (pieEntries.length > 0) {
+                    const offCanvas = document.createElement('canvas')
+                    const sz = 240
+                    offCanvas.width = sz; offCanvas.height = sz
+                    const octx = offCanvas.getContext('2d')
+                    const cr = sz / 2, pr = sz / 2 - 10
+                    let ang = -Math.PI / 2
+                    pieEntries.forEach(([, count], i) => {
+                      const slice = (count / pieTotal) * Math.PI * 2
+                      octx.beginPath(); octx.moveTo(cr, cr)
+                      octx.arc(cr, cr, pr, ang, ang + slice); octx.closePath()
+                      const [r2, g2, b2] = PIE_PDF_COLORS[i % PIE_PDF_COLORS.length]
+                      octx.fillStyle = `rgb(${r2},${g2},${b2})`; octx.fill()
+                      octx.strokeStyle = '#fff'; octx.lineWidth = 3; octx.stroke()
+                      ang += slice
+                    })
+                    octx.beginPath(); octx.arc(cr, cr, pr * 0.5, 0, Math.PI * 2)
+                    octx.fillStyle = '#fff'; octx.fill()
+                    const pieImgData = offCanvas.toDataURL('image/png')
+                    const pX = 36 + lineChartW + 16
+                    doc.addImage(pieImgData, 'PNG', pX, y, pieW - 10, pieW - 10)
+                    // Barrier Breakdown label
+                    doc.setFontSize(8); doc.setFont('helvetica', 'bold')
+                    doc.setTextColor(239, 68, 68)
+                    doc.text('BARRIER BREAKDOWN', pX, y - 6)
+                    // Legend
+                    let ly = y + pieW + 2
+                    pieEntries.slice(0, 6).forEach(([tag, count], i) => {
+                      const [r2, g2, b2] = PIE_PDF_COLORS[i % PIE_PDF_COLORS.length]
+                      doc.setFillColor(r2, g2, b2); doc.rect(pX, ly - 5, 7, 7, 'F')
+                      doc.setFontSize(7); doc.setFont('helvetica', 'normal')
+                      doc.setTextColor(26, 32, 44)
+                      doc.text(`${tag} (${Math.round((count / pieTotal) * 100)}%)`, pX + 10, ly)
+                      ly += 11
+                    })
+                  }
+                  y += 210
+                  // Behavioral Insights summary
+                  const badCount2 = logs.filter(l => l.rating === 'bad').length
+                  const goodCount2 = logs.filter(l => l.rating === 'good').length
+                  const ratedTotal = badCount2 + goodCount2
+                  if (pieEntries.length > 0 || ratedTotal > 0) {
+                    doc.setFillColor(249, 250, 251)
+                    doc.rect(36, y, W - 72, 2, 'F')
+                    y += 10
+                    doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(43, 170, 223)
+                    doc.text('BEHAVIORAL INSIGHTS', 36, y); y += 14
+                    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(26, 32, 44)
+                    if (ratedTotal > 0) {
+                      const adherePct = Math.round((goodCount2 / ratedTotal) * 100)
+                      doc.text(`• Adherence Rate: ${adherePct}% of rated check-ins were positive (${goodCount2} good / ${badCount2} needs work)`, 36, y); y += 14
+                      if (adherePct >= 70) {
+                        doc.text('  Great consistency! Keep reinforcing what is working.', 36, y); y += 14
+                      } else if (adherePct >= 40) {
+                        doc.text('  Moderate adherence. Focus on eliminating the top barriers listed below.', 36, y); y += 14
+                      } else {
+                        doc.text('  Adherence needs attention. Review barrier patterns with your trainer.', 36, y); y += 14
+                      }
+                    }
+                    if (pieEntries.length > 0) {
+                      doc.text(`• Top Barrier: ${pieEntries[0][0]} (${Math.round((pieEntries[0][1] / pieTotal) * 100)}% of all barrier flags)`, 36, y); y += 14
+                      if (pieEntries.length > 1) {
+                        doc.text(`• Secondary Barrier: ${pieEntries[1][0]} (${Math.round((pieEntries[1][1] / pieTotal) * 100)}%)`, 36, y); y += 14
+                      }
+                      doc.setTextColor(113, 128, 150); doc.setFontSize(9)
+                      doc.text('Addressing your top barriers consistently is the single highest-leverage action for faster results.', 36, y); y += 18
+                      doc.setTextColor(26, 32, 44); doc.setFontSize(10)
+                    }
+                  }
+                  y += 10
                   // History table
                   doc.setFontSize(10)
                   doc.setFont('helvetica', 'bold')
@@ -4542,20 +4662,42 @@ function WeightTracker({ client, onBack }) {
               </button>
             </div>
           </div>
-          <canvas ref={chartRef} style={{ width: '100%', height: 280, display: 'block' }} />
-          <div style={{ display: 'flex', gap: 16, justifyContent: 'center', padding: '8px 0 4px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
-              <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.green }} /> Good
+          <div style={{ display: 'flex', gap: 16, alignItems: 'stretch' }}>
+            {/* Weight / BF chart */}
+            <div style={{ flex: 2, minWidth: 0 }}>
+              <canvas ref={chartRef} style={{ width: '100%', height: 260, display: 'block' }} />
+              <div style={{ display: 'flex', gap: 12, justifyContent: 'center', padding: '6px 0 2px', flexWrap: 'wrap' }}>
+                {[['Good', C.green],['Needs Work', C.red],['Weight', C.accent],['Body Fat', C.orange]].map(([l, clr]) => (
+                  <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 700, color: C.sub }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: clr }} />{l}
+                  </div>
+                ))}
+              </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
-              <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.red }} /> Needs Work
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
-              <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.accent }} /> Weight
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
-              <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.orange }} /> Body Fat
-            </div>
+            {/* Barrier pie chart */}
+            {(() => {
+              const tagCounts = {}
+              logs.forEach(l => { (l.behavior_tags || []).forEach(tag => { tagCounts[tag] = (tagCounts[tag] || 0) + 1 }) })
+              const entries = Object.entries(tagCounts).sort((a, b) => b[1] - a[1])
+              if (entries.length === 0) return null
+              const total = entries.reduce((s, [, v]) => s + v, 0)
+              return (
+                <div style={{ flex: '0 0 200px', display: 'flex', flexDirection: 'column', alignItems: 'center', borderLeft: `1px solid ${C.border}`, paddingLeft: 14 }}>
+                  <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: 1.5, color: C.red, textTransform: 'uppercase', marginBottom: 6, alignSelf: 'flex-start' }}>BARRIER BREAKDOWN</div>
+                  <canvas ref={pieChartRef} style={{ width: 120, height: 120, display: 'block', flexShrink: 0 }} />
+                  <div style={{ marginTop: 10, width: '100%' }}>
+                    {entries.slice(0, 5).map(([tag, count], i) => (
+                      <div key={tag} style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: 2, background: PIE_COLORS[i % PIE_COLORS.length], flexShrink: 0 }} />
+                        <div style={{ flex: 1, fontSize: 9, color: C.text, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tag}</div>
+                        <div style={{ fontSize: 9, fontWeight: 800, color: PIE_COLORS[i % PIE_COLORS.length] }}>{Math.round((count / total) * 100)}%</div>
+                      </div>
+                    ))}
+                    {entries.length > 5 && <div style={{ fontSize: 9, color: C.sub, marginTop: 2 }}>+{entries.length - 5} more</div>}
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         </div>
       ) : (
