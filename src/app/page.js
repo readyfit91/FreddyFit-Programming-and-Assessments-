@@ -7289,7 +7289,7 @@ const BLOOD_PANELS = [
     panelDesc: 'Measures blood fats and cardiovascular risk. Directly linked to heart disease, stroke, and metabolic health — essential context for all fitness clients.',
     markers: [
       { name: 'Total Cholesterol',     unit: 'mg/dL', optimal: [0,200],  borderline: [200,239], desc: 'Overall blood fat load. High levels raise heart disease risk. Exercise and diet are primary movers.' },
-      { name: 'HDL',                   unit: 'mg/dL', optimal: [60,999], borderline: [40,60],   desc: '"Good" cholesterol — clears LDL from arteries. Higher is better. Cardio exercise raises HDL.' },
+      { name: 'HDL',                   unit: 'mg/dL', optimal: [50,999], borderline: [40,50],   desc: '"Good" cholesterol — clears LDL from arteries. Higher is better. Cardio exercise raises HDL.' },
       { name: 'Triglycerides',         unit: 'mg/dL', optimal: [0,150],  borderline: [150,199], desc: 'Blood fats driven by sugar and refined carb excess. High levels drive metabolic syndrome.' },
       { name: 'LDL',                   unit: 'mg/dL', optimal: [0,100],  borderline: [100,159], desc: '"Bad" cholesterol — deposits in artery walls. The primary cardiovascular risk driver.' },
       { name: 'Cholesterol/HDL Ratio', unit: 'ratio',  optimal: [0,5.0], borderline: [5.0,7.0], desc: 'Total cholesterol divided by HDL. Below 5 is ideal. High ratio = elevated cardiovascular risk.' },
