@@ -6266,7 +6266,7 @@ function SubscriptionTracker({ client, onBack }) {
       return -1
     }
     const sessionDates = new Set(sub.periods.flatMap(p => p.sessions.map(s => s.date)))
-    const periodColors = [C.accent, C.teal, C.sky, C.indigo, C.orange, C.green]
+    const periodColors = ['#EF4444', '#F97316', '#EAB308', '#22C55E', '#8B5CF6', '#EC4899']
     return (
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 20px', marginBottom: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
@@ -6356,7 +6356,7 @@ function SubscriptionTracker({ client, onBack }) {
           const isDone = today > end
           const isUpcoming = today < start
           const rollover = pIdx % 2 === 1 ? Math.max(0, sub.sessions - (sub.periods[pIdx - 1]?.sessions?.length || 0)) : 0
-          const periodColors = [C.accent, C.teal, C.sky, C.indigo, C.orange, C.green]
+          const periodColors = ['#EF4444', '#F97316', '#EAB308', '#22C55E', '#8B5CF6', '#EC4899']
           const color = periodColors[pIdx]
           return (
             <div key={pIdx} style={{ background: C.card, border: `1.5px solid ${isActive ? color : C.border}`, borderRadius: 14, padding: '18px 18px', opacity: isUpcoming ? 0.7 : 1 }}>
