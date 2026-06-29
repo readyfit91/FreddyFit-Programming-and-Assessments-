@@ -194,6 +194,7 @@ export async function deleteWeightLog(logId) {
 // ── CRM LEADS ────────────────────────────────────────────────────────────────
 
 export async function getAllLeads() {
+  if (!supabase) return []
   const { data, error } = await supabase
     .from('leads')
     .select('*')

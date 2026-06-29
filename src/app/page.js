@@ -6908,7 +6908,6 @@ export default function App() {
   }, [refreshAllClients])
 
   const refreshBossCount = useCallback(() => {
-    if (!supabase) return
     getAllLeads().then(leads => {
       const count = leads.filter(l => {
         const step = getOutreachStep(l)
