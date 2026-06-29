@@ -7304,7 +7304,7 @@ const BLOOD_PANELS = [
       { name: 'Sodium',        unit: 'mEq/L',  optimal: [136,145],   borderline: [130,136], desc: 'Key electrolyte for hydration and nerve function. Critical to monitor in heavy-sweating athletes.' },
       { name: 'Potassium',     unit: 'mEq/L',  optimal: [3.5,5.1],   borderline: [3.0,3.5], desc: 'Heart rhythm and muscle contraction. Low = cramping and fatigue. High = cardiac arrhythmia risk.' },
       { name: 'Chloride',      unit: 'mEq/L',  optimal: [98,107],    borderline: [93,98],   desc: 'Electrolyte balance partner to sodium. Reflects hydration and acid-base status.' },
-      { name: 'CO2',           unit: 'mEq/L',  optimal: [23,29],     borderline: [18,23],   desc: 'Bicarbonate — measures acid-base balance. Low may indicate overbreathing or kidney issues.' },
+      { name: 'CO2',           unit: 'mEq/L',  optimal: [20,32],     borderline: [18,20],   desc: 'Bicarbonate — measures acid-base balance. Low may indicate overbreathing or kidney issues.' },
       { name: 'Calcium',       unit: 'mg/dL',  optimal: [8.6,10.2],  borderline: [8.0,8.6], desc: 'Bone density, muscle contraction, nerve signals. Low = deficiency; high = parathyroid issue.' },
       { name: 'Total Protein', unit: 'g/dL',   optimal: [6.4,8.3],   borderline: [5.5,6.4], desc: 'Overall protein status. Low = malnutrition or liver stress. Key marker for muscle-building clients.' },
       { name: 'Albumin',       unit: 'g/dL',   optimal: [3.5,5.0],   borderline: [3.0,3.5], desc: 'Main blood protein made by the liver. Low = malnutrition, inflammation, or liver dysfunction.' },
