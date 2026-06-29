@@ -5999,7 +5999,7 @@ function LoginScreen({ onLogin }) {
 const OUTREACH_SEQUENCE = [
   { day: 0,  step: 1, channel: 'Text',  emoji: '💬',
     action: 'Intro text — introduce yourself as Freddy with FreddyFit Personal Training, mention their goal by name, ask for a good day and time to hop on a quick call to confirm their intake form and schedule their complimentary consultation',
-    why: 'Texts open 98% within 3 minutes. Strike while they're hot.' },
+    why: 'Texts open 98% within 3 minutes. Strike while they\'re hot.' },
   { day: 1,  step: 2, channel: 'Text',  emoji: '💬',
     action: 'Follow-up text — they haven\'t replied yet, keep it short and easy to respond to, reference their goal again',
     why: '50% of deals go to whoever follows up first. Most people forget to reply, not ignore.' },
