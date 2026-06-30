@@ -6151,8 +6151,8 @@ function LoginScreen({ onLogin }) {
 // Studies: texts open 98% in 3 min, calls convert 8x better, email nurtures long-term
 const OUTREACH_SEQUENCE = [
   { day: 0,  step: 1, channel: 'Text',  emoji: '💬',
-    action: 'Intro text — say: "Hey [Name]! I saw you completed your intake form with FreddyFit Personal Training. I\'d love to connect for a quick call to go over your notes and discuss scheduling for your complimentary consultation. When would be a good time this week? 💪 — Freddy | FreddyFit Personal Training"',
-    why: 'Texts open 98% within 3 minutes. Strike while they\'re hot.' },
+    action: 'Send this message now:\n\n"Hey [Name]! This is Freddy from FreddyFit Personal Training 👋 I just received your intake form — thank you for reaching out! I\'d love to jump on a quick 10-minute call to go over your notes and get your complimentary consultation scheduled. What does your schedule look like this week? 💪"\n\nSend within the first hour — leads go cold fast.',
+    why: 'Texts open 98% within 3 minutes. First contact within 1 hour increases conversion by 7x.' },
   { day: 1,  step: 2, channel: 'Text',  emoji: '💬',
     action: 'Follow-up text — they haven\'t replied yet, keep it short and easy to respond to, reference their goal again',
     why: '50% of deals go to whoever follows up first. Most people forget to reply, not ignore.' },
@@ -6377,7 +6377,7 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
 
   const load = useCallback(async () => {
     setLoading(true)
-    try { setLeads(await getAllLeads()) } catch {}
+    try { setLeads(await getAllLeads()) } catch (e) { console.error('CRM load error:', e) }
     setLoading(false)
   }, [])
 

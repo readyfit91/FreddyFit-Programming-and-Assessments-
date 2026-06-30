@@ -201,7 +201,7 @@ export async function getAllLeads() {
   const { data, error } = await supabase
     .from('leads')
     .select('*')
-    .order('created_at', { ascending: false })
+    .order('date_added', { ascending: false })
   if (error) throw error
   return data || []
 }
