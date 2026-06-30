@@ -5932,7 +5932,7 @@ function ClientRoster({ onSelectClient, onNewClient, onOpenSchedule }) {
               const stype = SESSION_TYPES.find(t => t.label === s.session_type) || SESSION_TYPES[0]
               return (
               <div key={s.id} onClick={onOpenSchedule} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 14px', background: C.accent + '12', borderRadius: 9, border: `1.5px solid ${C.accent}33`, cursor: 'pointer' }}>
-                <div style={{ fontSize: 13, fontWeight: 900, color: C.accent, minWidth: 44 }}>{s.time.slice(0,5)}</div>
+                <div style={{ fontSize: 13, fontWeight: 900, color: C.accent, minWidth: 54 }}>{fmt12(s.time)}</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{s.client_name}</div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: stype.color, marginTop: 1 }}>{s.session_type || 'FIT60'}{s.recurring ? ' 🔁' : ''}</div>
@@ -5962,7 +5962,7 @@ function ClientRoster({ onSelectClient, onNewClient, onOpenSchedule }) {
                 return (
                   <div key={s.id} onClick={onOpenSchedule} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 12px', background: C.faint, borderRadius: 8, cursor: 'pointer' }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, minWidth: 80 }}>{label}</div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, minWidth: 40 }}>{s.time.slice(0,5)}</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, minWidth: 54 }}>{fmt12(s.time)}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{s.client_name}</div>
                       <div style={{ fontSize: 9, fontWeight: 700, color: stype.color }}>{s.session_type || 'FIT60'}{s.recurring ? ' 🔁' : ''}</div>
@@ -7402,6 +7402,13 @@ function SubscriptionTracker({ client, onBack }) {
 
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 6) // 6am–7pm
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+function fmt12(time) {
+  if (!time) return ''
+  const [h, m] = time.split(':').map(Number)
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  const hour = h % 12 || 12
+  return `${hour}:${String(m).padStart(2,'0')} ${ampm}`
+}
 const SESSION_TYPES = [
   { label: 'FIT60',                   duration: 60,  color: '#2563EB' },
   { label: 'FIT30',                   duration: 30,  color: '#0891B2' },
@@ -7657,8 +7664,8 @@ function Schedule({ onBack, allClients }) {
             </div>
             <div style={{ fontSize: 12, color: C.sub, marginBottom: 20 }}>
               {booking.session
-                ? `${booking.session.date} at ${booking.session.time.slice(0,5)}`
-                : `${booking.date} at ${booking.time}`}
+                ? `${booking.session.date} at ${fmt12(booking.session.time)}`
+                : `${booking.date} at ${fmt12(booking.time)}`}
             </div>
 
             {/* Client search */}
