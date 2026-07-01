@@ -3455,9 +3455,21 @@ function ProgramUploads({ client, onUpdate }) {
   const [journal, setJournal] = useState(stored.program_journal || {})
   const posKey = `ff_journal_pos_${client.id}`
   const savedPos = (() => { try { return JSON.parse(localStorage.getItem(posKey) || 'null') } catch { return null } })()
-  const [selYear, setSelYear] = useState(savedPos?.year || 1)
-  const [selPhase, setSelPhase] = useState(savedPos?.phase || 'p1')
-  const [selWeek, setSelWeek] = useState(savedPos?.week || 'Week 1')
+  // If no saved position, find the last week that has actual data
+  const lastPopulatedPos = (() => {
+    if (savedPos) return null
+    const journalData = stored.program_journal || {}
+    const keys = Object.keys(journalData).filter(k => /^y\d+_p\d+_Week/.test(k) && journalData[k]?.days?.some(d => d.exercises?.some(e => e.exercise)))
+    if (!keys.length) return null
+    keys.sort()
+    const last = keys[keys.length - 1]
+    const m = last.match(/^y(\d+)_(p\d+)_(Week \d+)$/)
+    if (!m) return null
+    return { year: parseInt(m[1]), phase: m[2], week: m[3] }
+  })()
+  const [selYear, setSelYear] = useState(savedPos?.year || lastPopulatedPos?.year || 1)
+  const [selPhase, setSelPhase] = useState(savedPos?.phase || lastPopulatedPos?.phase || 'p1')
+  const [selWeek, setSelWeek] = useState(savedPos?.week || lastPopulatedPos?.week || 'Week 1')
   // Week order per phase — allows custom deload placement
   const weekOrderKey = `y${selYear}_${selPhase}_weekorder`
   const weekOrder = journal[weekOrderKey] || DEFAULT_WEEK_ORDER
