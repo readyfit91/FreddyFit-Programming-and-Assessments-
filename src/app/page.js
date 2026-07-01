@@ -6428,7 +6428,13 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
     setLoading(false)
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+    const interval = setInterval(load, 10000)
+    const onVisible = () => { if (document.visibilityState === 'visible') load() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { clearInterval(interval); document.removeEventListener('visibilitychange', onVisible) }
+  }, [load])
 
   const activeLeads = leads.filter(l => l.status !== 'Client' && l.status !== 'Cold')
   const coldLeads = leads.filter(l => l.status === 'Cold')
@@ -6940,8 +6946,11 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
   }
   useEffect(() => {
     load()
-    const interval = setInterval(load, 30000) // refresh every 30s while panel is open
-    return () => clearInterval(interval)
+    const interval = setInterval(load, 10000) // refresh every 10s
+    // Refresh instantly when user switches back to this tab/app
+    const onVisible = () => { if (document.visibilityState === 'visible') load() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { clearInterval(interval); document.removeEventListener('visibilitychange', onVisible) }
   }, [])
 
   const allActive = leads
