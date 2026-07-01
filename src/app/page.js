@@ -8,7 +8,7 @@ function localDate(d = new Date()) {
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 }
-import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog, getAllLeads, saveLead, deleteLead, getBloodWork, saveBloodWork, deleteBloodWork, getSessions, getRecurringSessions, saveSession, deleteSession } from '../lib/supabase'
+import { getAllClients, getClientById, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog, getAllLeads, saveLead, deleteLead, getBloodWork, saveBloodWork, deleteBloodWork, getSessions, getRecurringSessions, saveSession, deleteSession } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
 import { FIELD_MODIFIERS } from '../lib/modifiers'
 import { QRCodeCanvas } from 'qrcode.react'
@@ -8730,9 +8730,29 @@ export default function App() {
   if (checkingAuth) return null
   if (!authed) return <LoginScreen onLogin={() => { setAuthed(true); refreshAllClients() }} />
 
-  const goToClient = (c) => { setClient(c); setView('client'); setRosterKey(k => k + 1); refreshAllClients() }
+  const goToClient = async (c) => {
+    setClient(c); setView('client'); setRosterKey(k => k + 1)
+    // Fetch full client data (including trainer_notes) in the background
+    try {
+      const full = await getClientById(c.id)
+      if (full) {
+        const fullClient = { ...c, trainer_notes: full.trainer_notes, trainerNotes: full.trainer_notes }
+        setClient(fullClient)
+        setAllClients(prev => prev.map(p => p.id === c.id ? fullClient : p))
+      }
+    } catch {}
+  }
   const updateClient = (c) => { setClient(c); setAllClients(prev => prev.map(p => p.id === c.id ? c : p)) }
-  const switchToClient = (c) => { setClient(c); setView('client') }
+  const switchToClient = async (c) => {
+    setClient(c); setView('client')
+    try {
+      const full = await getClientById(c.id)
+      if (full) {
+        const fullClient = { ...c, trainer_notes: full.trainer_notes, trainerNotes: full.trainer_notes }
+        setClient(fullClient)
+      }
+    } catch {}
+  }
   const openIntake = () => { setClient(null); setView('intake') }
   const openEditClient = (c) => { setClient(c); setView('editClient') }
 

@@ -9,10 +9,22 @@ function getClient() {
 }
 
 // GET /api/clients — fetch all clients server-side
-export async function GET() {
+// Pass ?id=<uuid> to get a single client with full trainer_notes
+export async function GET(request) {
   try {
     const supabase = getClient()
-    const { data, error } = await supabase.from('clients').select('*').order('updated_at', { ascending: false })
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
+    if (id) {
+      const { data, error } = await supabase.from('clients').select('*').eq('id', id).single()
+      if (error) throw error
+      return Response.json({ client: data || null })
+    }
+    // List view: exclude trainer_notes to reduce egress
+    const { data, error } = await supabase
+      .from('clients')
+      .select('id,name,email,goal,dob,equipment,updated_at')
+      .order('updated_at', { ascending: false })
     if (error) throw error
     return Response.json({ clients: data || [] })
   } catch (err) {

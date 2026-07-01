@@ -18,6 +18,17 @@ export async function getAllClients() {
   return clients || []
 }
 
+export async function getClientById(id) {
+  const res = await fetch(`/api/clients?id=${encodeURIComponent(id)}`)
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error || `Failed to load client (${res.status})`)
+  }
+  const { client, error } = await res.json()
+  if (error) throw new Error(error)
+  return client
+}
+
 export async function saveClient(client) {
   const res = await fetch('/api/clients', {
     method: 'POST',
