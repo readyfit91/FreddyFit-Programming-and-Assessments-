@@ -4,10 +4,10 @@ const resend = new Resend(process.env.RESEND_API_KEY)
 
 const BRAND = {
   black:   '#0A0A0A',
-  accent:  '#2563EB',
-  accentD: '#1D4ED8',
+  accent:  '#2BAADF',
+  accentD: '#1A8BBF',
   white:   '#FFFFFF',
-  light:   '#F0F4FF',
+  light:   '#EBF7FD',
   border:  '#E2E8F0',
   sub:     '#64748B',
   faint:   '#F8FAFC',
