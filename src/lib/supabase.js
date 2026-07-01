@@ -205,33 +205,26 @@ export async function getAllLeads() {
 }
 
 export async function saveLead(lead) {
-  const payload = {
-    name: lead.name,
-    phone: lead.phone || '',
-    email: lead.email || '',
-    source: lead.source || '',
-    goal: lead.goal || '',
-    status: lead.status || 'Active',
-    date_added: lead.date_added || new Date().toISOString().split('T')[0],
-    last_contact_date: lead.last_contact_date || null,
-    notes: lead.notes || '',
-    consultation_notes: lead.consultation_notes || '',
-    updated_at: new Date().toISOString()
+  const res = await fetch('/api/leads', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(lead)
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error || `Failed to save lead (${res.status})`)
   }
-  if (lead.id) {
-    const { data, error } = await supabase.from('leads').update(payload).eq('id', lead.id).select().single()
-    if (error) throw error
-    return data
-  } else {
-    const { data, error } = await supabase.from('leads').insert(payload).select().single()
-    if (error) throw error
-    return data
-  }
+  const { lead: saved, error } = await res.json()
+  if (error) throw new Error(error)
+  return saved
 }
 
 export async function deleteLead(leadId) {
-  const { error } = await supabase.from('leads').delete().eq('id', leadId)
-  if (error) throw error
+  const res = await fetch(`/api/leads?id=${leadId}`, { method: 'DELETE' })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error || `Failed to delete lead (${res.status})`)
+  }
 }
 
 // ── BLOOD WORK ────────────────────────────────────────────────────────────────

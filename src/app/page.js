@@ -6351,14 +6351,22 @@ Output only the message/script. No intro, no explanation, just the content ready
         </div>
 
         {/* Channel selector */}
+        <div style={{ fontSize: 11, color: C.sub, marginBottom: 6 }}>
+          ⭐ <strong style={{ color: C.accent }}>{step.channel}</strong> is recommended for Step {step.step} (Day {step.day})
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16 }}>
-          {AI_CHANNELS.map(ch => (
-            <button key={ch.key} onClick={() => { setChannel(ch.key); setMsg('') }}
-              style={{ padding: '10px 6px', borderRadius: 10, border: `2px solid ${channel === ch.key ? C.accent : C.border}`, background: channel === ch.key ? C.accent + '12' : C.faint, color: channel === ch.key ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer', textAlign: 'center', transition: 'all .15s' }}>
-              <div style={{ fontSize: 18, marginBottom: 3 }}>{ch.emoji}</div>
-              {ch.label}
-            </button>
-          ))}
+          {AI_CHANNELS.map(ch => {
+            const isRec = ch.key === step.channel
+            const isActive = channel === ch.key
+            return (
+              <button key={ch.key} onClick={() => { setChannel(ch.key); setMsg('') }}
+                style={{ padding: '10px 6px', borderRadius: 10, border: `2px solid ${isActive ? C.accent : isRec ? C.accent + '66' : C.border}`, background: isActive ? C.accent + '12' : isRec ? C.accent + '08' : C.faint, color: isActive ? C.accent : isRec ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer', textAlign: 'center', transition: 'all .15s', position: 'relative' }}>
+                {isRec && <div style={{ position: 'absolute', top: -8, left: '50%', transform: 'translateX(-50%)', background: C.accent, color: '#fff', fontSize: 8, fontWeight: 800, padding: '1px 5px', borderRadius: 4, whiteSpace: 'nowrap' }}>⭐ TODAY</div>}
+                <div style={{ fontSize: 18, marginBottom: 3, marginTop: isRec ? 4 : 0 }}>{ch.emoji}</div>
+                {ch.label}
+              </button>
+            )
+          })}
         </div>
 
         <button onClick={generate} disabled={loading}
@@ -6929,10 +6937,12 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
     return () => clearInterval(interval)
   }, [])
 
-  const actionItems = leads
+  const allActive = leads
     .map(l => ({ lead: l, step: getOutreachStep(l) }))
-    .filter(({ step }) => step && step.isDue && !step.isComplete)
-    .sort((a, b) => (b.step.daysOverdue || 0) - (a.step.daysOverdue || 0))
+    .filter(({ step }) => step && !step.isComplete)
+    .sort((a, b) => (b.step.daysOverdue || 0) - (a.step.daysOverdue || 0) || (a.step.daysUntil || 0) - (b.step.daysUntil || 0))
+  const actionItems = allActive.filter(({ step }) => step.isDue)
+  const upcomingItems = allActive.filter(({ step }) => !step.isDue)
 
   const markDone = async (lead) => {
     setBusy(lead.id)
@@ -6993,7 +7003,7 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
             <div>
               <div style={{ fontWeight: 800, fontSize: 16, color: C.text }}>🎯 Boss Mode</div>
               <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
-                {loading ? 'Loading…' : loadError ? '⚠️ Load failed — tap Retry' : actionItems.length === 0 ? 'All caught up!' : `${actionItems.length} lead${actionItems.length !== 1 ? 's' : ''} need outreach now`}
+                {loading ? 'Loading…' : loadError ? '⚠️ Load failed — tap Retry' : `${allActive.length} active lead${allActive.length !== 1 ? 's' : ''} · ${actionItems.length} due now`}
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -7011,15 +7021,16 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
               <div style={{ fontSize: 12, color: C.sub, marginBottom: 16 }}>{loadError}</div>
               <button onClick={load} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Retry</button>
             </div>
-          ) : actionItems.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 48 }}>
-              <div style={{ fontSize: 40, marginBottom: 12 }}>✅</div>
-              <div style={{ fontWeight: 700, color: C.text, marginBottom: 6 }}>All caught up!</div>
-              <div style={{ fontSize: 12, color: C.sub, marginBottom: 4 }}>No outreach due right now. Check back tomorrow.</div>
-              <div style={{ fontSize: 11, color: C.sub, opacity: 0.6 }}>{leads.filter(l => l.status !== 'Client' && l.status !== 'Cold').length} active lead{leads.filter(l => l.status !== 'Client' && l.status !== 'Cold').length !== 1 ? 's' : ''} being tracked</div>
-            </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {actionItems.length === 0 && upcomingItems.length === 0 && (
+                <div style={{ textAlign: 'center', padding: 40 }}>
+                  <div style={{ fontSize: 40, marginBottom: 12 }}>✅</div>
+                  <div style={{ fontWeight: 700, color: C.text, marginBottom: 6 }}>No active leads yet</div>
+                  <div style={{ fontSize: 12, color: C.sub }}>New leads from your website will appear here automatically.</div>
+                </div>
+              )}
+              {actionItems.length > 0 && <div style={{ fontSize: 10, fontWeight: 800, color: C.red, letterSpacing: 2, textTransform: 'uppercase', marginBottom: -4 }}>🔥 Due Now — {actionItems.length} lead{actionItems.length !== 1 ? 's' : ''}</div>}
               {actionItems.map(({ lead, step }) => {
                 const chCol = CHANNEL_COLORS[step.channel] || CHANNEL_COLORS.Text
                 const isBusy = busy === lead.id
@@ -7101,6 +7112,36 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
                   </div>
                 )
               })}
+
+              {/* Upcoming leads */}
+              {upcomingItems.length > 0 && (
+                <>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 2, textTransform: 'uppercase', marginTop: 4, marginBottom: -4 }}>📅 Coming Up — {upcomingItems.length} lead{upcomingItems.length !== 1 ? 's' : ''}</div>
+                  {upcomingItems.map(({ lead, step }) => {
+                    const chCol = CHANNEL_COLORS[step.channel] || CHANNEL_COLORS.Text
+                    return (
+                      <div key={lead.id} style={{ background: C.faint, border: `1.5px solid ${C.border}`, borderRadius: 12, padding: '12px 14px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                          <div>
+                            <div style={{ fontWeight: 800, fontSize: 14, color: C.text }}>{lead.name}</div>
+                            {lead.goal && <div style={{ fontSize: 11, color: C.sub, marginTop: 1 }}>🎯 {lead.goal}</div>}
+                          </div>
+                          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                            <div style={{ fontSize: 10, fontWeight: 800, padding: '3px 8px', borderRadius: 6, background: chCol.bg, color: chCol.text, border: `1px solid ${chCol.border}` }}>
+                              {step.emoji} {step.channel} in {step.daysUntil}d
+                            </div>
+                            <div style={{ fontSize: 10, color: C.sub, marginTop: 3 }}>Step {step.step}/9 · Day {step.day + 1}/30</div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button onClick={() => setAiCoachLead(lead)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${C.accent}44`, background: C.accent + '12', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer' }}>✨ Prep Message</button>
+                          <button onClick={() => markDone(lead)} disabled={busy === lead.id} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${C.green}`, background: C.green + '12', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer' }}>✅ Mark Done Early</button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </>
+              )}
             </div>
           )}
         </div>
