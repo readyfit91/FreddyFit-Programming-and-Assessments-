@@ -18,6 +18,7 @@ export async function getAllClients() {
 
 export async function saveClient(client) {
   const payload = {
+    id: client.id || crypto.randomUUID(),
     name: client.name,
     email: client.email || '',
     goal: client.goal || '',
@@ -26,16 +27,10 @@ export async function saveClient(client) {
     trainer_notes: client.trainerNotes || '',
     updated_at: new Date().toISOString()
   }
-  if (client.id) {
-    const { data, error } = await supabase.from('clients').update(payload).eq('id', client.id).select()
-    if (error) throw error
-    return data?.[0] || null
-  } else {
-    const insertPayload = { ...payload, id: crypto.randomUUID() }
-    const { data, error } = await supabase.from('clients').insert(insertPayload).select()
-    if (error) throw error
-    return data?.[0] || null
-  }
+  // upsert: inserts if id doesn't exist yet, updates if it does
+  const { data, error } = await supabase.from('clients').upsert(payload).select()
+  if (error) throw error
+  return data?.[0] || null
 }
 
 export async function deleteClient(clientId) {

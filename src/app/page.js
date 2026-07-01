@@ -6905,7 +6905,11 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
     }
     setLoading(false)
   }
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    const interval = setInterval(load, 30000) // refresh every 30s while panel is open
+    return () => clearInterval(interval)
+  }, [])
 
   const actionItems = leads
     .map(l => ({ lead: l, step: getOutreachStep(l) }))
@@ -6974,7 +6978,10 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
                 {loading ? 'Loading…' : loadError ? '⚠️ Load failed — tap Retry' : actionItems.length === 0 ? 'All caught up!' : `${actionItems.length} lead${actionItems.length !== 1 ? 's' : ''} need outreach now`}
               </div>
             </div>
-            <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: C.sub }}>×</button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button onClick={load} title="Refresh" style={{ background: 'none', border: 'none', fontSize: 16, cursor: 'pointer', color: C.sub }}>↻</button>
+              <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: C.sub }}>×</button>
+            </div>
           </div>
         </div>
 
