@@ -1,6 +1,14 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog, getAllLeads, saveLead, deleteLead } from '../lib/supabase'
+
+// Returns YYYY-MM-DD in local time (not UTC)
+function localDate(d = new Date()) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog, getAllLeads, saveLead, deleteLead, getBloodWork, saveBloodWork, deleteBloodWork, getSessions, getRecurringSessions, saveSession, deleteSession } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
 import { FIELD_MODIFIERS } from '../lib/modifiers'
 import { QRCodeCanvas } from 'qrcode.react'
@@ -44,7 +52,7 @@ function Btn({onClick,children,color=C.accent,outline=false,small=false,disabled
 
 // ── SCROLLING REMINDER TICKER ────────────────────────────────────────────────
 function ReminderTicker({ clients }) {
-  const today = new Date().toISOString().split('T')[0]
+  const today = localDate()
   const allReminders = (clients || []).flatMap(c => {
     let intake = null
     try { intake = JSON.parse(c.trainerNotes || c.trainer_notes || '{}') } catch {}
@@ -2276,10 +2284,10 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
       const goal = [goal_3_month, goal_6_month, goal_1_year].filter(Boolean).join(' | ')
 
       const clientData = isEdit
-        ? { ...existingClient, name, dob, goal, equipment: existingClient.equipment || '', trainerNotes: intakeJson }
-        : { id: makeId(), name, dob, goal, equipment: '', trainerNotes: intakeJson, assessments: {} }
-      await saveClient(clientData)
-      onSave(clientData)
+        ? { ...existingClient, name, dob, goal, email: form.email || '', equipment: existingClient.equipment || '', trainerNotes: intakeJson }
+        : { name, dob, goal, email: form.email || '', equipment: '', trainerNotes: intakeJson, assessments: {} }
+      const saved = await saveClient(clientData)
+      onSave(saved ? { ...clientData, id: saved.id, trainerNotes: saved.trainer_notes || intakeJson } : clientData)
     } catch (e) {
       alert('Error saving: ' + e.message)
     }
@@ -3445,13 +3453,17 @@ function ProgramUploads({ client, onUpdate }) {
 
   // program_journal: { "y1_p1_Week 1": { days: [...] }, ... }
   const [journal, setJournal] = useState(stored.program_journal || {})
-  const [selYear, setSelYear] = useState(1)
-  const [selPhase, setSelPhase] = useState('p1')
-  const [selWeek, setSelWeek] = useState('Week 1')
+  const posKey = `ff_journal_pos_${client.id}`
+  const savedPos = (() => { try { return JSON.parse(localStorage.getItem(posKey) || 'null') } catch { return null } })()
+  const [selYear, setSelYear] = useState(savedPos?.year || 1)
+  const [selPhase, setSelPhase] = useState(savedPos?.phase || 'p1')
+  const [selWeek, setSelWeek] = useState(savedPos?.week || 'Week 1')
   // Week order per phase — allows custom deload placement
   const weekOrderKey = `y${selYear}_${selPhase}_weekorder`
   const weekOrder = journal[weekOrderKey] || DEFAULT_WEEK_ORDER
   const [saving, setSaving] = useState(false)
+  const [autoSaving, setAutoSaving] = useState(false)
+  const autoSaveTimer = useRef(null)
   const [programFile, setProgramFile] = useState(stored.program_file || null)
   const [showProgram, setShowProgram] = useState(false)
 
@@ -3495,7 +3507,21 @@ function ProgramUploads({ client, onUpdate }) {
 
   useEffect(() => { journalRef.current = journal }, [journal])
 
-  // Update locally only — no persist
+  // Persist last-viewed position
+  useEffect(() => {
+    try { localStorage.setItem(posKey, JSON.stringify({ year: selYear, phase: selPhase, week: selWeek })) } catch {}
+  }, [selYear, selPhase, selWeek])
+
+  const triggerAutoSave = () => {
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
+    setAutoSaving(true)
+    autoSaveTimer.current = setTimeout(async () => {
+      try { await persist({ program_journal: journalRef.current }) } catch {}
+      setAutoSaving(false)
+    }, 1500)
+  }
+
+  // Update locally and schedule autosave
   const updateWeekDataLocal = (newDays, changedDayIdx) => {
     const updated = { ...journal, [journalKey]: { ...weekData, days: newDays } }
     setJournal(updated)
@@ -3503,6 +3529,7 @@ function ProgramUploads({ client, onUpdate }) {
       setUnsavedDays(prev => new Set(prev).add(changedDayIdx))
       setSavedDays(prev => { const n = new Set(prev); n.delete(changedDayIdx); return n })
     }
+    triggerAutoSave()
   }
 
   // Persist entire week to database
@@ -3610,6 +3637,7 @@ function ProgramUploads({ client, onUpdate }) {
     setJournal(updated)
     setWeekNotesUnsaved(true)
     setWeekNotesSaved(false)
+    triggerAutoSave()
   }
 
   const saveWeekNotes = () => {
@@ -3624,6 +3652,7 @@ function ProgramUploads({ client, onUpdate }) {
     setJournal(updated)
     setPhaseNotesUnsaved(true)
     setPhaseNotesSaved(false)
+    triggerAutoSave()
   }
 
   const savePhaseNotes = () => {
@@ -4108,16 +4137,18 @@ function ProgramUploads({ client, onUpdate }) {
             )}
           </div>
 
-          {/* Save Day button */}
-          <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+          {/* Autosave indicator */}
+          <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8 }}>
+            {autoSaving && <span style={{ fontSize: 10, color: C.sub, fontStyle: 'italic' }}>Autosaving…</span>}
+            {!autoSaving && savedDays.has(dayIdx) && <span style={{ fontSize: 10, color: C.green, fontWeight: 700 }}>✓ Saved</span>}
             <button
               onClick={() => saveDay(dayIdx)}
-              disabled={saving || (!unsavedDays.has(dayIdx) && !savedDays.has(dayIdx))}
+              disabled={saving || autoSaving || (!unsavedDays.has(dayIdx) && !savedDays.has(dayIdx))}
               style={{
                 padding: '6px 20px', borderRadius: 7, border: 'none',
                 background: savedDays.has(dayIdx) ? C.green : unsavedDays.has(dayIdx) ? C.accent : C.border,
                 color: savedDays.has(dayIdx) ? '#fff' : unsavedDays.has(dayIdx) ? '#000' : C.sub,
-                fontSize: 11, fontWeight: 700, cursor: unsavedDays.has(dayIdx) ? 'pointer' : 'default',
+                fontSize: 11, fontWeight: 700, cursor: (unsavedDays.has(dayIdx) && !autoSaving) ? 'pointer' : 'default',
                 fontFamily: 'Montserrat,sans-serif', letterSpacing: 0.5, transition: 'all .2s'
               }}
             >
@@ -4144,13 +4175,16 @@ function WeightTracker({ client, onBack }) {
   const [saving, setSaving] = useState(false)
   const [weight, setWeight] = useState('')
   const [bodyFat, setBodyFat] = useState('')
+  const [bmi, setBmi] = useState('')
   const [rating, setRating] = useState('')
+  const [behaviorTags, setBehaviorTags] = useState([])
   const [behaviorNotes, setBehaviorNotes] = useState('')
-  const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0])
+  const [logDate, setLogDate] = useState(localDate())
   const [showHistory, setShowHistory] = useState(false)
   const [showJourneyModal, setShowJourneyModal] = useState(false)
   const chartRef = useRef(null)
   const modalChartRef = useRef(null)
+  const pieChartRef = useRef(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -4170,11 +4204,13 @@ function WeightTracker({ client, onBack }) {
       await saveWeightLog(client.id, {
         weight: weight ? parseFloat(weight) : null,
         bodyFat: bodyFat ? parseFloat(bodyFat) : null,
+        bmi: bmi ? parseFloat(bmi) : null,
         rating: rating || null,
+        behaviorTags: behaviorTags.length ? behaviorTags : null,
         behaviorNotes,
         loggedAt: new Date(logDate + 'T12:00:00').toISOString()
       })
-      setWeight(''); setBodyFat(''); setRating(''); setBehaviorNotes(''); setLogDate(new Date().toISOString().split('T')[0])
+      setWeight(''); setBodyFat(''); setBmi(''); setRating(''); setBehaviorTags([]); setBehaviorNotes(''); setLogDate(localDate())
       await load()
     } catch (e) { alert('Error saving: ' + e.message) }
     setSaving(false)
@@ -4191,11 +4227,14 @@ function WeightTracker({ client, onBack }) {
     const ctx = canvas.getContext('2d')
     const dpr = window.devicePixelRatio || 1
     const rect = canvas.getBoundingClientRect()
-    canvas.width = rect.width * dpr
-    canvas.height = rect.height * dpr
+    const W = rect.width > 0 ? rect.width : canvas.width / dpr
+    const H = rect.height > 0 ? rect.height : canvas.height / dpr
+    if (rect.width > 0) {
+      canvas.width = rect.width * dpr
+      canvas.height = rect.height * dpr
+    }
     ctx.scale(dpr, dpr)
-    const W = rect.width, H = rect.height
-    const pad = { top: 30, right: showBehavior ? 50 : 20, bottom: 50, left: 50 }
+    const pad = { top: 42, right: showBehavior ? 50 : 80, bottom: 50, left: 80 }
     const cW = W - pad.left - pad.right, cH = H - pad.top - pad.bottom
 
     ctx.clearRect(0, 0, W, H)
@@ -4297,9 +4336,9 @@ function WeightTracker({ client, onBack }) {
       }
 
       ctx.font = 'bold 11px Montserrat, sans-serif'
-      const labelX = yAxis === 'left' ? pad.left : W - pad.right
+      const labelX = yAxis === 'left' ? pad.left - 4 : W - pad.right + 4
       ctx.textAlign = yAxis === 'left' ? 'right' : 'left'
-      ctx.fillText(label, labelX, pad.top - 10)
+      ctx.fillText(label, labelX, pad.top - 18)
 
       ctx.strokeStyle = color
       ctx.lineWidth = 2.5
@@ -4358,6 +4397,46 @@ function WeightTracker({ client, onBack }) {
     }
   }, [showJourneyModal, drawChart])
 
+  const PIE_COLORS = ['#EF4444','#F59E0B','#8B5CF6','#EC4899','#14B8A6','#F97316','#3B82F6','#6B7280']
+
+  const drawPieChart = useCallback((canvas) => {
+    if (!canvas) return
+    const tagCounts = {}
+    logs.forEach(l => { (l.behavior_tags || []).forEach(tag => { tagCounts[tag] = (tagCounts[tag] || 0) + 1 }) })
+    const entries = Object.entries(tagCounts).sort((a, b) => b[1] - a[1])
+    if (entries.length === 0) return
+    const total = entries.reduce((s, [, v]) => s + v, 0)
+    const dpr = window.devicePixelRatio || 1
+    const rect = canvas.getBoundingClientRect()
+    canvas.width = rect.width * dpr; canvas.height = rect.height * dpr
+    const ctx = canvas.getContext('2d')
+    ctx.scale(dpr, dpr)
+    const size = Math.min(rect.width, rect.height)
+    const cx = rect.width / 2, cy = rect.height / 2, r = size / 2 - 10
+    let angle = -Math.PI / 2
+    entries.forEach(([, count], i) => {
+      const slice = (count / total) * Math.PI * 2
+      ctx.beginPath(); ctx.moveTo(cx, cy)
+      ctx.arc(cx, cy, r, angle, angle + slice)
+      ctx.closePath()
+      ctx.fillStyle = PIE_COLORS[i % PIE_COLORS.length]
+      ctx.fill()
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke()
+      angle += slice
+    })
+    ctx.beginPath(); ctx.arc(cx, cy, r * 0.50, 0, Math.PI * 2)
+    ctx.fillStyle = C.card; ctx.fill()
+    const badCount = logs.filter(l => l.rating === 'bad').length
+    const pct = logs.length > 0 ? Math.round((badCount / logs.length) * 100) : 0
+    ctx.fillStyle = C.text; ctx.font = `bold ${Math.round(r * 0.36)}px Montserrat,sans-serif`
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.fillText(`${pct}%`, cx, cy - 6)
+    ctx.fillStyle = C.sub; ctx.font = `${Math.round(r * 0.18)}px Montserrat,sans-serif`
+    ctx.fillText('barriers', cx, cy + r * 0.22)
+  }, [logs])
+
+  useEffect(() => { drawPieChart(pieChartRef.current) }, [drawPieChart])
+
   const input = { width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 13, color: C.text, outline: 'none', background: C.faint, boxSizing: 'border-box' }
 
   const latestWeight = [...logs].reverse().find(l => l.weight != null)
@@ -4405,24 +4484,234 @@ function WeightTracker({ client, onBack }) {
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 16px 8px', marginBottom: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase' }}>PROGRESS OVER TIME</div>
-            <button onClick={() => setShowJourneyModal(true)} style={{ background: C.accent + '12', border: `1.5px solid ${C.accent}44`, color: C.accent, borderRadius: 8, padding: '5px 14px', fontSize: 10, fontWeight: 800, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', letterSpacing: 1, textTransform: 'uppercase' }}>
-              View Journey
-            </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={async () => {
+                try {
+                  const { jsPDF } = await import('jspdf')
+                  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' })
+                  const W = doc.internal.pageSize.getWidth()
+                  // Header bar
+                  doc.setFillColor(43, 170, 223)
+                  doc.rect(0, 0, W, 72, 'F')
+                  doc.setFont('helvetica', 'bold')
+                  doc.setFontSize(20)
+                  doc.setTextColor(255, 255, 255)
+                  doc.text('FreddyFit Performance Center', 36, 30)
+                  doc.setFont('helvetica', 'normal')
+                  doc.setFontSize(9)
+                  doc.text('6047 Telegraph Road  ·  Saint Louis, MO 63123  ·  myfitpro@getfreddyfit.com  ·  314-584-9389', 36, 46)
+                  doc.setFont('helvetica', 'bold')
+                  doc.setFontSize(12)
+                  doc.text('PATIENT PROGRESS REPORT', 36, 62)
+                  // Client name
+                  doc.setTextColor(26, 32, 44)
+                  doc.setFontSize(18)
+                  doc.setFont('helvetica', 'bold')
+                  doc.text(client.name, 36, 96)
+                  doc.setFontSize(10)
+                  doc.setFont('helvetica', 'normal')
+                  doc.setTextColor(113, 128, 150)
+                  doc.text(`Generated ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`, 36, 112)
+                  // Stats row
+                  let y = 136
+                  const latestW = [...logs].reverse().find(l => l.weight != null)
+                  const firstW = logs.find(l => l.weight != null)
+                  const latestBF = [...logs].reverse().find(l => l.body_fat != null)
+                  const firstBF = logs.find(l => l.body_fat != null)
+                  const latestBMI = [...logs].reverse().find(l => l.bmi != null)
+                  const stats = [
+                    latestW ? `Current Weight: ${latestW.weight} lbs` : null,
+                    latestW && firstW && latestW !== firstW ? `Change: ${(latestW.weight - firstW.weight) > 0 ? '+' : ''}${(latestW.weight - firstW.weight).toFixed(1)} lbs` : null,
+                    latestBF ? `Body Fat: ${latestBF.body_fat}%` : null,
+                    latestBF && firstBF && latestBF !== firstBF ? `BF Change: ${(latestBF.body_fat - firstBF.body_fat) > 0 ? '+' : ''}${(latestBF.body_fat - firstBF.body_fat).toFixed(1)}%` : null,
+                    latestBMI ? `BMI: ${latestBMI.bmi}` : null,
+                    `Total Check-Ins: ${logs.length}`,
+                  ].filter(Boolean)
+                  doc.setFontSize(11)
+                  doc.setTextColor(26, 32, 44)
+                  doc.setFont('helvetica', 'bold')
+                  stats.forEach((s, i) => {
+                    doc.text(s, 36 + (i % 2) * 240, y + Math.floor(i / 2) * 18)
+                  })
+                  y += Math.ceil(stats.length / 2) * 18 + 16
+                  // Charts side by side
+                  const chartAreaW = W - 72
+                  const pieW = 160
+                  const lineChartW = chartAreaW - pieW - 16
+                  if (logs.length >= 2) {
+                    const offChart = document.createElement('canvas')
+                    offChart.width = 900; offChart.height = 320
+                    drawChart(offChart, false)
+                    const imgData = offChart.toDataURL('image/png')
+                    doc.addImage(imgData, 'PNG', 36, y, lineChartW, 190)
+                  }
+                  // Pie chart
+                  const tagCounts = {}
+                  logs.forEach(l => { (l.behavior_tags || []).forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1 }) })
+                  const pieEntries = Object.entries(tagCounts).sort((a, b) => b[1] - a[1])
+                  const pieTotal = pieEntries.reduce((s, [, v]) => s + v, 0)
+                  const PIE_PDF_COLORS = [
+                    [239,68,68],[245,158,11],[139,92,246],[236,72,153],[20,184,166],[249,115,22],[59,130,246],[107,114,128]
+                  ]
+                  if (pieEntries.length > 0) {
+                    const offCanvas = document.createElement('canvas')
+                    const sz = 240
+                    offCanvas.width = sz; offCanvas.height = sz
+                    const octx = offCanvas.getContext('2d')
+                    const cr = sz / 2, pr = sz / 2 - 10
+                    let ang = -Math.PI / 2
+                    pieEntries.forEach(([, count], i) => {
+                      const slice = (count / pieTotal) * Math.PI * 2
+                      octx.beginPath(); octx.moveTo(cr, cr)
+                      octx.arc(cr, cr, pr, ang, ang + slice); octx.closePath()
+                      const [r2, g2, b2] = PIE_PDF_COLORS[i % PIE_PDF_COLORS.length]
+                      octx.fillStyle = `rgb(${r2},${g2},${b2})`; octx.fill()
+                      octx.strokeStyle = '#fff'; octx.lineWidth = 3; octx.stroke()
+                      ang += slice
+                    })
+                    octx.beginPath(); octx.arc(cr, cr, pr * 0.5, 0, Math.PI * 2)
+                    octx.fillStyle = '#fff'; octx.fill()
+                    const pieImgData = offCanvas.toDataURL('image/png')
+                    const pX = 36 + lineChartW + 16
+                    doc.addImage(pieImgData, 'PNG', pX, y, pieW - 10, pieW - 10)
+                    // Barrier Breakdown label
+                    doc.setFontSize(8); doc.setFont('helvetica', 'bold')
+                    doc.setTextColor(239, 68, 68)
+                    doc.text('BARRIER BREAKDOWN', pX, y - 6)
+                    // Legend
+                    let ly = y + pieW + 2
+                    pieEntries.slice(0, 6).forEach(([tag, count], i) => {
+                      const [r2, g2, b2] = PIE_PDF_COLORS[i % PIE_PDF_COLORS.length]
+                      doc.setFillColor(r2, g2, b2); doc.rect(pX, ly - 5, 7, 7, 'F')
+                      doc.setFontSize(7); doc.setFont('helvetica', 'normal')
+                      doc.setTextColor(26, 32, 44)
+                      doc.text(`${tag} (${Math.round((count / pieTotal) * 100)}%)`, pX + 10, ly)
+                      ly += 11
+                    })
+                  }
+                  y += 210
+                  // Behavioral Insights summary
+                  const badCount2 = logs.filter(l => l.rating === 'bad').length
+                  const goodCount2 = logs.filter(l => l.rating === 'good').length
+                  const ratedTotal = badCount2 + goodCount2
+                  if (pieEntries.length > 0 || ratedTotal > 0) {
+                    doc.setFillColor(249, 250, 251)
+                    doc.rect(36, y, W - 72, 2, 'F')
+                    y += 10
+                    doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(43, 170, 223)
+                    doc.text('BEHAVIORAL INSIGHTS', 36, y); y += 14
+                    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(26, 32, 44)
+                    if (ratedTotal > 0) {
+                      const adherePct = Math.round((goodCount2 / ratedTotal) * 100)
+                      doc.text(`• Adherence Rate: ${adherePct}% of rated check-ins were positive (${goodCount2} good / ${badCount2} needs work)`, 36, y); y += 14
+                      if (adherePct >= 70) {
+                        doc.text('  Great consistency! Keep reinforcing what is working.', 36, y); y += 14
+                      } else if (adherePct >= 40) {
+                        doc.text('  Moderate adherence. Focus on eliminating the top barriers listed below.', 36, y); y += 14
+                      } else {
+                        doc.text('  Adherence needs attention. Review barrier patterns with your trainer.', 36, y); y += 14
+                      }
+                    }
+                    if (pieEntries.length > 0) {
+                      doc.text(`• Top Barrier: ${pieEntries[0][0]} (${Math.round((pieEntries[0][1] / pieTotal) * 100)}% of all barrier flags)`, 36, y); y += 14
+                      if (pieEntries.length > 1) {
+                        doc.text(`• Secondary Barrier: ${pieEntries[1][0]} (${Math.round((pieEntries[1][1] / pieTotal) * 100)}%)`, 36, y); y += 14
+                      }
+                      doc.setTextColor(113, 128, 150); doc.setFontSize(9)
+                      doc.text('Addressing your top barriers consistently is the single highest-leverage action for faster results.', 36, y); y += 18
+                      doc.setTextColor(26, 32, 44); doc.setFontSize(10)
+                    }
+                  }
+                  y += 10
+                  // History table
+                  doc.setFontSize(10)
+                  doc.setFont('helvetica', 'bold')
+                  doc.setTextColor(43, 170, 223)
+                  doc.text('WEIGH-IN HISTORY', 36, y)
+                  y += 14
+                  doc.setFont('helvetica', 'normal')
+                  doc.setTextColor(26, 32, 44)
+                  const cols = ['Date', 'Weight', 'Body Fat', 'BMI', 'Rating', 'Barriers / Notes']
+                  const colW = [72, 64, 64, 46, 64, W - 72 - 310]
+                  let cx = 36
+                  doc.setFont('helvetica', 'bold')
+                  doc.setFontSize(8)
+                  doc.setTextColor(113, 128, 150)
+                  cols.forEach((c, i) => { doc.text(c, cx, y); cx += colW[i] })
+                  y += 12
+                  doc.setFont('helvetica', 'normal')
+                  doc.setTextColor(26, 32, 44);
+                  [...logs].reverse().forEach(l => {
+                    if (y > 700) { doc.addPage(); y = 40 }
+                    const d = new Date(l.logged_at)
+                    const barriers = l.behavior_tags && l.behavior_tags.length ? l.behavior_tags.join(', ') : (l.behavior_notes ? l.behavior_notes.slice(0, 60) : '—')
+                    const row = [
+                      `${d.getMonth()+1}/${d.getDate()}/${d.getFullYear()}`,
+                      l.weight != null ? `${l.weight} lbs` : '—',
+                      l.body_fat != null ? `${l.body_fat}%` : '—',
+                      l.bmi != null ? `${l.bmi}` : '—',
+                      l.rating ? (l.rating === 'good' ? 'Good' : 'Needs Work') : '—',
+                      barriers.slice(0, 55),
+                    ]
+                    cx = 36
+                    row.forEach((v, i) => { doc.text(v, cx, y); cx += colW[i] })
+                    y += 14
+                  })
+                  // Footer
+                  const pages = doc.getNumberOfPages()
+                  for (let p = 1; p <= pages; p++) {
+                    doc.setPage(p)
+                    doc.setFontSize(8)
+                    doc.setTextColor(113, 128, 150)
+                    doc.text('FreddyFit Performance Center  ·  6047 Telegraph Rd, Saint Louis MO 63123  ·  Confidential Patient Report', 36, doc.internal.pageSize.getHeight() - 20)
+                    doc.text(`Page ${p} of ${pages}`, W - 36, doc.internal.pageSize.getHeight() - 20, { align: 'right' })
+                  }
+                  doc.save(`${client.name.replace(/\s+/g, '_')}_weight_report.pdf`)
+                } catch(e) { alert('PDF export failed: ' + e.message) }
+              }} style={{ background: C.green + '12', border: `1.5px solid ${C.green}44`, color: C.green, borderRadius: 8, padding: '5px 14px', fontSize: 10, fontWeight: 800, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', letterSpacing: 1, textTransform: 'uppercase' }}>
+                ↓ Export PDF
+              </button>
+              <button onClick={() => setShowJourneyModal(true)} style={{ background: C.accent + '12', border: `1.5px solid ${C.accent}44`, color: C.accent, borderRadius: 8, padding: '5px 14px', fontSize: 10, fontWeight: 800, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', letterSpacing: 1, textTransform: 'uppercase' }}>
+                View Journey
+              </button>
+            </div>
           </div>
-          <canvas ref={chartRef} style={{ width: '100%', height: 280, display: 'block' }} />
-          <div style={{ display: 'flex', gap: 16, justifyContent: 'center', padding: '8px 0 4px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
-              <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.green }} /> Good
+          <div style={{ display: 'flex', gap: 16, alignItems: 'stretch' }}>
+            {/* Weight / BF chart */}
+            <div style={{ flex: 2, minWidth: 0 }}>
+              <canvas ref={chartRef} style={{ width: '100%', height: 260, display: 'block' }} />
+              <div style={{ display: 'flex', gap: 12, justifyContent: 'center', padding: '6px 0 2px', flexWrap: 'wrap' }}>
+                {[['Good', C.green],['Needs Work', C.red],['Weight', C.accent],['Body Fat', C.orange]].map(([l, clr]) => (
+                  <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 700, color: C.sub }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: clr }} />{l}
+                  </div>
+                ))}
+              </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
-              <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.red }} /> Needs Work
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
-              <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.accent }} /> Weight
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
-              <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.orange }} /> Body Fat
-            </div>
+            {/* Barrier pie chart */}
+            {(() => {
+              const tagCounts = {}
+              logs.forEach(l => { (l.behavior_tags || []).forEach(tag => { tagCounts[tag] = (tagCounts[tag] || 0) + 1 }) })
+              const entries = Object.entries(tagCounts).sort((a, b) => b[1] - a[1])
+              if (entries.length === 0) return null
+              const total = entries.reduce((s, [, v]) => s + v, 0)
+              return (
+                <div style={{ flex: '0 0 200px', display: 'flex', flexDirection: 'column', alignItems: 'center', borderLeft: `1px solid ${C.border}`, paddingLeft: 14 }}>
+                  <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: 1.5, color: C.red, textTransform: 'uppercase', marginBottom: 6, alignSelf: 'flex-start' }}>BARRIER BREAKDOWN</div>
+                  <canvas ref={pieChartRef} style={{ width: 120, height: 120, display: 'block', flexShrink: 0 }} />
+                  <div style={{ marginTop: 10, width: '100%' }}>
+                    {entries.slice(0, 5).map(([tag, count], i) => (
+                      <div key={tag} style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: 2, background: PIE_COLORS[i % PIE_COLORS.length], flexShrink: 0 }} />
+                        <div style={{ flex: 1, fontSize: 9, color: C.text, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tag}</div>
+                        <div style={{ fontSize: 9, fontWeight: 800, color: PIE_COLORS[i % PIE_COLORS.length] }}>{Math.round((count / total) * 100)}%</div>
+                      </div>
+                    ))}
+                    {entries.length > 5 && <div style={{ fontSize: 9, color: C.sub, marginTop: 2 }}>+{entries.length - 5} more</div>}
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         </div>
       ) : (
@@ -4447,18 +4736,38 @@ function WeightTracker({ client, onBack }) {
             <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Body Fat %</label>
             <input type="number" step="0.1" value={bodyFat} onChange={e => setBodyFat(e.target.value)} placeholder="22.5" style={input} />
           </div>
+          <div>
+            <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>BMI</label>
+            <input type="number" step="0.1" value={bmi} onChange={e => setBmi(e.target.value)} placeholder="24.5" style={input} />
+          </div>
         </div>
 
         <div style={{ marginBottom: 14 }}>
           <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>How was this weigh-in?</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => setRating(rating === 'good' ? '' : 'good')} style={{ flex: 1, padding: '10px 16px', borderRadius: 10, border: `2px solid ${rating === 'good' ? C.green : C.border}`, background: rating === 'good' ? C.green + '15' : 'white', color: rating === 'good' ? C.green : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-              Good
+          <div style={{ display: 'flex', gap: 8, marginBottom: rating === 'bad' ? 12 : 0 }}>
+            <button onClick={() => { setRating(rating === 'good' ? '' : 'good'); setBehaviorTags([]) }} style={{ flex: 1, padding: '10px 16px', borderRadius: 10, border: `2px solid ${rating === 'good' ? C.green : C.border}`, background: rating === 'good' ? C.green + '15' : 'white', color: rating === 'good' ? C.green : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+              ✓ Good
             </button>
             <button onClick={() => setRating(rating === 'bad' ? '' : 'bad')} style={{ flex: 1, padding: '10px 16px', borderRadius: 10, border: `2px solid ${rating === 'bad' ? C.red : C.border}`, background: rating === 'bad' ? C.red + '15' : 'white', color: rating === 'bad' ? C.red : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-              Needs Work
+              ⚠ Needs Work
             </button>
           </div>
+          {rating === 'bad' && (
+            <div style={{ background: C.red + '08', border: `1px solid ${C.red}22`, borderRadius: 10, padding: '12px 14px' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.red, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>What's contributing? (select all that apply)</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+                {['Emotional Stress','Mental Stress','Physical Stress','Hormonal','Traveling','Eating Out','Late Night Snacking','Poor Tracking'].map(tag => {
+                  const on = behaviorTags.includes(tag)
+                  return (
+                    <button key={tag} type="button" onClick={() => setBehaviorTags(prev => on ? prev.filter(t => t !== tag) : [...prev, tag])}
+                      style={{ padding: '6px 13px', borderRadius: 20, border: `1.5px solid ${on ? C.red : C.border}`, background: on ? C.red + '18' : 'white', color: on ? C.red : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer', transition: 'all .12s' }}>
+                      {tag}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         <div style={{ marginBottom: 14 }}>
@@ -4491,8 +4800,13 @@ function WeightTracker({ client, onBack }) {
                         <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{dateStr}</span>
                         {l.weight != null && <span style={{ fontSize: 12, color: C.accent, fontWeight: 700 }}>{l.weight} lbs</span>}
                         {l.body_fat != null && <span style={{ fontSize: 12, color: C.orange, fontWeight: 700 }}>{l.body_fat}%</span>}
-                        {l.rating && <span style={{ fontSize: 10, fontWeight: 700, borderRadius: 8, padding: '1px 8px', background: l.rating === 'good' ? C.green + '15' : C.red + '15', color: l.rating === 'good' ? C.green : C.red }}>{l.rating === 'good' ? 'Good' : 'Needs Work'}</span>}
+                          {l.rating && <span style={{ fontSize: 10, fontWeight: 700, borderRadius: 8, padding: '1px 8px', background: l.rating === 'good' ? C.green + '15' : C.red + '15', color: l.rating === 'good' ? C.green : C.red }}>{l.rating === 'good' ? 'Good' : 'Needs Work'}</span>}
                       </div>
+                      {l.behavior_tags && l.behavior_tags.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 5 }}>
+                          {l.behavior_tags.map(tag => <span key={tag} style={{ fontSize: 9, fontWeight: 700, borderRadius: 10, padding: '2px 8px', background: C.red + '12', color: C.red, border: `1px solid ${C.red}22` }}>{tag}</span>)}
+                        </div>
+                      )}
                       {l.behavior_notes && <div style={{ fontSize: 11, color: C.sub, marginTop: 3, lineHeight: 1.5 }}>{l.behavior_notes}</div>}
                     </div>
                     <button onClick={() => handleDelete(l.id)} style={{ background: 'none', border: 'none', color: C.red + '66', fontSize: 14, cursor: 'pointer', padding: '0 4px' }} title="Delete">×</button>
@@ -4551,6 +4865,54 @@ function WeightTracker({ client, onBack }) {
                 )
               })()}
             </div>
+
+            {/* Behavior Tag Pie Chart */}
+            {(() => {
+              const tagCounts = {}
+              logs.forEach(l => { (l.behavior_tags || []).forEach(tag => { tagCounts[tag] = (tagCounts[tag] || 0) + 1 }) })
+              const entries = Object.entries(tagCounts).sort((a, b) => b[1] - a[1])
+              if (entries.length === 0) return null
+              const total = entries.reduce((s, [, v]) => s + v, 0)
+              const PIE_COLORS = ['#EF4444','#F59E0B','#8B5CF6','#EC4899','#14B8A6','#F97316','#3B82F6','#6B7280']
+              return (
+                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '18px 20px', marginBottom: 20 }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.red, textTransform: 'uppercase', marginBottom: 14 }}>BARRIER BREAKDOWN — Needs Work Factors</div>
+                  <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <canvas ref={el => {
+                      if (!el) return
+                      const size = 160
+                      el.width = size * (window.devicePixelRatio || 1); el.height = size * (window.devicePixelRatio || 1)
+                      el.style.width = size + 'px'; el.style.height = size + 'px'
+                      const ctx = el.getContext('2d')
+                      ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1)
+                      let angle = -Math.PI / 2
+                      const cx = size / 2, cy = size / 2, r = size / 2 - 8
+                      entries.forEach(([, count], i) => {
+                        const slice = (count / total) * Math.PI * 2
+                        ctx.beginPath(); ctx.moveTo(cx, cy)
+                        ctx.arc(cx, cy, r, angle, angle + slice)
+                        ctx.closePath()
+                        ctx.fillStyle = PIE_COLORS[i % PIE_COLORS.length]
+                        ctx.fill()
+                        angle += slice
+                      })
+                      // Center hole
+                      ctx.beginPath(); ctx.arc(cx, cy, r * 0.52, 0, Math.PI * 2); ctx.fillStyle = C.card; ctx.fill()
+                    }} />
+                    <div style={{ flex: 1, minWidth: 200 }}>
+                      {entries.map(([tag, count], i) => (
+                        <div key={tag} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 7 }}>
+                          <div style={{ width: 12, height: 12, borderRadius: 3, background: PIE_COLORS[i % PIE_COLORS.length], flexShrink: 0 }} />
+                          <div style={{ flex: 1, fontSize: 12, color: C.text, fontWeight: 600 }}>{tag}</div>
+                          <div style={{ fontSize: 11, fontWeight: 800, color: PIE_COLORS[i % PIE_COLORS.length] }}>{count}×</div>
+                          <div style={{ fontSize: 10, color: C.sub, minWidth: 34, textAlign: 'right' }}>{Math.round((count / total) * 100)}%</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
 
             {/* Large Chart with Behavioral Markers */}
             <div style={{ background: C.faint, borderRadius: 14, padding: '16px 12px 8px', marginBottom: 20 }}>
@@ -4675,7 +5037,7 @@ function ClientReminders({ client, onUpdate }) {
     await saveReminders(reminders.filter(r => r.id !== id))
   }
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = localDate()
   const upcoming = reminders.filter(r => !r.done && r.date >= today)
   const overdue = reminders.filter(r => !r.done && r.date < today)
   const completed = reminders.filter(r => r.done)
@@ -4754,18 +5116,29 @@ function ClientNotes({ client, onUpdate }) {
   const [notes, setNotes] = useState(intake.clientNotes || '')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const notesTimer = useRef(null)
+  const notesRef = useRef(notes)
+  useEffect(() => { notesRef.current = notes }, [notes])
 
   const save = async (value) => {
     setSaving(true)
     try {
-      const updated = { ...intake, clientNotes: value }
+      const latest = (() => { try { return JSON.parse(client.trainerNotes || '{}') } catch { return {} } })()
+      const updated = { ...latest, clientNotes: value }
       const updatedClient = { ...client, trainerNotes: JSON.stringify(updated) }
       await saveClient(updatedClient)
       onUpdate(updatedClient)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
-    } catch (e) { alert('Error saving notes: ' + e.message) }
+    } catch (e) { console.error('Error saving notes:', e.message) }
     setSaving(false)
+  }
+
+  const handleChange = (value) => {
+    setNotes(value)
+    setSaved(false)
+    if (notesTimer.current) clearTimeout(notesTimer.current)
+    notesTimer.current = setTimeout(() => save(notesRef.current), 1500)
   }
 
   return (
@@ -4773,25 +5146,20 @@ function ClientNotes({ client, onUpdate }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase' }}>📝 Client Notes</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 10, color: C.sub }}>{notes.length.toLocaleString()} chars</span>
-          <button
-            onClick={() => save(notes)}
-            disabled={saving}
-            style={{ padding: '4px 14px', borderRadius: 7, border: 'none', background: saved ? C.green : C.accent, color: saved ? '#fff' : '#000', fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', transition: 'all .2s' }}
-          >
-            {saving ? 'Saving...' : saved ? '✓ Saved!' : 'Save'}
-          </button>
+          <span style={{ fontSize: 10, color: saving ? C.sub : saved ? C.green : C.sub, fontWeight: saving || saved ? 700 : 400 }}>
+            {saving ? 'Saving…' : saved ? '✓ Saved' : `${notes.length.toLocaleString()} chars`}
+          </span>
         </div>
       </div>
       <textarea
         value={notes}
-        onChange={e => setNotes(e.target.value)}
+        onChange={e => handleChange(e.target.value)}
         onBlur={() => save(notes)}
         rows={6}
         placeholder={`Running notes for ${client.name}...\n\nUse this for session observations, progress notes, behavioral patterns, outside source references, or anything you want the AI to always know about this client.`}
         style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', color: C.text, background: C.faint, resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.7 }}
       />
-      <div style={{ fontSize: 10, color: C.sub, marginTop: 6 }}>Auto-saves when you click away · Full history always sent to AI</div>
+      <div style={{ fontSize: 10, color: C.sub, marginTop: 6 }}>Autosaves as you type · Always sent to AI</div>
     </div>
   )
 }
@@ -5113,7 +5481,7 @@ function AssessmentHistoryModal({ assessment, client, onClose, onNewAssessment }
   )
 }
 
-function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onSignInSheet, onWeightTracker, onBack, allClients = [], onSwitchClient }) {
+function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onSignInSheet, onWeightTracker, onSubscription, onBloodWork, onBack, allClients = [], onSwitchClient }) {
   const assessmentsDone = Object.keys(client.assessments || {})
   const [showIntake, setShowIntake] = useState(false)
   const [showLinkMenu, setShowLinkMenu] = useState(false)
@@ -5169,6 +5537,33 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
       await saveClient({ ...target, trainerNotes: targetNotes })
     }
   }
+
+  const lastWeighIn = intake?.last_weigh_in || ''
+  const weighInterval = intake?.weigh_interval || 7
+
+  const saveWeighIn = async (date, interval) => {
+    const base = intake || {}
+    const updatedNotes = JSON.stringify({ ...base, last_weigh_in: date, weigh_interval: interval })
+    const updatedClient = { ...client, trainerNotes: updatedNotes }
+    await saveClient(updatedClient)
+    onUpdate(updatedClient)
+  }
+
+  const nextWeighInDate = (() => {
+    if (!lastWeighIn) return null
+    const d = new Date(lastWeighIn)
+    d.setDate(d.getDate() + Number(weighInterval))
+    return d
+  })()
+
+  const weighCountdown = (() => {
+    if (!nextWeighInDate) return null
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const next = new Date(nextWeighInDate)
+    next.setHours(0, 0, 0, 0)
+    return Math.ceil((next - today) / (1000 * 60 * 60 * 24))
+  })()
 
   const FLOW = [
     { phase: 'Phase 1 — Always First', color: C.teal, items: [ALL_ASSESSMENTS.hypermobility] },
@@ -5230,13 +5625,54 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
           {client.goal && <div style={{ fontSize: 13, color: C.sub, marginTop: 4 }}>Goal: {client.goal}</div>}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Btn onClick={() => onBloodWork(client)} small color={C.red}>🩸 Blood Work</Btn>
           <Btn onClick={() => onWeightTracker(client)} small color={C.teal}>⚖️ Weight</Btn>
+          <Btn onClick={() => onSubscription(client)} small color={C.indigo}>📅 Subscription</Btn>
           <Btn onClick={() => onSignInSheet(client)} small color={C.green}>📋 Sign-In Sheet</Btn>
           <Btn onClick={() => onProtocolAdvisor(client)} small color={C.orange}>🩺 Protocols</Btn>
           <Btn onClick={() => onGenerateWorkout(client)} small>💪 Workout</Btn>
           <Btn onClick={() => onBuildProgram(client)} small>📋 Program</Btn>
           <Btn onClick={() => onEditClient(client)} outline small color={C.sub}>✏️ Edit</Btn>
         </div>
+      </div>
+
+      {/* Weigh-In Countdown */}
+      <div style={{ background: C.faint, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 18px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>⚖️ Next Weigh-In</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: 1 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Last Weigh-In</span>
+            <input type="date" value={lastWeighIn} onChange={e => saveWeighIn(e.target.value, weighInterval)}
+              style={{ fontSize: 12, fontWeight: 700, border: `1.5px solid ${C.border}`, borderRadius: 7, padding: '5px 10px', background: '#fff', color: C.text, fontFamily: 'Montserrat,sans-serif', cursor: 'pointer' }} />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Interval</span>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {[7, 14, 30].map(d => (
+                <button key={d} onClick={() => saveWeighIn(lastWeighIn, d)}
+                  style={{ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${weighInterval === d ? C.teal : C.border}`, background: weighInterval === d ? C.teal + '18' : '#fff', color: weighInterval === d ? C.teal : C.sub, fontWeight: 800, fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+                  {d}d
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        {nextWeighInDate && (
+          <div style={{ textAlign: 'center', minWidth: 90 }}>
+            <div style={{ fontSize: weighCountdown === 0 ? 22 : 28, fontWeight: 900, color: weighCountdown < 0 ? C.red : weighCountdown <= 2 ? C.orange : C.teal, fontFamily: 'Montserrat,sans-serif', lineHeight: 1 }}>
+              {weighCountdown === 0 ? 'TODAY' : weighCountdown < 0 ? `${Math.abs(weighCountdown)}d LATE` : `${weighCountdown}d`}
+            </div>
+            <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 }}>
+              {weighCountdown === 0 ? 'Weigh in today!' : weighCountdown < 0 ? 'Overdue' : 'Until Next'}
+            </div>
+            <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>
+              {nextWeighInDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            </div>
+          </div>
+        )}
+        {!nextWeighInDate && (
+          <div style={{ fontSize: 11, color: C.sub, fontStyle: 'italic' }}>Set last weigh-in date to start countdown</div>
+        )}
       </div>
 
       {/* Intake Summary */}
@@ -5321,6 +5757,13 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
                   ['Financial concerns', intake.financial_concerns === 'Yes' ? intake.financial_concerns_description || 'Yes' : intake.financial_concerns],
                   ['Additional info', intake.additional_info],
                 ]} />
+                {(intake.source || intake.intake_notes || intake.consultation_notes) && (
+                  <Section title="CRM Intake (from Lead)" items={[
+                    ['Source', intake.source],
+                    ['Intake Notes', intake.intake_notes],
+                    ['Consultation Notes', intake.consultation_notes],
+                  ]} />
+                )}
                 <Section title="Functional Fit Package" items={[
                   ['Committed', intake.functional_fit_commit],
                   ['Initialed: 4 sessions / 3-4 weeks', intake.functional_fit_initial_1 ? '✓ Signed' : ''],
@@ -5412,10 +5855,12 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
 }
 
 // ── CLIENT ROSTER ─────────────────────────────────────────────────────────────
-function ClientRoster({ onSelectClient, onNewClient }) {
+function ClientRoster({ onSelectClient, onNewClient, onOpenSchedule }) {
   const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [todaySessions, setTodaySessions] = useState([])
+  const [upcomingSessions, setUpcomingSessions] = useState([])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -5430,6 +5875,18 @@ function ClientRoster({ onSelectClient, onNewClient }) {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    const today = new Date()
+    const todayStr = localDate(today)
+    const end = new Date(today)
+    end.setDate(end.getDate() + 6)
+    const endStr = localDate(end)
+    getSessions(todayStr, endStr).then(all => {
+      setTodaySessions(all.filter(s => s.date === todayStr))
+      setUpcomingSessions(all.filter(s => s.date > todayStr))
+    }).catch(() => {})
+  }, [])
 
   const removeClient = async (id, e) => {
     e.stopPropagation()
@@ -5469,6 +5926,71 @@ function ClientRoster({ onSelectClient, onNewClient }) {
         <Btn onClick={onNewClient}>+ New Client</Btn>
       </div>
 
+      {/* Schedule Widget */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase' }}>📅 Today's Schedule</div>
+          <button onClick={onOpenSchedule} style={{ fontSize: 11, fontWeight: 700, color: C.accent, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', padding: 0 }}>View Full Calendar →</button>
+        </div>
+        {todaySessions.length === 0 ? (
+          <div style={{ fontSize: 12, color: C.sub, fontStyle: 'italic', marginBottom: upcomingSessions.length > 0 ? 12 : 0 }}>No sessions booked today</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: upcomingSessions.length > 0 ? 14 : 0 }}>
+            {todaySessions.map(s => {
+              const stype = SESSION_TYPES.find(t => t.label === s.session_type) || SESSION_TYPES[0]
+              return (
+              <div key={s.id} onClick={onOpenSchedule} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 14px', background: C.accent + '12', borderRadius: 9, border: `1.5px solid ${C.accent}33`, cursor: 'pointer' }}>
+                <div style={{ fontSize: 13, fontWeight: 900, color: C.accent, minWidth: 54 }}>{fmt12(s.time)}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{s.client_name}</div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: stype.color, marginTop: 1 }}>{s.session_type || 'FIT60'}{s.recurring ? ' 🔁' : ''}</div>
+                  {s.link && (
+                    <a href={s.link.startsWith('http') ? s.link : `tel:${s.link.replace(/\s/g,'')}`}
+                      onClick={e => e.stopPropagation()}
+                      style={{ fontSize: 10, color: C.accent, textDecoration: 'underline', display: 'block', marginTop: 1 }}>
+                      {s.link}
+                    </a>
+                  )}
+                  {s.notes && <div style={{ fontSize: 10, color: C.sub, marginTop: 1 }}>{s.notes}</div>}
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.sub }}>{s.duration}min</div>
+              </div>
+              )
+            })}
+          </div>
+        )}
+        {upcomingSessions.length > 0 && (
+          <>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.5, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>Coming Up</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {upcomingSessions.slice(0, 4).map(s => {
+                const d = new Date(s.date + 'T00:00:00')
+                const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+                const stype = SESSION_TYPES.find(t => t.label === s.session_type) || SESSION_TYPES[0]
+                return (
+                  <div key={s.id} onClick={onOpenSchedule} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 12px', background: C.faint, borderRadius: 8, cursor: 'pointer' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, minWidth: 80 }}>{label}</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, minWidth: 54 }}>{fmt12(s.time)}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{s.client_name}</div>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: stype.color }}>{s.session_type || 'FIT60'}{s.recurring ? ' 🔁' : ''}</div>
+                      {s.link && (
+                        <a href={s.link.startsWith('http') ? s.link : `tel:${s.link.replace(/\s/g,'')}`}
+                          onClick={e => e.stopPropagation()}
+                          style={{ fontSize: 9, color: C.accent, textDecoration: 'underline', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {s.link}
+                        </a>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 10, color: C.sub }}>{s.duration}min</div>
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        )}
+      </div>
+
       <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search clients..." style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: '12px 16px', fontFamily: 'Montserrat,sans-serif', fontSize: 14, outline: 'none', marginBottom: 16 }} />
 
       {/* Birthday Countdown */}
@@ -5499,7 +6021,7 @@ function ClientRoster({ onSelectClient, onNewClient }) {
 
       {/* All Reminders Dashboard */}
       {!loading && (() => {
-        const today = new Date().toISOString().split('T')[0]
+        const today = localDate()
         const allReminders = clients.flatMap(c => {
           let intake = null
           try { intake = JSON.parse(c.trainerNotes || c.trainer_notes || '{}') } catch {}
@@ -5543,7 +6065,7 @@ function ClientRoster({ onSelectClient, onNewClient }) {
         let intake = null
         try { intake = JSON.parse(c.trainerNotes || c.trainer_notes || '{}') } catch {}
         const reminders = (intake?.reminders || []).filter(r => !r.done)
-        const today = new Date().toISOString().split('T')[0]
+        const today = localDate()
         const overdueCount = reminders.filter(r => r.date < today).length
         const nextReminder = reminders.sort((a, b) => new Date(a.date) - new Date(b.date))[0]
         return (
@@ -5632,6 +6154,109 @@ function LoginScreen({ onLogin }) {
 }
 
 // ── CRM LEADS ────────────────────────────────────────────────────────────────
+
+// 30-day statistically-optimized outreach sequence
+// Studies: texts open 98% in 3 min, calls convert 8x better, email nurtures long-term
+const OUTREACH_SEQUENCE = [
+  { day: 0,  step: 1, channel: 'Text',  emoji: '💬',
+    action: '🆕 NEW LEAD — Text them within the hour. A pre-written text is shown below — copy it and send it now. Goal: confirm you got their form and lock in a quick 10-min call to go over their notes and schedule the FREE consultation.',
+    why: 'Text within 1 hour = 7x higher conversion. Leads go cold within 24 hours.' },
+  { day: 1,  step: 2, channel: 'Call',  emoji: '📞',
+    action: 'Call them directly — they saw your text, now seal it with a voice call. When they answer: "Hey [Name], it\'s Freddy from FreddyFit! I wanted to personally reach out after reviewing your form — I love your goal and think we can make serious progress together. I just want to go over a couple quick things from your notes and get your complimentary consultation scheduled. Do you have 10 minutes right now?"\n\nLeave a voicemail if no answer.',
+    why: 'A personal call after a text dramatically increases show rates for consultations.' },
+  { day: 3,  step: 3, channel: 'Text',  emoji: '💬',
+    action: 'Follow-up text — keep it short and low pressure:\n\n"Hey [Name]! Just wanted to check in — I know life gets busy 😊 Still love to get your complimentary consultation booked. Takes 10 min to go over your notes and build your plan. This week still work? 💪"',
+    why: '50% of deals go to whoever follows up first. Most people forget to reply, not ignore.' },
+  { day: 5,  step: 4, channel: 'Email', emoji: '✉️',
+    action: 'Warm intro email — personal tone, reference their intake answers, explain what the complimentary consultation covers, include your contact info. Subject line first.',
+    why: 'Reaching on a 3rd channel catches people who missed texts/calls.' },
+  { day: 7,  step: 5, channel: 'Text',  emoji: '💬',
+    action: 'Check-in text — casual and low pressure, acknowledge they may be busy, ask if this week works for a quick call',
+    why: '80% of sales require 5+ touchpoints. Keep showing up.' },
+  { day: 10, step: 6, channel: 'Call',  emoji: '📞',
+    action: 'Second call attempt — try a different time of day. If voicemail, leave a brief personalized message referencing their goal and your number',
+    why: 'Call at a different hour — morning vs evening changes answer rates dramatically.' },
+  { day: 14, step: 7, channel: 'Email', emoji: '✉️',
+    action: 'Value email — share a specific tip directly tied to their stated goal. Soft invite at the end to book their complimentary consultation at FreddyFit Personal Training.',
+    why: 'Give before you ask. Value emails have 40% higher open rates.' },
+  { day: 21, step: 8, channel: 'Text',  emoji: '💬',
+    action: 'Re-engagement text — acknowledge it\'s been a few weeks, ask if they\'re still looking for support, reference their goal. Zero pressure.',
+    why: 'Life gets in the way. Re-engaging after a gap often catches people at a better moment.' },
+  { day: 30, step: 9, channel: 'Email', emoji: '✉️',
+    action: 'Final email — make it count. Warm, direct, personal. Leave on great terms. Mention the door is always open at FreddyFit Personal Training.',
+    why: 'Final touchpoint before moving to Cold. Some leads convert months later because of this.' },
+]
+
+// Given a lead, calculate which step to show and its status
+function getOutreachStep(lead) {
+  if (lead.status === 'Client' || lead.status === 'Cold') return null
+  const dateAdded = lead.date_added ? new Date(lead.date_added + 'T00:00:00') : null
+  if (!dateAdded) return null
+
+  const today = new Date()
+  const daysSinceAdded = Math.floor((today - dateAdded) / 86400000)
+
+  // Which step was last completed — inferred from last_contact_date
+  let completedUpToDay = -1
+  if (lead.last_contact_date) {
+    const lastContact = new Date(lead.last_contact_date + 'T00:00:00')
+    const daysAtContact = Math.floor((lastContact - dateAdded) / 86400000)
+    for (const s of OUTREACH_SEQUENCE) {
+      if (s.day <= daysAtContact) completedUpToDay = s.day
+    }
+  }
+
+  // Find the next step to do (first uncompleted step)
+  const nextStep = OUTREACH_SEQUENCE.find(s => s.day > completedUpToDay)
+
+  if (!nextStep) {
+    // All 9 steps completed
+    return { channel: 'Cold', emoji: '🥶', step: 10, day: daysSinceAdded, isComplete: true,
+      label: '✅ All 9 steps done', action: 'You\'ve done everything. Mark Cold or archive.', why: '', isDue: true, isOverdue: false }
+  }
+
+  if (daysSinceAdded > 30 && completedUpToDay < 0) {
+    return { channel: 'Cold', emoji: '🥶', step: 0, day: daysSinceAdded, isComplete: false,
+      label: `Day ${daysSinceAdded} — 30-day window passed`, action: 'Consider marking Cold. If you restart, set last_contact_date to today.', why: '', isDue: true, isOverdue: true }
+  }
+
+  const isDue = nextStep.day <= daysSinceAdded
+  const daysOverdue = isDue ? daysSinceAdded - nextStep.day : 0
+  const daysUntil = isDue ? 0 : nextStep.day - daysSinceAdded
+
+  return {
+    channel: nextStep.channel,
+    emoji: nextStep.emoji,
+    step: nextStep.step,
+    day: nextStep.day,
+    daysSinceAdded,
+    action: nextStep.action,
+    why: nextStep.why,
+    isDue,
+    isOverdue: daysOverdue > 0,
+    daysOverdue,
+    daysUntil,
+    label: isDue
+      ? (daysOverdue > 0 ? `Day ${nextStep.day + 1} — ${nextStep.channel} (${daysOverdue}d overdue)` : `Day ${nextStep.day + 1} — ${nextStep.channel} due TODAY`)
+      : `Day ${nextStep.day + 1} — ${nextStep.channel} in ${daysUntil} day${daysUntil !== 1 ? 's' : ''}`,
+    progress: Math.min(Math.round((daysSinceAdded / 30) * 100), 100),
+    completedSteps: OUTREACH_SEQUENCE.filter(s => s.day <= completedUpToDay).length,
+  }
+}
+
+function getStageInfo(lead) {
+  // Alias used by bossCount — returns step only when action is due
+  const step = getOutreachStep(lead)
+  return (step && step.isDue) ? step : null
+}
+
+const CHANNEL_COLORS = {
+  Text:  { bg: '#EFF6FF', text: '#1D4ED8', border: '#BFDBFE' },
+  Call:  { bg: '#FFF7ED', text: '#C05621', border: '#FED7AA' },
+  Email: { bg: '#F0FDF4', text: '#166534', border: '#BBF7D0' },
+  Cold:  { bg: '#F9FAFB', text: '#6B7280', border: '#E5E7EB' },
+}
+
 const LEAD_STATUSES = ['New Lead','Contacted','Follow Up','Booked','Client','Cold']
 const LEAD_STATUS_COLORS = {
   'New Lead':   { bg: C.accent + '18', text: C.accent, border: C.accent + '44' },
@@ -5643,40 +6268,291 @@ const LEAD_STATUS_COLORS = {
 }
 const LEAD_SOURCES = ['Instagram', 'Facebook', 'Referral', 'Walk-in', 'Website', 'Email', 'Zapier / Email', 'Other']
 
-function CrmLeads({ onBack }) {
+// Lead notes are stored as JSON: { intake_notes, booked_consultation, booked_functionalfit, committed_package }
+// Old plain-text notes are treated as intake_notes
+function parseLeadNotes(raw) {
+  if (!raw) return { intake_notes: '', booked_consultation: false, booked_functionalfit: false, committed_package: false }
+  try {
+    const p = JSON.parse(raw)
+    if (p && typeof p === 'object' && !Array.isArray(p)) {
+      return { intake_notes: p.intake_notes || '', booked_consultation: !!p.booked_consultation, booked_functionalfit: !!(p.booked_functionalfit || p.committed_package), committed_package: !!p.committed_package }
+    }
+  } catch {}
+  return { intake_notes: raw, booked_consultation: false, booked_functionalfit: false, committed_package: false }
+}
+function packLeadNotes(intake_notes, booked_consultation, booked_functionalfit, committed_package) {
+  return JSON.stringify({ intake_notes: intake_notes || '', booked_consultation: !!booked_consultation, booked_functionalfit: !!booked_functionalfit, committed_package: !!committed_package })
+}
+
+const AI_CHANNELS = [
+  { key: 'Text',   emoji: '💬', label: 'Text' },
+  { key: 'Call',   emoji: '📞', label: 'Call Script' },
+  { key: 'Email',  emoji: '✉️', label: 'Email' },
+  { key: 'Letter', emoji: '📬', label: 'Letter' },
+]
+
+function AiCoachModal({ lead, onClose, stepOverride }) {
+  const step = stepOverride || getOutreachStep(lead) || OUTREACH_SEQUENCE[0]
+  const [channel, setChannel] = useState(step.channel || 'Text')
+  const [msg, setMsg] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const chCol = CHANNEL_COLORS[channel] || CHANNEL_COLORS.Text
+
+  const generate = async () => {
+    setLoading(true)
+    setMsg('')
+    try {
+      const parsed = parseLeadNotes(lead.notes)
+      const channelFormat = channel === 'Text'
+        ? `TEXT MESSAGE RULES:\n- 2-3 sentences max, conversational and warm\n- Reference their specific goal by name\n- End with a clear easy question to respond to\n- Sign off: "— Freddy | FreddyFit"\n- No excessive emojis, keep it real`
+        : channel === 'Call'
+        ? `PHONE CALL SCRIPT:\n- Write a complete word-for-word call script Freddy can read aloud\n- Opening (5 sec): "Hi [Name], this is Freddy calling from FreddyFit Personal Training in Saint Louis..."\n- Bridge (10 sec): Reference their specific goal or intake note naturally\n- Pitch (10 sec): Invite them to their FREE in-person consultation — no commitment, just come in\n- Close (5 sec): Confirm a time OR leave callback number\n- VOICEMAIL VERSION: Also write a 20-second voicemail version at the end\n- Label each section clearly`
+        : channel === 'Email'
+        ? `EMAIL FORMAT:\n- Subject line first (label it "Subject:")\n- Opening: Personal, warm, reference something specific from their intake\n- Body: 2-3 short paragraphs — who Freddy is, what they can accomplish together, the free consultation offer\n- CTA: One clear next step (reply, call, book)\n- Sign off:\n  "Warm regards,\n  Freddy\n  FreddyFit Personal Training\n  6047 Telegraph Rd, Saint Louis, MO 63129\n  📞 314-584-9389\n  🌐 getfreddyfit.com"\n- Professional but personal — not a mass marketing email`
+        : `PHYSICAL LETTER FORMAT:\n- This will be printed and mailed, so write it as a formal letter\n- Header: Today's date, their name and address if known\n- Salutation: "Dear [Name],"\n- Paragraph 1: Personal intro — Freddy saw their form and wanted to reach out personally\n- Paragraph 2: Reference their specific goal, what FreddyFit can do for them\n- Paragraph 3: Invite them to a FREE no-commitment consultation\n- Paragraph 4: How to reach Freddy\n- Closing:\n  "Sincerely,\n  Freddy\n  FreddyFit Personal Training\n  6047 Telegraph Rd, Saint Louis, MO 63129\n  314-584-9389"\n- Warm and personal, like a handwritten letter — not a form letter`
+
+      const currentStep = getOutreachStep(lead)
+      const isDay0 = currentStep && currentStep.step === 1 && currentStep.day === 0
+      const day0Extra = isDay0 ? `\n\nIMPORTANT — This is a Day 0 first contact. The message must:\n1. Confirm that Freddy received their intake form\n2. Reference their specific goal warmly\n3. Ask what their schedule looks like today or tomorrow to hop on a quick 10-min call\n4. Make clear the call is to go over their notes together and schedule the FREE consultation\n5. Keep it brief, warm, and conversational — not salesy` : ''
+
+      const prompt = `You are writing on behalf of Freddy, owner of FreddyFit Personal Training in Saint Louis, MO (6047 Telegraph Rd, 63129). Phone: 314-584-9389.
+
+Write a personalized outreach message using the lead's real intake data. Make it feel like Freddy wrote it himself — genuine, warm, direct.
+
+LEAD INFO:
+Name: ${lead.name}
+Goal: ${lead.goal || 'Not specified'}
+Phone: ${lead.phone || 'N/A'}
+Email: ${lead.email || 'N/A'}
+Source: ${lead.source || 'N/A'}
+Intake notes: ${parsed.intake_notes || 'None provided'}
+Days since joined: ${(getOutreachStep(lead) || {}).daysSinceAdded ?? 0}
+${day0Extra}
+
+${channelFormat}
+
+Output only the message/script. No intro, no explanation, just the content ready to use.`
+
+      const result = await callClaude([{ role: 'user', content: prompt }], 800)
+      setMsg(result)
+    } catch (e) { setMsg('Error generating — please try again.') }
+    setLoading(false)
+  }
+
+  const copy = () => {
+    navigator.clipboard.writeText(msg).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000) })
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '20px 20px 0 0', width: '100%', maxWidth: 560, padding: '24px 24px 36px', maxHeight: '85vh', overflowY: 'auto', fontFamily: 'Montserrat,sans-serif' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 16, color: C.text }}>✨ AI Outreach Generator</div>
+            <div style={{ fontSize: 12, color: C.sub, marginTop: 2 }}>{lead.name}{lead.goal ? ` · ${lead.goal}` : ''}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: C.sub }}>×</button>
+        </div>
+
+        {/* Channel selector */}
+        <div style={{ fontSize: 11, color: C.sub, marginBottom: 6 }}>
+          ⭐ <strong style={{ color: C.accent }}>{step.channel}</strong> is recommended for Step {step.step} (Day {step.day})
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16 }}>
+          {AI_CHANNELS.map(ch => {
+            const isRec = ch.key === step.channel
+            const isActive = channel === ch.key
+            return (
+              <button key={ch.key} onClick={() => { setChannel(ch.key); setMsg('') }}
+                style={{ padding: '10px 6px', borderRadius: 10, border: `2px solid ${isActive ? C.accent : isRec ? C.accent + '66' : C.border}`, background: isActive ? C.accent + '12' : isRec ? C.accent + '08' : C.faint, color: isActive ? C.accent : isRec ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer', textAlign: 'center', transition: 'all .15s', position: 'relative' }}>
+                {isRec && <div style={{ position: 'absolute', top: -8, left: '50%', transform: 'translateX(-50%)', background: C.accent, color: '#fff', fontSize: 8, fontWeight: 800, padding: '1px 5px', borderRadius: 4, whiteSpace: 'nowrap' }}>⭐ TODAY</div>}
+                <div style={{ fontSize: 18, marginBottom: 3, marginTop: isRec ? 4 : 0 }}>{ch.emoji}</div>
+                {ch.label}
+              </button>
+            )
+          })}
+        </div>
+
+        <button onClick={generate} disabled={loading}
+          style={{ width: '100%', padding: '13px', borderRadius: 10, border: 'none', background: loading ? C.border : C.accent, color: '#fff', fontFamily: 'Montserrat,sans-serif', fontWeight: 800, fontSize: 13, cursor: loading ? 'not-allowed' : 'pointer', marginBottom: 14, letterSpacing: 0.5 }}>
+          {loading ? '✨ Writing…' : msg ? `↺ Regenerate ${AI_CHANNELS.find(c=>c.key===channel)?.label}` : `✨ Generate ${AI_CHANNELS.find(c=>c.key===channel)?.label}`}
+        </button>
+
+        {msg && (
+          <div style={{ background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: '14px 16px', marginBottom: 12 }}>
+            <div style={{ fontSize: 13, color: C.text, lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>{msg}</div>
+          </div>
+        )}
+
+        {msg && (
+          <button onClick={copy} style={{ width: '100%', padding: '12px', borderRadius: 10, border: `1.5px solid ${copied ? C.green : C.border}`, background: copied ? C.green + '18' : 'transparent', color: copied ? C.green : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
+            {copied ? '✓ Copied to clipboard!' : '📋 Copy'}
+          </button>
+        )}
+        {!msg && !loading && (
+          <div style={{ fontSize: 11, color: C.sub, textAlign: 'center', marginTop: 4 }}>
+            Pick a format above and tap Generate — AI writes it using {lead.name}'s actual intake data.
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function CrmLeads({ onBack, onNavigateToRoster }) {
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(null)
   const [search, setSearch] = useState('')
-  const [filterStatus, setFilterStatus] = useState('All')
-  const [editing, setEditing] = useState(null) // null = list, 'new' = new form, {id,...} = edit form
+  const [editing, setEditing] = useState(null)
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({ name:'', phone:'', email:'', source:'', goal:'', status:'New Lead', last_contact_date:'', notes:'' })
+  const [form, setForm] = useState({ name:'', phone:'', email:'', source:'', goal:'', intake_notes:'', consultation_notes:'', booked_consultation: false, committed_package: false })
+  const [aiCoachLead, setAiCoachLead] = useState(null)
+  const [converting, setConverting] = useState(false)
+  const [advancing, setAdvancing] = useState(null)
+  const [showCold, setShowCold] = useState(false)
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = localDate()
 
   const load = useCallback(async () => {
     setLoading(true)
-    try { setLeads(await getAllLeads()) } catch {}
+    setLoadError(null)
+    try {
+      const data = await getAllLeads()
+      setLeads(data)
+    } catch (e) {
+      console.error('CRM load error:', e)
+      setLoadError(e.message || 'Failed to load leads')
+    }
     setLoading(false)
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+    const interval = setInterval(load, 10000)
+    const onVisible = () => { if (document.visibilityState === 'visible') load() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { clearInterval(interval); document.removeEventListener('visibilitychange', onVisible) }
+  }, [load])
+
+  const activeLeads = leads.filter(l => l.status !== 'Client' && l.status !== 'Cold')
+  const coldLeads = leads.filter(l => l.status === 'Cold')
+
+  const actionItems = activeLeads
+    .map(l => ({ lead: l, step: getOutreachStep(l) }))
+    .filter(({ step }) => step && step.isDue && !step.isComplete)
+    .sort((a, b) => (b.step.daysOverdue || 0) - (a.step.daysOverdue || 0))
+
+  const upcomingItems = activeLeads
+    .map(l => ({ lead: l, step: getOutreachStep(l) }))
+    .filter(({ step }) => step && !step.isDue && !step.isComplete)
+    .sort((a, b) => (a.step.daysUntil || 0) - (b.step.daysUntil || 0))
+
+  const markStepDone = async (lead) => {
+    setAdvancing(lead.id)
+    try {
+      await saveLead({ ...lead, last_contact_date: today })
+      await load()
+    } catch (e) { alert('Error: ' + e.message) }
+    setAdvancing(null)
+  }
+
+  const markCold = async (lead) => {
+    if (!confirm(`Mark ${lead.name} as Cold? You can always reactivate them later.`)) return
+    setAdvancing(lead.id)
+    try {
+      await saveLead({ ...lead, status: 'Cold', last_contact_date: today })
+      await load()
+    } catch (e) { alert('Error: ' + e.message) }
+    setAdvancing(null)
+  }
+
+  const reactivate = async (lead) => {
+    setAdvancing(lead.id)
+    try {
+      await saveLead({ ...lead, status: 'New Lead', last_contact_date: today })
+      await load()
+    } catch (e) { alert('Error: ' + e.message) }
+    setAdvancing(null)
+  }
+
+  const toggleFlag = async (lead, flag) => {
+    setAdvancing(lead.id)
+    try {
+      const parsed = parseLeadNotes(lead.notes)
+      parsed[flag] = !parsed[flag]
+      await saveLead({ ...lead, notes: packLeadNotes(parsed.intake_notes, parsed.booked_consultation, parsed.committed_package) })
+      await load()
+    } catch (e) { alert('Error: ' + e.message) }
+    setAdvancing(null)
+  }
+
+  const doConvert = async (lead) => {
+    const parsed = parseLeadNotes(lead.notes)
+    const intakeData = {
+      phone: lead.phone || '',
+      email: lead.email || '',
+      source: lead.source || '',
+      intake_notes: parsed.intake_notes,
+      consultation_notes: lead.consultation_notes || '',
+    }
+    const result = await saveClient({
+      name: lead.name,
+      goal: lead.goal || '',
+      dob: '',
+      equipment: '',
+      trainerNotes: JSON.stringify(intakeData),
+    })
+    if (!result) throw new Error('Client was not created — check Supabase connection')
+    await saveLead({ ...lead, status: 'Client' })
+    await load()
+  }
+
+  const convertToClient = async () => {
+    if (!editing || editing === 'new') return
+    if (!confirm(`Convert ${editing.name} to a full client?\n\nTheir intake data, goal, phone, email and consultation notes will transfer to their client profile.`)) return
+    setConverting(true)
+    try {
+      const updatedLead = {
+        ...editing,
+        ...form,
+        notes: packLeadNotes(form.intake_notes, form.booked_consultation, form.committed_package),
+      }
+      await doConvert(updatedLead)
+      setEditing(null)
+      if (onNavigateToRoster) onNavigateToRoster()
+    } catch (e) { alert('Error converting lead: ' + e.message) }
+    setConverting(false)
+  }
+
+  const directConvert = async (lead) => {
+    if (!confirm(`Convert ${lead.name} to a full client?\n\nTheir intake data, goal, phone, email and consultation notes will transfer to their client profile.`)) return
+    setAdvancing(lead.id)
+    try {
+      await doConvert(lead)
+      if (onNavigateToRoster) onNavigateToRoster()
+    } catch (e) { alert('Error converting lead: ' + e.message) }
+    setAdvancing(null)
+  }
 
   const openNew = () => {
-    setForm({ name:'', phone:'', email:'', source:'', goal:'', status:'New Lead', last_contact_date:'', notes:'' })
+    setForm({ name:'', phone:'', email:'', source:'', goal:'', intake_notes:'', consultation_notes:'', booked_consultation: false, committed_package: false })
     setEditing('new')
   }
 
   const openEdit = (lead) => {
+    const parsed = parseLeadNotes(lead.notes)
     setForm({
       name: lead.name || '',
       phone: lead.phone || '',
       email: lead.email || '',
       source: lead.source || '',
       goal: lead.goal || '',
-      status: lead.status || 'New Lead',
-      last_contact_date: lead.last_contact_date || '',
-      notes: lead.notes || '',
+      intake_notes: parsed.intake_notes,
+      booked_consultation: parsed.booked_consultation,
+      committed_package: parsed.committed_package,
+      consultation_notes: lead.consultation_notes || '',
     })
     setEditing(lead)
   }
@@ -5685,7 +6561,14 @@ function CrmLeads({ onBack }) {
     if (!form.name.trim()) return
     setSaving(true)
     try {
-      const payload = { ...form, ...(editing !== 'new' ? { id: editing.id, date_added: editing.date_added } : {}) }
+      const isNew = editing === 'new'
+      const payload = {
+        name: form.name, phone: form.phone, email: form.email, source: form.source,
+        goal: form.goal, consultation_notes: form.consultation_notes,
+        notes: packLeadNotes(form.intake_notes, form.booked_consultation, form.committed_package),
+        status: isNew ? 'New Lead' : (editing.status || 'New Lead'),
+        ...(isNew ? {} : { id: editing.id, date_added: editing.date_added, last_contact_date: editing.last_contact_date }),
+      }
       await saveLead(payload)
       await load()
       setEditing(null)
@@ -5700,22 +6583,21 @@ function CrmLeads({ onBack }) {
     setLeads(ls => ls.filter(l => l.id !== id))
   }
 
-  const isOverdue = (lead) => {
-    if (['Client','Cold','Booked'].includes(lead.status)) return false
-    const ref = lead.last_contact_date || lead.date_added
-    if (!ref) return false
-    const diff = Math.floor((new Date(today) - new Date(ref)) / 86400000)
-    return diff >= 3
-  }
-
-  const filtered = leads.filter(l => {
+  const filteredActive = activeLeads.filter(l => {
     const q = search.toLowerCase()
-    const matchQ = !q || l.name?.toLowerCase().includes(q) || l.email?.toLowerCase().includes(q) || l.phone?.includes(q)
-    const matchS = filterStatus === 'All' || l.status === filterStatus
-    return matchQ && matchS
+    return !q || l.name?.toLowerCase().includes(q) || l.email?.toLowerCase().includes(q) || l.phone?.includes(q)
   })
 
-  const overdueCount = leads.filter(isOverdue).length
+  // Toggle pill component
+  const TogglePill = ({ label, active, onToggle, disabled }) => (
+    <button onClick={onToggle} disabled={disabled}
+      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 20, border: `1.5px solid ${active ? C.green : C.border}`, background: active ? C.green + '18' : 'transparent', color: active ? C.green : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: disabled ? 'not-allowed' : 'pointer', transition: 'all .15s', opacity: disabled ? 0.6 : 1 }}>
+      <span style={{ width: 14, height: 14, borderRadius: '50%', border: `2px solid ${active ? C.green : C.border}`, background: active ? C.green : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        {active && <span style={{ color: '#fff', fontSize: 9, fontWeight: 900, lineHeight: 1 }}>✓</span>}
+      </span>
+      {label}
+    </button>
+  )
 
   // ── FORM VIEW ──
   if (editing !== null) {
@@ -5737,13 +6619,8 @@ function CrmLeads({ onBack }) {
           ].map(({ label, key, type, placeholder }) => (
             <div key={key}>
               <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>{label}</div>
-              <input
-                type={type}
-                value={form[key]}
-                onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-                placeholder={placeholder}
-                style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 14px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
-              />
+              <input type={type} value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} placeholder={placeholder}
+                style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 14px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
             </div>
           ))}
 
@@ -5756,39 +6633,37 @@ function CrmLeads({ onBack }) {
             </select>
           </div>
 
+          {/* Status toggles */}
           <div>
-            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>Status</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {LEAD_STATUSES.map(s => {
-                const c = LEAD_STATUS_COLORS[s]
-                const active = form.status === s
-                return (
-                  <button key={s} onClick={() => setForm(f => ({ ...f, status: s }))}
-                    style={{ padding: '7px 14px', borderRadius: 20, border: `1.5px solid ${active ? c.border : C.border}`, background: active ? c.bg : 'transparent', color: active ? c.text : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer', transition: 'all .15s' }}>
-                    {s}
-                  </button>
-                )
-              })}
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 10 }}>Progress Tracking</div>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <TogglePill label="📅 Booked Consultation" active={form.booked_consultation} onToggle={() => setForm(f => ({ ...f, booked_consultation: !f.booked_consultation }))} />
+              <TogglePill label="💪 Committed to FunctionalFit Package" active={form.committed_package} onToggle={() => setForm(f => ({ ...f, committed_package: !f.committed_package }))} />
             </div>
           </div>
 
           <div>
-            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>Last Contact Date</div>
-            <input type="date" value={form.last_contact_date}
-              onChange={e => setForm(f => ({ ...f, last_contact_date: e.target.value }))}
-              style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 14px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
-          </div>
-
-          <div>
-            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>Notes</div>
-            <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-              placeholder="Any notes about this lead…"
-              rows={4}
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>Intake Notes</div>
+            <textarea value={form.intake_notes} onChange={e => setForm(f => ({ ...f, intake_notes: e.target.value }))}
+              placeholder="Intake form data, health history, barriers…" rows={3}
               style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 14px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
           </div>
 
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>📋 Consultation Notes</div>
+            <textarea value={form.consultation_notes} onChange={e => setForm(f => ({ ...f, consultation_notes: e.target.value }))}
+              placeholder="What did you discuss on the call? Objections, what they're really after, next steps…" rows={5}
+              style={{ width: '100%', background: '#FFFBEB', border: `1px solid #F59E0B44`, borderRadius: 8, padding: '10px 14px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8, flexWrap: 'wrap' }}>
             <Btn outline onClick={() => setEditing(null)}>Cancel</Btn>
+            {editing !== 'new' && (
+              <button onClick={convertToClient} disabled={converting}
+                style={{ padding: '11px 22px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 13, cursor: converting ? 'not-allowed' : 'pointer', opacity: converting ? 0.6 : 1 }}>
+                {converting ? 'Converting…' : '⭐ Convert to Client'}
+              </button>
+            )}
             <Btn onClick={save} disabled={saving || !form.name.trim()}>{saving ? 'Saving…' : 'Save Lead'}</Btn>
           </div>
         </div>
@@ -5800,85 +6675,1938 @@ function CrmLeads({ onBack }) {
   return (
     <div style={{ maxWidth: 700, margin: '0 auto', padding: '0 24px 40px' }}>
       <LogoHeader />
+      {aiCoachLead && <AiCoachModal lead={aiCoachLead} onClose={() => setAiCoachLead(null)} />}
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: C.sub }}>←</button>
             <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 4, color: C.text }}>CRM LEADS</div>
           </div>
-          <div style={{ fontSize: 12, color: C.sub, marginTop: 4, marginLeft: 32 }}>{leads.length} lead{leads.length !== 1 ? 's' : ''}{overdueCount > 0 && <span style={{ color: C.red, marginLeft: 8 }}>⚠️ {overdueCount} overdue</span>}</div>
+          <div style={{ fontSize: 12, color: C.sub, marginTop: 4, marginLeft: 32 }}>
+            {activeLeads.length} active{coldLeads.length > 0 && ` · ${coldLeads.length} cold`}
+            {actionItems.length > 0 && <span style={{ color: C.orange, marginLeft: 8, fontWeight: 700 }}>🎯 {actionItems.length} need outreach</span>}
+          </div>
         </div>
         <Btn onClick={openNew}>+ New Lead</Btn>
       </div>
 
-      <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search leads…"
-        style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: '12px 16px', fontFamily: 'Montserrat,sans-serif', fontSize: 14, outline: 'none', marginBottom: 12, boxSizing: 'border-box' }} />
+      {/* ── LOAD ERROR ── */}
+      {loadError && (
+        <div style={{ background: '#FEF2F2', border: '2px solid #FCA5A5', borderRadius: 12, padding: '14px 18px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 13, color: '#991B1B' }}>⚠️ Failed to load leads</div>
+            <div style={{ fontSize: 12, color: '#7F1D1D', marginTop: 4 }}>{loadError}</div>
+          </div>
+          <button onClick={load} style={{ background: '#DC2626', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>Retry</button>
+        </div>
+      )}
 
-      {/* Status filter chips */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>
-        {['All', ...LEAD_STATUSES].map(s => {
-          const active = filterStatus === s
-          const c = s === 'All' ? { bg: C.accent + '18', text: C.accent, border: C.accent + '44' } : LEAD_STATUS_COLORS[s]
+      {/* ── BOSS PANEL ── */}
+      {!loading && actionItems.length > 0 && (
+        <div style={{ background: '#FFFBEB', border: '2px solid #F59E0B', borderRadius: 14, padding: '16px 18px', marginBottom: 16 }}>
+          <div style={{ fontWeight: 800, fontSize: 13, color: '#92400E', letterSpacing: 1, marginBottom: 14 }}>
+            🎯 BOSS — {actionItems.length} lead{actionItems.length !== 1 ? 's' : ''} need outreach today
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {actionItems.map(({ lead, step }) => {
+              const chCol = CHANNEL_COLORS[step.channel] || CHANNEL_COLORS.Text
+              const busy = advancing === lead.id
+              const parsed = parseLeadNotes(lead.notes)
+              return (
+                <div key={lead.id} style={{ background: '#fff', border: `2px solid ${step.isOverdue ? C.red : chCol.border}`, borderRadius: 12, padding: '14px 14px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>{lead.name}</div>
+                      {lead.goal && <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>🎯 {lead.goal}</div>}
+                      {lead.phone && <div style={{ fontSize: 11, color: C.sub, marginTop: 1 }}>📞 {lead.phone}</div>}
+                    </div>
+                    <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: step.isOverdue ? C.red : chCol.text }}>
+                        {step.isOverdue ? `⚠️ ${step.daysOverdue}d overdue` : '⚡ Due today'}
+                      </div>
+                      <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>Day {step.day}/30 · Step {step.step}/9</div>
+                    </div>
+                  </div>
+
+                  {/* Progress bar */}
+                  <div style={{ display: 'flex', gap: 3, marginBottom: 10, alignItems: 'center' }}>
+                    {OUTREACH_SEQUENCE.map((s) => {
+                      const isDone = (step.completedSteps || 0) >= s.step
+                      const isCurrent = s.step === step.step
+                      return (
+                        <div key={s.step} title={`Day ${s.day}: ${s.channel}`}
+                          style={{ flex: 1, height: isCurrent ? 10 : 6, borderRadius: 4, background: isCurrent ? (step.isOverdue ? C.red : C.orange) : isDone ? C.green : C.border, transition: 'all .2s' }} />
+                      )
+                    })}
+                    <span style={{ fontSize: 9, color: C.sub, flexShrink: 0, marginLeft: 4 }}>{step.progress}%</span>
+                  </div>
+
+                  {/* Action instruction */}
+                  <div style={{ background: chCol.bg, border: `1.5px solid ${chCol.border}`, borderRadius: 8, padding: '9px 12px', marginBottom: 10 }}>
+                    <div style={{ fontWeight: 800, fontSize: 12, color: chCol.text, marginBottom: 4 }}>{step.emoji} {step.channel.toUpperCase()} — Step {step.step} of 9 · {step.why}</div>
+                    <div style={{ fontSize: 11, color: chCol.text, lineHeight: 1.6, opacity: 0.9 }}>{step.action}</div>
+                  </div>
+
+                  {/* Booked / Committed toggles */}
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                    <button onClick={() => toggleFlag(lead, 'booked_consultation')} disabled={busy}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 20, border: `1.5px solid ${parsed.booked_consultation ? C.green : C.border}`, background: parsed.booked_consultation ? C.green + '18' : '#fff', color: parsed.booked_consultation ? C.green : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer', transition: 'all .15s' }}>
+                      <span style={{ width: 14, height: 14, borderRadius: '50%', border: `2px solid ${parsed.booked_consultation ? C.green : C.border}`, background: parsed.booked_consultation ? C.green : 'transparent', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        {parsed.booked_consultation && <span style={{ color: '#fff', fontSize: 9, fontWeight: 900 }}>✓</span>}
+                      </span>
+                      📅 Booked Consultation
+                    </button>
+                    <button onClick={() => toggleFlag(lead, 'committed_package')} disabled={busy}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 20, border: `1.5px solid ${parsed.committed_package ? C.green : C.border}`, background: parsed.committed_package ? C.green + '18' : '#fff', color: parsed.committed_package ? C.green : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer', transition: 'all .15s' }}>
+                      <span style={{ width: 14, height: 14, borderRadius: '50%', border: `2px solid ${parsed.committed_package ? C.green : C.border}`, background: parsed.committed_package ? C.green : 'transparent', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        {parsed.committed_package && <span style={{ color: '#fff', fontSize: 9, fontWeight: 900 }}>✓</span>}
+                      </span>
+                      💪 Committed to Package
+                    </button>
+                  </div>
+
+                  {/* Action buttons */}
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button onClick={() => setAiCoachLead(lead)}
+                      style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.accent}44`, background: C.accent + '18', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
+                      ✨ Write {step.channel}
+                    </button>
+                    <button onClick={() => markStepDone(lead)} disabled={busy}
+                      style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1 }}>
+                      {busy ? '…' : '✅ Mark Done'}
+                    </button>
+                    <button onClick={() => directConvert(lead)} disabled={busy}
+                      style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer' }}>
+                      ⭐ Convert to Client
+                    </button>
+                    <button onClick={() => markCold(lead)} disabled={busy}
+                      style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer' }}>
+                      🥶 Gone Cold
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Upcoming */}
+      {!loading && upcomingItems.length > 0 && (
+        <div style={{ background: C.faint, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
+          <div style={{ fontWeight: 800, fontSize: 11, color: C.sub, letterSpacing: 1, marginBottom: 10 }}>📅 COMING UP</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {upcomingItems.slice(0, 6).map(({ lead, step }) => {
+              const chCol = CHANNEL_COLORS[step.channel] || CHANNEL_COLORS.Text
+              return (
+                <div key={lead.id} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }} onClick={() => openEdit(lead)}>
+                  <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 9px', borderRadius: 8, background: chCol.bg, color: chCol.text, border: `1px solid ${chCol.border}`, flexShrink: 0 }}>
+                    {step.emoji} {step.channel} in {step.daysUntil}d
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{lead.name}</span>
+                  <span style={{ fontSize: 11, color: C.sub }}>Day {step.day}/30</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search leads…"
+        style={{ width: '100%', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: '12px 16px', fontFamily: 'Montserrat,sans-serif', fontSize: 14, outline: 'none', marginBottom: 14, boxSizing: 'border-box' }} />
+
+      {/* Active lead cards */}
+      {loading ? <Spinner /> : filteredActive.length === 0 && activeLeads.length === 0 ? (
+        <div style={{ textAlign: 'center', color: C.sub, padding: 48, fontSize: 14 }}>No active leads — click + New Lead to add one</div>
+      ) : filteredActive.length === 0 ? (
+        <div style={{ textAlign: 'center', color: C.sub, padding: 24, fontSize: 14 }}>No leads match your search</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+          {filteredActive.map(lead => {
+            const step = getOutreachStep(lead)
+            const chCol = step ? (CHANNEL_COLORS[step.channel] || CHANNEL_COLORS.Text) : null
+            const parsed = parseLeadNotes(lead.notes)
+            const dateAdded = lead.date_added ? new Date(lead.date_added + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
+            const busy = advancing === lead.id
+            return (
+              <div key={lead.id} style={{ background: C.card, border: `1.5px solid ${step?.isDue && step?.isOverdue ? C.red + '55' : step?.isDue ? C.orange + '55' : C.border}`, borderRadius: 14, padding: '14px 18px', position: 'relative' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                  <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => openEdit(lead)}>
+                    <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>{lead.name}</div>
+                    {lead.goal && <div style={{ fontSize: 12, color: C.sub, marginTop: 2 }}>🎯 {lead.goal}</div>}
+                  </div>
+                  <button onClick={e => remove(lead.id, e)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.sub, fontSize: 18, padding: '0 0 0 8px', lineHeight: 1 }}>×</button>
+                </div>
+
+                {/* Step indicator */}
+                {step && !step.isComplete && (
+                  <div style={{ display: 'flex', gap: 3, marginBottom: 8, alignItems: 'center' }}>
+                    {OUTREACH_SEQUENCE.map((s) => {
+                      const isDone = (step.completedSteps || 0) >= s.step
+                      const isCurrent = s.step === step.step
+                      return <div key={s.step} style={{ flex: 1, height: isCurrent ? 7 : 4, borderRadius: 3, background: isCurrent ? (step.isOverdue ? C.red : C.orange) : isDone ? C.green : C.border }} />
+                    })}
+                    <span style={{ fontSize: 9, color: C.sub, flexShrink: 0, marginLeft: 4 }}>
+                      {step.isDue ? (step.isOverdue ? `${step.daysOverdue}d overdue` : 'due today') : `in ${step.daysUntil}d`}
+                    </span>
+                  </div>
+                )}
+
+                {/* Contact info + toggles */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', fontSize: 11, color: C.sub }}>
+                  {lead.phone && <span>📞 {lead.phone}</span>}
+                  {lead.email && <span>✉️ {lead.email}</span>}
+                  <span style={{ color: C.faint }}>|</span>
+                  <span>Added {dateAdded}</span>
+                  {parsed.booked_consultation && <span style={{ color: C.green, fontWeight: 700 }}>📅 Booked</span>}
+                  {parsed.committed_package && <span style={{ color: C.green, fontWeight: 700 }}>💪 Committed</span>}
+                </div>
+
+                {/* Inline due-today actions */}
+                {step && step.isDue && !step.isComplete && (
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', paddingTop: 8, marginTop: 6, borderTop: `1px solid ${C.border}` }}>
+                    <button onClick={() => setAiCoachLead(lead)}
+                      style={{ padding: '5px 10px', borderRadius: 8, border: `1.5px solid ${C.accent}44`, background: C.accent + '18', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer' }}>
+                      ✨ Write {step?.channel}
+                    </button>
+                    <button onClick={() => markStepDone(lead)} disabled={busy}
+                      style={{ padding: '5px 10px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1 }}>
+                      {busy ? '…' : '✅ Done'}
+                    </button>
+                    <button onClick={() => directConvert(lead)} disabled={busy}
+                      style={{ padding: '5px 10px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: busy ? 'not-allowed' : 'pointer' }}>
+                      ⭐ Convert
+                    </button>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Cold leads section */}
+      {coldLeads.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <button onClick={() => setShowCold(v => !v)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, marginBottom: 10, padding: 0 }}>
+            🥶 {coldLeads.length} Cold Lead{coldLeads.length !== 1 ? 's' : ''} {showCold ? '▲' : '▼'}
+          </button>
+          {showCold && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {coldLeads.map(lead => {
+                const busy = advancing === lead.id
+                return (
+                  <div key={lead.id} style={{ background: C.faint, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                    <div style={{ cursor: 'pointer' }} onClick={() => openEdit(lead)}>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: C.sub }}>{lead.name}</div>
+                      {lead.goal && <div style={{ fontSize: 11, color: C.sub, opacity: 0.7 }}>🎯 {lead.goal}</div>}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                      <button onClick={() => reactivate(lead)} disabled={busy}
+                        style={{ padding: '6px 12px', borderRadius: 8, border: `1.5px solid ${C.accent}`, background: C.accent + '18', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer' }}>
+                        {busy ? '…' : '↺ Reactivate'}
+                      </button>
+                      <button onClick={e => remove(lead.id, e)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.sub, fontSize: 16, padding: 0 }}>×</button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── CRM BOSS PANEL (floating) ────────────────────────────────────────────────
+function CrmBossPanel({ onClose, onGoToCrm }) {
+  const [leads, setLeads] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(null)
+  const [aiCoachLead, setAiCoachLead] = useState(null)
+  const [busy, setBusy] = useState(null)
+  const [outcomeLeadId, setOutcomeLeadId] = useState(null) // which lead is in "what happened?" flow
+  const [copiedDay0, setCopiedDay0] = useState(null)
+  const today = localDate()
+
+  const load = async () => {
+    setLoading(true)
+    setLoadError(null)
+    try {
+      const data = await getAllLeads()
+      setLeads(data)
+    } catch (e) {
+      console.error('Boss panel load error:', e)
+      setLoadError(e.message || 'Failed to load leads')
+    }
+    setLoading(false)
+  }
+  useEffect(() => {
+    load()
+    const interval = setInterval(load, 10000) // refresh every 10s
+    // Refresh instantly when user switches back to this tab/app
+    const onVisible = () => { if (document.visibilityState === 'visible') load() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { clearInterval(interval); document.removeEventListener('visibilitychange', onVisible) }
+  }, [])
+
+  const allActive = leads
+    .map(l => ({ lead: l, step: getOutreachStep(l) }))
+    .filter(({ step }) => step && !step.isComplete)
+    .sort((a, b) => (b.step.daysOverdue || 0) - (a.step.daysOverdue || 0) || (a.step.daysUntil || 0) - (b.step.daysUntil || 0))
+  const actionItems = allActive.filter(({ step }) => step.isDue)
+  const upcomingItems = allActive.filter(({ step }) => !step.isDue)
+
+  const markDone = async (lead) => {
+    setBusy(lead.id)
+    try {
+      await saveLead({ ...lead, last_contact_date: today })
+      await load()
+    } catch (e) { alert('Error: ' + e.message) }
+    setBusy(null)
+  }
+
+  // outcome: 'no_response' | 'consultation' | 'functionalfit' | 'both'
+  const markOutcome = async (lead, outcome) => {
+    setOutcomeLeadId(null)
+    setBusy(lead.id)
+    try {
+      const parsed = parseLeadNotes(lead.notes)
+      if (outcome === 'consultation' || outcome === 'both') parsed.booked_consultation = true
+      if (outcome === 'functionalfit' || outcome === 'both') parsed.booked_functionalfit = true
+      await saveLead({
+        ...lead,
+        last_contact_date: today,
+        notes: packLeadNotes(parsed.intake_notes, parsed.booked_consultation, parsed.booked_functionalfit, parsed.committed_package)
+      })
+      await load()
+    } catch (e) { alert('Error: ' + e.message) }
+    setBusy(null)
+  }
+
+  const copyDay0Text = (leadId, text) => {
+    navigator.clipboard.writeText(text).catch(() => {})
+    setCopiedDay0(leadId)
+    setTimeout(() => setCopiedDay0(l => l === leadId ? null : l), 2500)
+  }
+
+  const markCold = async (lead) => {
+    setBusy(lead.id)
+    try {
+      await saveLead({ ...lead, status: 'Cold', last_contact_date: today })
+      await load()
+    } catch (e) { alert('Error: ' + e.message) }
+    setBusy(null)
+  }
+
+  const scheduleConsultation = async (lead, withCommit = false) => {
+    setBusy(lead.id)
+    try {
+      const parsed = parseLeadNotes(lead.notes)
+      parsed.booked_consultation = true
+      if (withCommit) parsed.committed_package = true
+      await saveLead({
+        ...lead,
+        last_contact_date: today,
+        notes: packLeadNotes(parsed.intake_notes, parsed.booked_consultation, parsed.committed_package)
+      })
+      await load()
+    } catch (e) { alert('Error: ' + e.message) }
+    setBusy(null)
+  }
+
+  const bossConvert = async (lead) => {
+    if (!confirm(`Convert ${lead.name} to a full client?\n\nTheir intake data, goal, phone, email and consultation notes will transfer to their client profile.`)) return
+    setBusy(lead.id)
+    try {
+      const parsed = parseLeadNotes(lead.notes)
+      const intakeData = { phone: lead.phone || '', email: lead.email || '', source: lead.source || '', intake_notes: parsed.intake_notes, consultation_notes: lead.consultation_notes || '' }
+      const result = await saveClient({ name: lead.name, goal: lead.goal || '', dob: '', equipment: '', trainerNotes: JSON.stringify(intakeData) })
+      if (!result) throw new Error('Client was not created — check Supabase connection')
+      await saveLead({ ...lead, status: 'Client' })
+      await load()
+      if (onGoToCrm) { onClose(); onGoToCrm() }
+    } catch (e) { alert('Error converting lead: ' + e.message) }
+    setBusy(null)
+  }
+
+  return (
+    <>
+      {aiCoachLead && <AiCoachModal lead={aiCoachLead} onClose={() => setAiCoachLead(null)} />}
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 900 }} onClick={onClose} />
+      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: Math.min(420, (typeof window !== 'undefined' ? window.innerWidth : 420) - 16), background: '#fff', zIndex: 901, boxShadow: '-4px 0 24px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column', fontFamily: 'Montserrat,sans-serif' }}>
+        <div style={{ padding: '20px 20px 16px', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 16, color: C.text }}>🎯 Boss Mode</div>
+              <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
+                {loading ? 'Loading…' : loadError ? '⚠️ Load failed — tap Retry' : `${allActive.length} active lead${allActive.length !== 1 ? 's' : ''} · ${actionItems.length} due now`}
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button onClick={load} title="Refresh" style={{ background: 'none', border: 'none', fontSize: 16, cursor: 'pointer', color: C.sub }}>↻</button>
+              <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: C.sub }}>×</button>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '14px 14px 24px' }}>
+          {loading ? <Spinner /> : loadError ? (
+            <div style={{ textAlign: 'center', padding: 40 }}>
+              <div style={{ fontSize: 32, marginBottom: 10 }}>⚠️</div>
+              <div style={{ fontWeight: 700, color: C.red, marginBottom: 6 }}>Failed to load leads</div>
+              <div style={{ fontSize: 12, color: C.sub, marginBottom: 16 }}>{loadError}</div>
+              <button onClick={load} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Retry</button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {actionItems.length === 0 && upcomingItems.length === 0 && (
+                <div style={{ textAlign: 'center', padding: 40 }}>
+                  <div style={{ fontSize: 40, marginBottom: 12 }}>✅</div>
+                  <div style={{ fontWeight: 700, color: C.text, marginBottom: 6 }}>No active leads yet</div>
+                  <div style={{ fontSize: 12, color: C.sub }}>New leads from your website will appear here automatically.</div>
+                </div>
+              )}
+              {actionItems.length > 0 && <div style={{ fontSize: 10, fontWeight: 800, color: C.red, letterSpacing: 2, textTransform: 'uppercase', marginBottom: -4 }}>🔥 Due Now — {actionItems.length} lead{actionItems.length !== 1 ? 's' : ''}</div>}
+              {actionItems.map(({ lead, step }) => {
+                const chCol = CHANNEL_COLORS[step.channel] || CHANNEL_COLORS.Text
+                const isBusy = busy === lead.id
+                const parsed = parseLeadNotes(lead.notes)
+                return (
+                  <div key={lead.id} style={{ background: C.faint, border: `2px solid ${step.isOverdue ? C.red + '66' : chCol.border}`, borderRadius: 14, padding: '14px' }}>
+                    {/* Name + timing */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>{lead.name}</div>
+                        {lead.goal && <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>🎯 {lead.goal}</div>}
+                        {lead.phone && <div style={{ fontSize: 11, color: C.sub, marginTop: 1 }}>📞 {lead.phone}</div>}
+                      </div>
+                      <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: step.isOverdue ? C.red : C.orange }}>
+                          {step.isOverdue ? `⚠️ ${step.daysOverdue}d overdue` : '⚡ Due today'}
+                        </div>
+                        <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>Step {step.step}/9 · Day {step.day + 1}/30</div>
+                      </div>
+                    </div>
+
+                    {/* Progress bar */}
+                    <div style={{ display: 'flex', gap: 2, marginBottom: 10 }}>
+                      {OUTREACH_SEQUENCE.map((s) => {
+                        const isDone = (step.completedSteps || 0) >= s.step
+                        const isCurrent = s.step === step.step
+                        return (
+                          <div key={s.step} style={{ flex: 1, height: isCurrent ? 8 : 5, borderRadius: 3, background: isCurrent ? (step.isOverdue ? C.red : C.orange) : isDone ? C.green : C.border }} />
+                        )
+                      })}
+                    </div>
+
+                    {/* Daily task instruction */}
+                    <div style={{ background: chCol.bg, border: `1px solid ${chCol.border}`, borderRadius: 8, padding: '8px 12px', marginBottom: 8 }}>
+                      <div style={{ fontWeight: 800, fontSize: 12, color: chCol.text, marginBottom: 3 }}>{step.emoji} TODAY'S TASK — {step.channel.toUpperCase()}</div>
+                      <div style={{ fontSize: 11, color: chCol.text, lineHeight: 1.5 }}>{step.action}</div>
+                      <div style={{ fontSize: 10, color: chCol.text, opacity: 0.7, marginTop: 4, fontStyle: 'italic' }}>{step.why}</div>
+                    </div>
+
+                    {/* Status badges */}
+                    {(parsed.booked_consultation || parsed.booked_functionalfit || parsed.committed_package) && (
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+                        {parsed.booked_consultation && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: C.green + '22', color: C.green, border: `1px solid ${C.green}44` }}>📅 Consultation Booked</span>}
+                        {(parsed.booked_functionalfit || parsed.committed_package) && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: C.orange + '22', color: C.orange, border: `1px solid ${C.orange}44` }}>💪 FunctionalFit Booked</span>}
+                      </div>
+                    )}
+
+                    {/* Day 0: inline ready-to-copy text */}
+                    {step.step === 1 && step.day === 0 && (() => {
+                      const firstName = lead.name.split(' ')[0]
+                      const template = `Hey ${firstName}! This is Freddy from FreddyFit 👋 Just got your intake form${lead.goal ? ` — love the ${lead.goal} goal!` : ''} I'd love to hop on a quick 10-min call to go over your notes and get your FREE consultation scheduled. What does your schedule look like today or tomorrow? 💪\n— Freddy | FreddyFit`
+                      return (
+                        <div style={{ background: '#EFF6FF', border: '1.5px solid #BFDBFE', borderRadius: 10, padding: '10px 12px', marginBottom: 10 }}>
+                          <div style={{ fontWeight: 800, fontSize: 11, color: '#1D4ED8', marginBottom: 6 }}>📱 READY TO SEND — Copy & Text Now</div>
+                          <div style={{ fontSize: 12, color: '#1e40af', lineHeight: 1.6, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{template}</div>
+                          <button onClick={() => copyDay0Text(lead.id, template)}
+                            style={{ width: '100%', padding: '7px', borderRadius: 7, border: `1.5px solid ${copiedDay0 === lead.id ? C.green : '#BFDBFE'}`, background: copiedDay0 === lead.id ? C.green + '18' : '#fff', color: copiedDay0 === lead.id ? C.green : '#1D4ED8', fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
+                            {copiedDay0 === lead.id ? '✓ Copied to clipboard!' : '📋 Copy Text'}
+                          </button>
+                        </div>
+                      )
+                    })()}
+
+                    {/* AI message button */}
+                    <button onClick={() => setAiCoachLead(lead)} style={{ width: '100%', marginBottom: 10, padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.accent}44`, background: C.accent + '12', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer', textAlign: 'left' }}>
+                      ✨ {step.step === 1 && step.day === 0 ? 'Personalize with AI Instead' : `Generate ${step.channel} Message`}
+                    </button>
+
+                    {/* Did you reach out? / outcome flow */}
+                    {outcomeLeadId !== lead.id ? (
+                      <>
+                        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>Did you reach out today?</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                          <button onClick={() => setOutcomeLeadId(lead.id)} disabled={isBusy}
+                            style={{ padding: '10px 8px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer' }}>
+                            ✅ Yes I Did
+                          </button>
+                          <button onClick={() => markCold(lead)} disabled={isBusy}
+                            style={{ padding: '10px 8px', borderRadius: 8, border: `1.5px solid ${C.red}55`, background: C.red + '0d', color: C.red, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer' }}>
+                            🥶 Mark Cold
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>What happened?</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 6 }}>
+                          <button onClick={() => markOutcome(lead, 'no_response')} disabled={isBusy}
+                            style={{ padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, background: C.faint, color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer', textAlign: 'left' }}>
+                            🔄 No Response — Keep Following Up
+                          </button>
+                          <button onClick={() => markOutcome(lead, 'consultation')} disabled={isBusy}
+                            style={{ padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.accent}`, background: C.accent + '12', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer', textAlign: 'left' }}>
+                            📅 Booked Consultation
+                          </button>
+                          <button onClick={() => markOutcome(lead, 'functionalfit')} disabled={isBusy}
+                            style={{ padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.orange}`, background: C.orange + '12', color: C.orange, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer', textAlign: 'left' }}>
+                            💪 Booked FunctionalFit
+                          </button>
+                          <button onClick={() => markOutcome(lead, 'both')} disabled={isBusy}
+                            style={{ padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer', textAlign: 'left' }}>
+                            🎯 Booked Consultation + FunctionalFit
+                          </button>
+                        </div>
+                        <button onClick={() => setOutcomeLeadId(null)}
+                          style={{ width: '100%', padding: '7px', borderRadius: 8, border: `1px solid ${C.border}`, background: 'transparent', color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 600, fontSize: 11, cursor: 'pointer' }}>
+                          ← Back
+                        </button>
+                      </>
+                    )}
+
+                    {/* Convert to Client */}
+                    {(parsed.booked_consultation || parsed.booked_functionalfit) && (
+                      <button onClick={() => bossConvert(lead)} disabled={isBusy}
+                        style={{ width: '100%', marginTop: 8, padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer', textAlign: 'left' }}>
+                        ⭐ Convert to Full Client
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+
+              {/* Upcoming leads */}
+              {upcomingItems.length > 0 && (
+                <>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 2, textTransform: 'uppercase', marginTop: 4, marginBottom: -4 }}>📅 Coming Up — {upcomingItems.length} lead{upcomingItems.length !== 1 ? 's' : ''}</div>
+                  {upcomingItems.map(({ lead, step }) => {
+                    const chCol = CHANNEL_COLORS[step.channel] || CHANNEL_COLORS.Text
+                    return (
+                      <div key={lead.id} style={{ background: C.faint, border: `1.5px solid ${C.border}`, borderRadius: 12, padding: '12px 14px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                          <div>
+                            <div style={{ fontWeight: 800, fontSize: 14, color: C.text }}>{lead.name}</div>
+                            {lead.goal && <div style={{ fontSize: 11, color: C.sub, marginTop: 1 }}>🎯 {lead.goal}</div>}
+                          </div>
+                          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                            <div style={{ fontSize: 10, fontWeight: 800, padding: '3px 8px', borderRadius: 6, background: chCol.bg, color: chCol.text, border: `1px solid ${chCol.border}` }}>
+                              {step.emoji} {step.channel} in {step.daysUntil}d
+                            </div>
+                            <div style={{ fontSize: 10, color: C.sub, marginTop: 3 }}>Step {step.step}/9 · Day {step.day + 1}/30</div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button onClick={() => setAiCoachLead(lead)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${C.accent}44`, background: C.accent + '12', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer' }}>✨ Prep Message</button>
+                          <button onClick={() => markDone(lead)} disabled={busy === lead.id} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${C.green}`, background: C.green + '12', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer' }}>✅ Mark Done Early</button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div style={{ padding: '14px 16px', borderTop: `1px solid ${C.border}`, flexShrink: 0 }}>
+          <button onClick={onGoToCrm} style={{ width: '100%', padding: '12px', borderRadius: 10, border: 'none', background: C.accent, color: '#fff', fontFamily: 'Montserrat,sans-serif', fontWeight: 800, fontSize: 12, cursor: 'pointer', letterSpacing: 1 }}>
+            OPEN FULL CRM →
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
+// ── SUBSCRIPTION TRACKER ─────────────────────────────────────────────────────
+const SUB_PACKAGES = [
+  { label: 'Signature', sessions: 8 },
+  { label: 'Distinct', sessions: 8 },
+  { label: 'Classic', sessions: 4 },
+  { label: 'Signature (In-Home)', sessions: 8 },
+  { label: 'Distinct (In-Home)', sessions: 6 },
+  { label: 'Classic (In-Home)', sessions: 4 },
+]
+
+function SubscriptionSignaturePad({ value, onChange }) {
+  const canvasRef = useRef(null)
+  const isDrawing = useRef(false)
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    const rect = canvas.getBoundingClientRect()
+    canvas.width = rect.width * 2
+    canvas.height = rect.height * 2
+    ctx.scale(2, 2)
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = 2.5; ctx.strokeStyle = '#1a1a2e'
+    ctx.save(); ctx.strokeStyle = '#ddd'; ctx.lineWidth = 1; ctx.setLineDash([4,4])
+    ctx.beginPath(); ctx.moveTo(20, rect.height - 20); ctx.lineTo(rect.width - 20, rect.height - 20); ctx.stroke()
+    ctx.restore()
+    if (value) { const img = new Image(); img.onload = () => ctx.drawImage(img, 0, 0, rect.width, rect.height); img.src = value }
+  }, [])
+  const getPos = (e) => {
+    const rect = canvasRef.current.getBoundingClientRect()
+    const touch = e.touches ? e.touches[0] : e
+    return { x: touch.clientX - rect.left, y: touch.clientY - rect.top }
+  }
+  const startDraw = (e) => { e.preventDefault(); isDrawing.current = true; const ctx = canvasRef.current.getContext('2d'); ctx.setLineDash([]); ctx.strokeStyle = '#1a1a2e'; ctx.lineWidth = 2.5; const p = getPos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y) }
+  const draw = (e) => { if (!isDrawing.current) return; e.preventDefault(); const ctx = canvasRef.current.getContext('2d'); const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke() }
+  const endDraw = () => { if (!isDrawing.current) return; isDrawing.current = false; onChange(canvasRef.current.toDataURL()) }
+  const clear = () => {
+    const canvas = canvasRef.current; const ctx = canvas.getContext('2d'); const rect = canvas.getBoundingClientRect()
+    ctx.clearRect(0, 0, rect.width * 2, rect.height * 2); onChange('')
+    ctx.save(); ctx.strokeStyle = '#ddd'; ctx.lineWidth = 1; ctx.setLineDash([4,4])
+    ctx.scale(2,2); ctx.beginPath(); ctx.moveTo(20, rect.height - 20); ctx.lineTo(rect.width - 20, rect.height - 20); ctx.stroke(); ctx.restore()
+  }
+  return (
+    <div>
+      <canvas ref={canvasRef} style={{ width: '100%', height: 100, border: `1.5px solid ${C.border}`, borderRadius: 10, background: '#FAFAFA', touchAction: 'none', cursor: 'crosshair', display: 'block' }}
+        onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
+        onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw} />
+      <button type="button" onClick={clear} style={{ marginTop: 6, fontSize: 10, color: C.sub, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Clear</button>
+    </div>
+  )
+}
+
+function SubscriptionTracker({ client, onBack }) {
+  const storageKey = `ff_sub_${client.id}`
+  const loadSub = () => { try { return JSON.parse(localStorage.getItem(storageKey) || 'null') } catch { return null } }
+
+  const [sub, setSub] = useState(() => loadSub())
+  const [setupPkg, setSetupPkg] = useState(SUB_PACKAGES[0].label)
+  const [setupDate, setSetupDate] = useState(localDate())
+  const [signModal, setSignModal] = useState(null)
+  const [sigDate, setSigDate] = useState(localDate())
+  const [sigNotes, setSigNotes] = useState('')
+  const [signature, setSignature] = useState('')
+  const [showCalendar, setShowCalendar] = useState(false)
+  const [calYear, setCalYear] = useState(new Date().getFullYear())
+  const [calMonth, setCalMonth] = useState(new Date().getMonth())
+
+  const saveSub = (updated) => { localStorage.setItem(storageKey, JSON.stringify(updated)); setSub(updated) }
+
+  const getPeriodDates = (startDate, idx) => {
+    const base = new Date(startDate + 'T00:00:00')
+    const s = new Date(base); s.setMonth(base.getMonth() + idx)
+    const e = new Date(base); e.setMonth(base.getMonth() + idx + 1); e.setDate(e.getDate() - 1)
+    return { start: s, end: e }
+  }
+  const fmt = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+
+  const getPeriodCap = (idx) => {
+    const base = sub?.sessions || 0
+    if (idx % 2 === 0) return base
+    const prevUsed = (sub?.periods[idx - 1]?.sessions || []).length
+    return base + Math.max(0, base - prevUsed)
+  }
+
+  const startSub = () => {
+    const pkg = SUB_PACKAGES.find(p => p.label === setupPkg)
+    saveSub({
+      package: setupPkg,
+      sessions: pkg.sessions,
+      startDate: setupDate,
+      periods: Array.from({ length: 6 }, () => ({ sessions: [], plans: { nutrition: false, macro: false, grocery: false } }))
+    })
+  }
+
+  const resetSub = () => {
+    if (!confirm('Reset this subscription? All session data will be cleared.')) return
+    localStorage.removeItem(storageKey); setSub(null)
+  }
+
+  const openSignModal = (periodIdx) => {
+    setSigDate(localDate()); setSigNotes(''); setSignature('')
+    setSignModal(periodIdx)
+  }
+
+  const confirmSession = () => {
+    if (signModal === null) return
+    const updated = { ...sub, periods: sub.periods.map((p, i) => i === signModal ? { ...p, sessions: [...p.sessions, { id: makeId(), date: sigDate, notes: sigNotes, sig: signature }] } : p) }
+    saveSub(updated); setSignModal(null)
+  }
+
+  const removeSession = (periodIdx, sessionIdx) => {
+    if (!confirm('Remove this session?')) return
+    const updated = { ...sub, periods: sub.periods.map((p, i) => i === periodIdx ? { ...p, sessions: p.sessions.filter((_, j) => j !== sessionIdx) } : p) }
+    saveSub(updated)
+  }
+
+  const togglePlan = (periodIdx, key) => {
+    const updated = { ...sub, periods: sub.periods.map((p, i) => i === periodIdx ? { ...p, plans: { ...p.plans, [key]: !p.plans[key] } } : p) }
+    saveSub(updated)
+  }
+
+  const totalSessions = sub ? sub.periods.reduce((acc, p) => acc + p.sessions.length, 0) : 0
+
+  // Setup screen
+  if (!sub) return (
+    <div style={{ maxWidth: 560, margin: '0 auto', padding: '0 24px 32px', fontFamily: 'Montserrat,sans-serif' }}>
+      <LogoHeader />
+      <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 24 }}>← Back to {client.name}</button>
+      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 4 }}>SUBSCRIPTION TRACKER</div>
+      <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 3, color: C.text, marginBottom: 24 }}>{client.name}</div>
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '24px 24px' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 20 }}>Set Up Coaching Subscription</div>
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Package</label>
+          <select value={setupPkg} onChange={e => setSetupPkg(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 13, background: C.faint, color: C.text, outline: 'none' }}>
+            {SUB_PACKAGES.map(p => <option key={p.label} value={p.label}>{p.label} — {p.sessions} sessions/period</option>)}
+          </select>
+        </div>
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Start Date (P1 begins)</label>
+          <input type="date" value={setupDate} onChange={e => setSetupDate(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 13, background: C.faint, color: C.text, outline: 'none', boxSizing: 'border-box' }} />
+        </div>
+        <div style={{ background: C.faint, borderRadius: 10, padding: '12px 16px', marginBottom: 20, fontSize: 12, color: C.sub, lineHeight: 1.6 }}>
+          <strong style={{ color: C.text }}>6 monthly billing periods</strong> · Each period = 1 billing cycle (start date to next draft date) · Unused sessions from odd periods (P1, P3, P5) roll over to the following period
+        </div>
+        <Btn onClick={startSub}>Start Subscription →</Btn>
+      </div>
+    </div>
+  )
+
+  // Calendar view
+  const CalendarView = () => {
+    const year = calYear, month = calMonth
+    const firstDay = new Date(year, month, 1).getDay()
+    const daysInMonth = new Date(year, month + 1, 0).getDate()
+    const monthName = new Date(year, month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    const getPeriodForDate = (d) => {
+      for (let i = 0; i < 6; i++) {
+        const { start, end } = getPeriodDates(sub.startDate, i)
+        if (d >= start && d <= end) return i
+      }
+      return -1
+    }
+    const sessionDates = new Set(sub.periods.flatMap(p => p.sessions.map(s => s.date)))
+    const periodColors = ['#EF4444', '#F97316', '#EAB308', '#22C55E', '#8B5CF6', '#EC4899']
+    return (
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 20px', marginBottom: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <button onClick={() => { const d = new Date(year, month - 1); setCalYear(d.getFullYear()); setCalMonth(d.getMonth()) }} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: C.sub }}>‹</button>
+          <div style={{ fontWeight: 800, fontSize: 14, color: C.text }}>{monthName}</div>
+          <button onClick={() => { const d = new Date(year, month + 1); setCalYear(d.getFullYear()); setCalMonth(d.getMonth()) }} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: C.sub }}>›</button>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 8 }}>
+          {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => <div key={d} style={{ textAlign: 'center', fontSize: 9, fontWeight: 700, color: C.sub, padding: '4px 0' }}>{d}</div>)}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
+          {Array.from({ length: firstDay }, (_, i) => <div key={`e${i}`} />)}
+          {Array.from({ length: daysInMonth }, (_, i) => {
+            const day = i + 1
+            const d = new Date(year, month, day)
+            const dateStr = localDate(d)
+            const pIdx = getPeriodForDate(d)
+            const hasSession = sessionDates.has(dateStr)
+            const today = localDate()
+            const isToday = dateStr === today
+            return (
+              <div key={day} style={{ textAlign: 'center', padding: '5px 2px', borderRadius: 6, fontSize: 11, fontWeight: hasSession ? 800 : 400, background: hasSession ? (pIdx >= 0 ? periodColors[pIdx] + '30' : C.faint) : pIdx >= 0 ? periodColors[pIdx] + '10' : 'transparent', color: pIdx >= 0 ? periodColors[pIdx] : C.sub, border: isToday ? `1.5px solid ${C.accent}` : '1.5px solid transparent', position: 'relative' }}>
+                {day}
+                {hasSession && <div style={{ width: 5, height: 5, borderRadius: '50%', background: pIdx >= 0 ? periodColors[pIdx] : C.accent, margin: '2px auto 0' }} />}
+              </div>
+            )
+          })}
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
+          {sub.periods.map((_, i) => {
+            const { start, end } = getPeriodDates(sub.startDate, i)
+            return <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700 }}>
+              <div style={{ width: 10, height: 10, borderRadius: 3, background: periodColors[i] }} />
+              P{i + 1}: {fmt(start)}–{fmt(end)}
+            </div>
+          })}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 24px 32px', fontFamily: 'Montserrat,sans-serif' }}>
+      <LogoHeader />
+      <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 24 }}>← Back to {client.name}</button>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 4 }}>SUBSCRIPTION TRACKER</div>
+          <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 3, color: C.text }}>{client.name}</div>
+          <div style={{ fontSize: 12, color: C.sub, marginTop: 4 }}>{sub.package} · {sub.sessions} sessions/period · Started {fmt(new Date(sub.startDate + 'T00:00:00'))}</div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button onClick={() => setShowCalendar(!showCalendar)} style={{ padding: '7px 14px', borderRadius: 8, border: `1.5px solid ${C.border}`, background: showCalendar ? C.accent + '15' : 'transparent', color: showCalendar ? C.accent : C.sub, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+            {showCalendar ? '📅 Hide Calendar' : '📅 Calendar'}
+          </button>
+          <button onClick={resetSub} style={{ padding: '7px 14px', borderRadius: 8, border: `1.5px solid ${C.red}44`, background: 'transparent', color: C.red, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>↺ Reset</button>
+        </div>
+      </div>
+
+      {/* Summary cards */}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20 }}>
+        <div style={{ flex: '1 1 140px', background: C.accent + '10', border: `1.5px solid ${C.accent}33`, borderRadius: 12, padding: '14px 18px' }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.accent, letterSpacing: 1.5, textTransform: 'uppercase' }}>Total Sessions</div>
+          <div style={{ fontSize: 28, fontWeight: 800, color: C.text, marginTop: 2 }}>{totalSessions}</div>
+        </div>
+        <div style={{ flex: '1 1 140px', background: C.faint, border: `1.5px solid ${C.border}`, borderRadius: 12, padding: '14px 18px' }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1.5, textTransform: 'uppercase' }}>Package</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: C.text, marginTop: 2 }}>{sub.package}</div>
+        </div>
+        <div style={{ flex: '1 1 140px', background: C.faint, border: `1.5px solid ${C.border}`, borderRadius: 12, padding: '14px 18px' }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1.5, textTransform: 'uppercase' }}>Periods Done</div>
+          <div style={{ fontSize: 28, fontWeight: 800, color: C.text, marginTop: 2 }}>{sub.periods.filter(p => { return false }).length} / 6</div>
+        </div>
+      </div>
+
+      {showCalendar && <CalendarView />}
+
+      {/* Period Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+        {sub.periods.map((period, pIdx) => {
+          const { start, end } = getPeriodDates(sub.startDate, pIdx)
+          const cap = getPeriodCap(pIdx)
+          const used = period.sessions.length
+          const today = new Date()
+          const isActive = today >= start && today <= end
+          const isDone = today > end
+          const isUpcoming = today < start
+          const rollover = pIdx % 2 === 1 ? Math.max(0, sub.sessions - (sub.periods[pIdx - 1]?.sessions?.length || 0)) : 0
+          const periodColors = ['#EF4444', '#F97316', '#EAB308', '#22C55E', '#8B5CF6', '#EC4899']
+          const color = periodColors[pIdx]
           return (
-            <button key={s} onClick={() => setFilterStatus(s)}
-              style={{ padding: '5px 12px', borderRadius: 20, border: `1.5px solid ${active ? c.border : C.border}`, background: active ? c.bg : 'transparent', color: active ? c.text : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer', transition: 'all .15s' }}>
-              {s}
-            </button>
+            <div key={pIdx} style={{ background: C.card, border: `1.5px solid ${isActive ? color : C.border}`, borderRadius: 14, padding: '18px 18px', opacity: isUpcoming ? 0.7 : 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: color }}>Period {pIdx + 1}</div>
+                  <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>{fmt(start)} – {fmt(end)}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: isActive ? color : C.sub }}>
+                    {isActive ? '● Active' : isDone ? '✓ Complete' : '○ Upcoming'}
+                  </div>
+                  {rollover > 0 && <div style={{ fontSize: 10, color: C.orange, fontWeight: 700 }}>+{rollover} rollover</div>}
+                </div>
+              </div>
+
+              {/* Session slots */}
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>Sessions ({used}/{cap})</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {Array.from({ length: cap }, (_, i) => {
+                    const session = period.sessions[i]
+                    return (
+                      <div key={i} style={{ position: 'relative' }}>
+                        {session ? (
+                          <div title={`${session.date}${session.notes ? ' — ' + session.notes : ''}`}
+                            style={{ width: 32, height: 32, borderRadius: 8, background: color + '20', border: `2px solid ${color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, cursor: 'pointer' }}
+                            onClick={() => removeSession(pIdx, i)}>
+                            ✓
+                          </div>
+                        ) : (
+                          <div style={{ width: 32, height: 32, borderRadius: 8, border: `2px dashed ${C.border}`, background: C.faint, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: C.border }} />
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Plans checklist */}
+              <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: 12 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>Plans</div>
+                {[['nutrition', '🥗 Nutrition Plan'], ['macro', '📊 Macro Plan'], ['grocery', '🛒 Grocery List']].map(([key, label]) => (
+                  <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, cursor: 'pointer', fontSize: 12, color: period.plans[key] ? color : C.text, fontWeight: period.plans[key] ? 700 : 400 }}>
+                    <input type="checkbox" checked={!!period.plans[key]} onChange={() => togglePlan(pIdx, key)} style={{ width: 15, height: 15, accentColor: color }} />
+                    {label}
+                  </label>
+                ))}
+              </div>
+
+              {/* Recent sessions list */}
+              {period.sessions.length > 0 && (
+                <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: 12 }}>
+                  {period.sessions.slice(-3).map((s, i) => (
+                    <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 11, color: C.sub }}>
+                      <span style={{ color }}>{new Date(s.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                      {s.notes && <span>— {s.notes.slice(0, 40)}</span>}
+                      {s.sig && <span style={{ fontSize: 9, color: C.green }}>✓ Signed</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button onClick={() => openSignModal(pIdx)} disabled={used >= cap}
+                style={{ width: '100%', padding: '9px', borderRadius: 8, border: `1.5px solid ${used >= cap ? C.border : color}`, background: used >= cap ? C.faint : color + '12', color: used >= cap ? C.sub : color, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: used >= cap ? 'not-allowed' : 'pointer' }}>
+                {used >= cap ? 'Period Full' : '+ Log Session'}
+              </button>
+            </div>
           )
         })}
       </div>
 
-      {loading ? <Spinner /> : filtered.length === 0 ? (
-        <div style={{ textAlign: 'center', color: C.sub, padding: 48, fontSize: 14 }}>No leads found</div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {filtered.map(lead => {
-            const sc = LEAD_STATUS_COLORS[lead.status] || LEAD_STATUS_COLORS['New Lead']
-            const overdue = isOverdue(lead)
-            const dateAdded = lead.date_added ? new Date(lead.date_added + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
-            const lastContact = lead.last_contact_date ? new Date(lead.last_contact_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null
+      {/* Sign-In Modal */}
+      {signModal !== null && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 16 }}>
+          <div style={{ background: C.panel, borderRadius: 18, maxWidth: 480, width: '100%', padding: 28, boxShadow: '0 12px 40px rgba(0,0,0,0.2)', fontFamily: 'Montserrat,sans-serif' }}>
+            <div style={{ fontWeight: 800, fontSize: 16, color: C.text, marginBottom: 4 }}>Log Session — Period {signModal + 1}</div>
+            <div style={{ fontSize: 11, color: C.sub, marginBottom: 20 }}>{client.name}</div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Session Date</label>
+              <input type="date" value={sigDate} onChange={e => setSigDate(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 13, background: C.faint, color: C.text, outline: 'none', boxSizing: 'border-box' }} />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Notes (optional)</label>
+              <input type="text" value={sigNotes} onChange={e => setSigNotes(e.target.value)} placeholder="e.g. Full body, cardio focus..." style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 13, background: C.faint, color: C.text, outline: 'none', boxSizing: 'border-box' }} />
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Client Signature (optional)</label>
+              <SubscriptionSignaturePad value={signature} onChange={setSignature} />
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <Btn onClick={confirmSession} color={C.green}>✓ Confirm Session</Btn>
+              <Btn onClick={() => setSignModal(null)} outline color={C.sub}>Cancel</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
-            return (
-              <div key={lead.id} onClick={() => openEdit(lead)}
-                style={{ background: C.card, border: `1.5px solid ${overdue ? C.red + '55' : C.border}`, borderRadius: 14, padding: '16px 18px', cursor: 'pointer', transition: 'box-shadow .15s', boxShadow: overdue ? `0 0 0 2px ${C.red}22` : 'none', position: 'relative' }}>
+// ── SCHEDULE ─────────────────────────────────────────────────────────────────
 
-                {overdue && (
-                  <div style={{ position: 'absolute', top: 12, right: 50, fontSize: 10, fontWeight: 800, color: C.red, background: C.red + '18', padding: '3px 8px', borderRadius: 6, letterSpacing: 1 }}>
-                    ⚠️ OVERDUE
-                  </div>
-                )}
+const HOURS = Array.from({ length: 14 }, (_, i) => i + 6) // 6am–7pm
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+function fmt12(time) {
+  if (!time) return ''
+  const [h, m] = time.split(':').map(Number)
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  const hour = h % 12 || 12
+  return `${hour}:${String(m).padStart(2,'0')} ${ampm}`
+}
+const SESSION_TYPES = [
+  { label: 'FIT60',                   duration: 60,  color: '#2563EB' },
+  { label: 'FIT30',                   duration: 30,  color: '#0891B2' },
+  { label: 'In-Person Consultation',  duration: 60,  color: '#059669' },
+  { label: 'Phone Consultation',      duration: 30,  color: '#0E7490' },
+  { label: 'Video Call',              duration: 30,  color: '#7C3AED' },
+  { label: 'Phone Call',              duration: 20,  color: '#D97706' },
+  { label: 'Business Call',           duration: 30,  color: '#B45309', hasLink: true, linkLabel: 'Phone Number', linkPlaceholder: 'e.g. +1 (555) 000-0000' },
+  { label: 'Business Meeting',        duration: 60,  color: '#1E3A5F', hasLink: true, linkLabel: 'Meeting Link', linkPlaceholder: 'e.g. https://zoom.us/j/...' },
+]
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>{lead.name}</div>
-                    {lead.goal && <div style={{ fontSize: 12, color: C.sub, marginTop: 2 }}>🎯 {lead.goal}</div>}
-                  </div>
-                  <button onClick={e => remove(lead.id, e)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.sub, fontSize: 16, padding: '0 0 0 8px', lineHeight: 1 }}>×</button>
+function Schedule({ onBack, allClients }) {
+  const today = new Date()
+  const [weekStart, setWeekStart] = useState(() => {
+    const d = new Date(today)
+    d.setDate(d.getDate() - d.getDay())
+    d.setHours(0, 0, 0, 0)
+    return d
+  })
+  const [sessions, setSessions] = useState([])
+  const [booking, setBooking] = useState(null) // { date, time } or { session } for editing
+  const [form, setForm] = useState({ client_name: '', client_id: null, client_email: '', session_type: 'FIT60', duration: 60, notes: '', link: '' })
+  const [recurring, setRecurring] = useState(false)
+  const [clientSearch, setClientSearch] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [deleteMode, setDeleteMode] = useState(false)
+
+  const weekEnd = new Date(weekStart)
+  weekEnd.setDate(weekEnd.getDate() + 6)
+
+  const fmt = localDate
+
+  useEffect(() => {
+    const load = async () => {
+      const weekEnd = new Date(weekStart)
+      weekEnd.setDate(weekEnd.getDate() + 6)
+      const [week, allRecurring] = await Promise.all([
+        getSessions(fmt(weekStart), fmt(weekEnd)),
+        getRecurringSessions()
+      ])
+      // Project recurring sessions onto current week by day-of-week
+      const virtual = []
+      for (const r of allRecurring) {
+        const origDate = new Date(r.date + 'T12:00:00')
+        if (origDate >= weekStart) continue // already in range or future, skip projection
+        const dow = origDate.getDay() // 0=Sun
+        const projected = new Date(weekStart)
+        projected.setDate(projected.getDate() + dow)
+        const projStr = fmt(projected)
+        const exceptions = Array.isArray(r.exceptions) ? r.exceptions : []
+        if (exceptions.includes(projStr)) continue
+        const alreadyReal = week.some(s => s.date === projStr && s.time === r.time && s.client_id === r.client_id)
+        if (!alreadyReal) virtual.push({ ...r, date: projStr, _virtualOf: r.id })
+      }
+      setSessions([...week, ...virtual].sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : a.time < b.time ? -1 : 1))
+    }
+    load().catch(console.error)
+  }, [weekStart])
+
+  const weekDates = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(weekStart)
+    d.setDate(d.getDate() + i)
+    return d
+  })
+
+  const prevWeek = () => { const d = new Date(weekStart); d.setDate(d.getDate() - 7); setWeekStart(d) }
+  const nextWeek = () => { const d = new Date(weekStart); d.setDate(d.getDate() + 7); setWeekStart(d) }
+  const goToday = () => {
+    const d = new Date()
+    d.setDate(d.getDate() - d.getDay())
+    d.setHours(0, 0, 0, 0)
+    setWeekStart(d)
+  }
+
+  const openNew = (date, hour) => {
+    const time = `${String(hour).padStart(2, '0')}:00`
+    setForm({ client_name: '', client_id: null, client_email: '', session_type: 'FIT60', duration: 60, notes: '', link: '' })
+    setRecurring(false)
+    setClientSearch('')
+    setBooking({ date: fmt(date), time })
+  }
+
+  const openEdit = (session) => {
+    // If virtual (projected recurring), find and edit the original session
+    const target = session._virtualOf
+      ? sessions.find(s => s.id === session._virtualOf) || session
+      : session
+    setForm({ client_name: target.client_name, client_id: target.client_id, client_email: target.client_email || '', session_type: target.session_type || 'FIT60', duration: target.duration, notes: target.notes || '', link: target.link || '' })
+    setRecurring(target.recurring || false)
+    setClientSearch(target.client_name)
+    setBooking({ session: target })
+  }
+
+  const closeBooking = () => { setBooking(null); setDeleteMode(false) }
+
+  const handleSave = async () => {
+    if (!form.client_name.trim()) return
+    setSaving(true)
+    try {
+      const payload = booking.session
+        ? { ...booking.session, ...form, recurring }
+        : { date: booking.date, time: booking.time, ...form, recurring }
+      const saved = await saveSession(payload)
+      setSessions(prev => {
+        const filtered = prev.filter(s => s.id !== saved.id)
+        return [...filtered, saved].sort((a, b) => a.time.localeCompare(b.time))
+      })
+      // Send confirmation email if client has an email
+      const clientEmail = form.client_email?.trim() || ''
+      if (clientEmail && !booking.session) {
+        fetch('/api/send-confirmation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clientName: form.client_name,
+            clientEmail,
+            date: payload.date,
+            time: payload.time,
+            sessionType: form.session_type,
+            notes: form.notes,
+            recurring,
+          })
+        }).catch(() => {}) // fire-and-forget, don't block UI
+      }
+      closeBooking()
+    } catch(e) {
+      alert('Failed to save session: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDeleteThis = async () => {
+    const session = booking?.session
+    if (!session) return
+    if (session.recurring) {
+      // Add this specific date to exceptions so it's skipped in projection
+      const exceptions = Array.isArray(session.exceptions) ? session.exceptions : []
+      const dateToSkip = session._virtualOf ? session.date : session.date
+      if (!exceptions.includes(dateToSkip)) {
+        await saveSession({ ...session, exceptions: [...exceptions, dateToSkip], id: session._virtualOf || session.id })
+        setSessions(prev => prev.filter(s => !(s.date === dateToSkip && s.time === session.time && (s.id === session.id || s._virtualOf === session._virtualOf))))
+      }
+    } else {
+      await deleteSession(session.id)
+      setSessions(prev => prev.filter(s => s.id !== session.id))
+    }
+    closeBooking()
+  }
+
+  const handleDeleteAll = async () => {
+    const session = booking?.session
+    if (!session) return
+    const id = session._virtualOf || session.id
+    await deleteSession(id)
+    setSessions(prev => prev.filter(s => s.id !== id && s._virtualOf !== id))
+    closeBooking()
+  }
+
+  const sessionAt = (date, hour) => sessions.filter(s => s.date === fmt(date) && s.time.startsWith(String(hour).padStart(2, '0')))
+
+  const filteredClients = clientSearch.length > 0
+    ? allClients.filter(c => c.name.toLowerCase().includes(clientSearch.toLowerCase())).slice(0, 6)
+    : []
+
+  const isToday = d => fmt(d) === fmt(today)
+
+  const monthLabel = (() => {
+    const s = weekStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    const e = weekEnd.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    return s === e ? s : `${weekStart.toLocaleDateString('en-US', { month: 'short' })} – ${weekEnd.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`
+  })()
+
+  return (
+    <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 16px 32px' }}>
+      <LogoHeader />
+      <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 20 }}>← Back</button>
+
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 10 }}>
+        <div style={{ fontWeight: 800, fontSize: 22, letterSpacing: 3, color: C.text }}>📅 Schedule</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button onClick={prevWeek} style={{ padding: '5px 12px', borderRadius: 7, border: `1px solid ${C.border}`, background: '#fff', color: C.text, fontSize: 14, cursor: 'pointer', fontWeight: 700 }}>‹</button>
+          <button onClick={goToday} style={{ padding: '5px 14px', borderRadius: 7, border: `1px solid ${C.border}`, background: '#fff', color: C.sub, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Today</button>
+          <button onClick={nextWeek} style={{ padding: '5px 12px', borderRadius: 7, border: `1px solid ${C.border}`, background: '#fff', color: C.text, fontSize: 14, cursor: 'pointer', fontWeight: 700 }}>›</button>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginLeft: 4 }}>{monthLabel}</div>
+        </div>
+      </div>
+
+      {/* Calendar grid */}
+      <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+        <div style={{ minWidth: 420 }}>
+          {/* Day headers */}
+          <div style={{ display: 'grid', gridTemplateColumns: '44px repeat(7, 1fr)', borderBottom: `1px solid ${C.border}` }}>
+            <div />
+            {weekDates.map((d, i) => (
+              <div key={i} style={{ textAlign: 'center', padding: '6px 2px', borderLeft: `1px solid ${C.border}`, minWidth: 0 }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 0.5 }}>{DAYS[i]}</div>
+                <div style={{ fontSize: 15, fontWeight: 900, color: isToday(d) ? C.accent : C.text, background: isToday(d) ? C.accent + '18' : 'transparent', borderRadius: 6, width: 26, height: 26, lineHeight: '26px', margin: '2px auto 0' }}>
+                  {d.getDate()}
                 </div>
+              </div>
+            ))}
+          </div>
 
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-                  <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 12, background: sc.bg, color: sc.text, border: `1px solid ${sc.border}` }}>
-                    {lead.status}
-                  </span>
-                  {lead.source && (
-                    <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 12, background: C.faint, color: C.sub, border: `1px solid ${C.border}` }}>
-                      {lead.source}
-                    </span>
+          {/* Time rows */}
+          <div style={{ maxHeight: 560, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            {HOURS.map(hour => (
+              <div key={hour} style={{ display: 'grid', gridTemplateColumns: '44px repeat(7, 1fr)', borderBottom: `1px solid ${C.border}22` }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, padding: '10px 4px 0', textAlign: 'right' }}>
+                  {hour === 12 ? '12p' : hour < 12 ? `${hour}a` : `${hour - 12}p`}
+                </div>
+                {weekDates.map((d, di) => {
+                  const slots = sessionAt(d, hour)
+                  return (
+                    <div key={di} onClick={() => openNew(d, hour)}
+                      style={{ borderLeft: `1px solid ${C.border}`, minHeight: 48, padding: 2, cursor: 'pointer', background: isToday(d) ? C.accent + '04' : 'transparent', transition: 'background .1s', overflow: 'hidden', minWidth: 0 }}
+                      onMouseEnter={e => { if (!slots.length) e.currentTarget.style.background = C.faint }}
+                      onMouseLeave={e => { e.currentTarget.style.background = isToday(d) ? C.accent + '04' : 'transparent' }}>
+                      {slots.map(s => {
+                        const stype = SESSION_TYPES.find(t => t.label === s.session_type) || SESSION_TYPES[0]
+                        return (
+                        <div key={s.id} onClick={e => { e.stopPropagation(); openEdit(s) }}
+                          style={{ background: stype.color, borderRadius: 5, padding: '3px 4px', marginBottom: 2, cursor: 'pointer', overflow: 'hidden', minWidth: 0 }}>
+                          <div style={{ fontSize: 10, fontWeight: 800, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.client_name || s.session_type}</div>
+                          <div style={{ fontSize: 8, color: '#fff', opacity: .85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.session_type || 'FIT60'}{s.recurring ? ' 🔁' : ''}</div>
+                          {s.link && (
+                            <a href={s.link.startsWith('http') ? s.link : `tel:${s.link.replace(/\s/g,'')}`}
+                              onClick={e => e.stopPropagation()}
+                              style={{ fontSize: 8, color: '#fff', opacity: .9, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'underline' }}>
+                              {s.link}
+                            </a>
+                          )}
+                        </div>
+                        )
+                      })}
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Booking modal */}
+      {booking && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 340, boxShadow: '0 8px 40px rgba(0,0,0,0.18)', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: 2, color: C.text, marginBottom: 4 }}>
+              {booking.session ? 'Edit Session' : 'Book Session'}
+            </div>
+            <div style={{ fontSize: 12, color: C.sub, marginBottom: 20 }}>
+              {booking.session
+                ? `${booking.session.date} at ${fmt12(booking.session.time)}`
+                : `${booking.date} at ${fmt12(booking.time)}`}
+            </div>
+
+            {/* Client search */}
+            <div style={{ marginBottom: 16, position: 'relative' }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 5 }}>Client</div>
+              <input
+                value={clientSearch}
+                onChange={e => { setClientSearch(e.target.value); setForm(f => ({ ...f, client_name: e.target.value, client_id: null })) }}
+                placeholder="Type client name..."
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600, fontFamily: 'Montserrat,sans-serif', color: C.text, boxSizing: 'border-box' }}
+              />
+              {filteredClients.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: `1px solid ${C.border}`, borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.10)', zIndex: 10, marginTop: 2 }}>
+                  {filteredClients.map(c => (
+                    <button key={c.id} onClick={() => {
+                      setClientSearch(c.name)
+                      let email = c.email || ''
+                      if (!email) { try { email = JSON.parse(c.trainerNotes || '{}').email || '' } catch {} }
+                      setForm(f => ({ ...f, client_name: c.name, client_id: c.id, client_email: email }))
+                    }}
+                      style={{ display: 'block', width: '100%', padding: '9px 14px', background: 'transparent', border: 'none', borderBottom: `1px solid ${C.border}22`, fontSize: 13, fontWeight: 600, color: C.text, cursor: 'pointer', textAlign: 'left', fontFamily: 'Montserrat,sans-serif' }}
+                      onMouseEnter={e => e.currentTarget.style.background = C.faint}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Client Email */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 5 }}>Client Email <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(for confirmation)</span></div>
+              <input value={form.client_email} onChange={e => setForm(f => ({ ...f, client_email: e.target.value }))}
+                placeholder="client@email.com"
+                type="email"
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontFamily: 'Montserrat,sans-serif', color: C.text, boxSizing: 'border-box' }} />
+            </div>
+
+            {/* Session Type */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 7 }}>Session Type</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {SESSION_TYPES.map(t => (
+                  <button key={t.label} onClick={() => setForm(f => ({ ...f, session_type: t.label, duration: t.duration }))}
+                    style={{ padding: '7px 13px', borderRadius: 7, border: `1.5px solid ${form.session_type === t.label ? t.color : C.border}`, background: form.session_type === t.label ? t.color + '18' : '#fff', color: form.session_type === t.label ? t.color : C.sub, fontWeight: 800, fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Recurring */}
+            <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 8, border: `2px solid ${recurring ? C.accent : C.border}`, background: recurring ? C.accent + '15' : C.faint }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <input
+                  type="checkbox"
+                  id="recurring-toggle"
+                  checked={recurring}
+                  onChange={() => setRecurring(r => !r)}
+                  style={{ width: 22, height: 22, cursor: 'pointer', accentColor: C.accent, flexShrink: 0 }}
+                />
+                <span onClick={() => setRecurring(r => !r)} style={{ fontSize: 12, fontWeight: 700, color: recurring ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', cursor: 'pointer' }}>🔁 Recurring — repeats weekly</span>
+              </div>
+            </div>
+
+            {/* Link / Phone for Business types */}
+            {SESSION_TYPES.find(t => t.label === form.session_type)?.hasLink && (() => {
+              const st = SESSION_TYPES.find(t => t.label === form.session_type)
+              return (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 5 }}>{st.linkLabel}</div>
+                  <input value={form.link} onChange={e => setForm(f => ({ ...f, link: e.target.value }))}
+                    placeholder={st.linkPlaceholder}
+                    style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontFamily: 'Montserrat,sans-serif', color: C.text, boxSizing: 'border-box' }} />
+                </div>
+              )
+            })()}
+
+            {/* Notes */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 5 }}>Notes (optional)</div>
+              <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2}
+                placeholder="e.g. focus on upper body, bring bands..."
+                style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', resize: 'vertical', color: C.text, boxSizing: 'border-box' }} />
+            </div>
+
+            {/* Actions */}
+            {deleteMode ? (
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 12, textAlign: 'center' }}>What would you like to delete?</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <button type="button" onClick={handleDeleteThis} style={{ padding: '11px 0', borderRadius: 8, border: `1.5px solid ${C.red}`, background: C.red + '10', color: C.red, fontWeight: 800, fontSize: 12, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+                    Delete This Session Only
+                  </button>
+                  {(booking.session?.recurring || booking.session?._virtualOf) && (
+                    <button type="button" onClick={handleDeleteAll} style={{ padding: '11px 0', borderRadius: 8, border: 'none', background: C.red, color: '#fff', fontWeight: 800, fontSize: 12, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+                      Delete All Future Sessions
+                    </button>
                   )}
+                  <button type="button" onClick={() => setDeleteMode(false)} style={{ padding: '11px 0', borderRadius: 8, border: `1.5px solid ${C.border}`, background: '#fff', color: C.sub, fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 8 }}>
+                {booking.session && (
+                  <button type="button" onClick={() => setDeleteMode(true)} style={{ padding: '9px 14px', borderRadius: 8, border: `1.5px solid ${C.red}`, background: C.red + '10', color: C.red, fontWeight: 800, fontSize: 12, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Delete</button>
+                )}
+                <button type="button" onClick={closeBooking} style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: `1.5px solid ${C.border}`, background: '#fff', color: C.sub, fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Cancel</button>
+                <button type="button" onClick={handleSave} disabled={!form.client_name.trim() || saving}
+                  style={{ flex: 2, padding: '9px 0', borderRadius: 8, border: 'none', background: form.client_name.trim() ? C.accent : C.border, color: '#fff', fontWeight: 800, fontSize: 12, cursor: form.client_name.trim() ? 'pointer' : 'not-allowed', fontFamily: 'Montserrat,sans-serif' }}>
+                  {saving ? 'Saving…' : booking.session ? 'Update' : 'Book'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── BLOOD WORK PANEL ─────────────────────────────────────────────────────────
+
+const BLOOD_PANELS = [
+  {
+    name: 'CBC with Differential',
+    color: '#DC2626',
+    panelDesc: 'Evaluates your overall blood health — red cells, white cells, and platelets. Detects anemia, infection, immune issues, and hydration status.',
+    markers: [
+      { name: 'WBC',                  unit: 'K/µL', optimal: [3.8,10.8],  borderline: [2.5,3.8],   desc: 'White blood cells — immune defense. High = infection/inflammation. Low = immune suppression or overtraining.' },
+      { name: 'RBC',                  unit: 'M/µL', optimal: [3.8,5.1],   borderline: [3.5,3.8],   desc: 'Red blood cells — oxygen transport. Low signals anemia; high may indicate dehydration or EPO use.' },
+      { name: 'Hemoglobin',           unit: 'g/dL', optimal: [11.7,15.5], borderline: [10.0,11.7], desc: 'Oxygen-carrying protein in red cells. Low = anemia, fatigue, and reduced exercise capacity.' },
+      { name: 'Hematocrit',           unit: '%',    optimal: [35,45],     borderline: [30,35],      desc: 'Percentage of blood made up of red cells. Key indicator of hydration and oxygen delivery capacity.' },
+      { name: 'MCV',                  unit: 'fL',   optimal: [80,100],    borderline: [70,80],      desc: 'Average red cell size. Low = iron deficiency anemia. High = B12 or folate deficiency.' },
+      { name: 'MCH',                  unit: 'pg',   optimal: [27,33],     borderline: [24,27],      desc: 'Average hemoglobin per red cell. Reflects iron and B12 status alongside MCV.' },
+      { name: 'MCHC',                 unit: 'g/dL', optimal: [32,36],     borderline: [30,32],      desc: 'Hemoglobin concentration in red cells. Low suggests iron deficiency anemia.' },
+      { name: 'RDW',                  unit: '%',    optimal: [11,15],     borderline: [15,17],      desc: 'Red cell size variation. High RDW with low MCV = iron deficiency. High RDW with high MCV = B12/folate deficiency.' },
+      { name: 'Platelets',            unit: 'K/µL', optimal: [140,400],   borderline: [100,140],    desc: 'Clotting cells. Low raises bleeding risk. High raises clot risk — can follow hard training.' },
+      { name: 'MPV',                  unit: 'fL',   optimal: [7.5,12.5],  borderline: [12.5,15.0],  desc: 'Mean platelet volume. High MPV with low platelets = active platelet destruction. Low MPV = bone marrow suppression.' },
+      { name: 'Neutrophil Absolute',  unit: 'K/µL', optimal: [1.5,7.8],   borderline: [1.0,1.5],   desc: 'Absolute count of first-responder immune cells. High may signal bacterial infection or chronic inflammation.' },
+      { name: 'Lymphocyte Absolute',  unit: 'K/µL', optimal: [0.85,3.9],  borderline: [0.5,0.85],  desc: 'Absolute count of viral fighters and memory cells. Low can indicate immune deficiency or overtraining stress.' },
+      { name: 'Monocyte Absolute',    unit: 'K/µL', optimal: [0.2,0.95],  borderline: [0.95,1.5],  desc: 'Absolute count of cells that clean up debris and fight chronic infection. Elevated links to systemic inflammation.' },
+      { name: 'Eosinophil Absolute',  unit: 'K/µL', optimal: [0.015,0.5], borderline: [0.5,1.5],   desc: 'Absolute count of allergy/parasite-response cells. High may indicate allergic response or inflammation.' },
+      { name: 'Basophils Absolute',   unit: 'K/µL', optimal: [0.0,0.2],   borderline: [0.2,0.5],   desc: 'Absolute count of basophils involved in allergic reactions. Rarely elevated but flags allergy/mast cell issues.' },
+      { name: 'Neutrophil %',         unit: '%',    optimal: [50,70],     borderline: [70,80],      desc: 'Percentage of WBC that are neutrophils. High % with high absolute count = active infection or inflammation.' },
+      { name: 'Lymphocytes %',        unit: '%',    optimal: [20,40],     borderline: [15,20],      desc: 'Percentage of WBC that are lymphocytes. Low % may indicate stress response or immune suppression.' },
+      { name: 'Monocyte %',           unit: '%',    optimal: [2,8],       borderline: [8,12],       desc: 'Percentage of WBC that are monocytes. Elevated with high WBC = chronic infection or inflammatory state.' },
+      { name: 'Eosinophils %',        unit: '%',    optimal: [1,4],       borderline: [4,8],        desc: 'Percentage of WBC that are eosinophils. High % = allergic reaction, asthma, or parasitic infection.' },
+      { name: 'Basophils %',          unit: '%',    optimal: [0,1],       borderline: [1,3],        desc: 'Percentage of WBC that are basophils. Rarely elevated — flags allergic or inflammatory conditions.' },
+    ],
+  },
+  {
+    name: 'Lipid Panel',
+    color: '#F97316',
+    panelDesc: 'Measures blood fats and cardiovascular risk. Directly linked to heart disease, stroke, and metabolic health — essential context for all fitness clients.',
+    markers: [
+      { name: 'Total Cholesterol',     unit: 'mg/dL', optimal: [0,200],  borderline: [200,239], desc: 'Overall blood fat load. High levels raise heart disease risk. Exercise and diet are primary movers.' },
+      { name: 'HDL',                   unit: 'mg/dL', optimal: [50,999], borderline: [40,50],   desc: '"Good" cholesterol — clears LDL from arteries. Higher is better. Cardio exercise raises HDL.' },
+      { name: 'Triglycerides',         unit: 'mg/dL', optimal: [0,150],  borderline: [150,199], desc: 'Blood fats driven by sugar and refined carb excess. High levels drive metabolic syndrome.' },
+      { name: 'LDL',                   unit: 'mg/dL', optimal: [0,100],  borderline: [100,159], desc: '"Bad" cholesterol — deposits in artery walls. The primary cardiovascular risk driver.' },
+      { name: 'Cholesterol/HDL Ratio', unit: 'ratio',  optimal: [0,5.0], borderline: [5.0,7.0], desc: 'Total cholesterol divided by HDL. Below 5 is ideal. High ratio = elevated cardiovascular risk.' },
+      { name: 'Non-HDL',               unit: 'mg/dL', optimal: [0,130],  borderline: [130,159], desc: 'All atherogenic (artery-clogging) cholesterol combined. Better risk predictor than LDL alone.' },
+      { name: 'Cholesterol/HDL Ratio',  unit: 'ratio',  optimal: [0,5.0], borderline: [5.0,7.0], desc: 'Total cholesterol divided by HDL. Below 5 is ideal. High ratio = elevated cardiovascular risk.' },
+    ],
+  },
+  {
+    name: 'Comprehensive Metabolic Panel',
+    color: '#7C3AED',
+    panelDesc: 'Assesses kidney function, liver health, electrolyte balance, and blood sugar. Critical for evaluating how the body handles training load and nutrition.',
+    markers: [
+      { name: 'Glucose',              unit: 'mg/dL', optimal: [65,99],     borderline: [100,125],  desc: 'Fasting blood sugar. Elevated = insulin resistance or pre-diabetes. Key metabolic fitness marker.' },
+      { name: 'BUN',                 unit: 'mg/dL', optimal: [7,25],      borderline: [25,30],    desc: 'Kidney waste filter. High may indicate dehydration or very high protein intake post-training.' },
+      { name: 'Creatinine',          unit: 'mg/dL', optimal: [0.50,1.03], borderline: [1.03,1.35],desc: 'Kidney filtration byproduct. Naturally higher in muscular athletes — context matters here.' },
+      { name: 'eGFR',                unit: 'mL/min',optimal: [60,999],    borderline: [45,60],    desc: 'Estimated kidney filtration rate. Below 60 flags kidney disease risk requiring medical follow-up.' },
+      { name: 'BUN/Creatinine Ratio',unit: 'ratio', optimal: [6,22],      borderline: [22,28],    desc: 'Kidney efficiency ratio. High = dehydration or muscle breakdown; low = possible liver stress.' },
+      { name: 'Sodium',              unit: 'mEq/L', optimal: [135,146],   borderline: [130,135],  desc: 'Key electrolyte for hydration and nerve function. Critical to monitor in heavy-sweating athletes.' },
+      { name: 'Potassium',           unit: 'mEq/L', optimal: [3.5,5.3],   borderline: [3.0,3.5],  desc: 'Heart rhythm and muscle contraction. Low = cramping and fatigue. High = cardiac arrhythmia risk.' },
+      { name: 'Chloride',            unit: 'mEq/L', optimal: [98,110],    borderline: [93,98],    desc: 'Electrolyte balance partner to sodium. Reflects hydration and acid-base status.' },
+      { name: 'CO2',                 unit: 'mEq/L', optimal: [20,32],     borderline: [18,20],    desc: 'Bicarbonate — measures acid-base balance. Low may indicate overbreathing or kidney issues.' },
+      { name: 'Calcium',             unit: 'mg/dL', optimal: [8.6,10.4],  borderline: [8.0,8.6],  desc: 'Bone density, muscle contraction, nerve signals. Low = deficiency; high = parathyroid issue.' },
+      { name: 'Total Protein',       unit: 'g/dL',  optimal: [6.1,8.1],   borderline: [5.5,6.1],  desc: 'Overall protein status. Low = malnutrition or liver stress. Key marker for muscle-building clients.' },
+      { name: 'Albumin',             unit: 'g/dL',  optimal: [3.6,5.1],   borderline: [3.0,3.6],  desc: 'Main blood protein made by the liver. Low = malnutrition, inflammation, or liver dysfunction.' },
+      { name: 'Globulin',            unit: 'g/dL',  optimal: [1.9,3.7],   borderline: [1.5,1.9],  desc: 'Immune proteins and transport proteins. Low = immune deficiency; high = chronic inflammation or infection.' },
+      { name: 'A/G Ratio',           unit: 'ratio', optimal: [1.0,2.5],   borderline: [0.8,1.0],  desc: 'Albumin to globulin ratio. Low ratio = elevated globulins from chronic inflammation or liver stress.' },
+      { name: 'Total Bilirubin',     unit: 'mg/dL', optimal: [0.2,1.2],   borderline: [1.2,2.0],  desc: 'Liver waste from red cell breakdown. High may indicate liver stress or red cell destruction.' },
+      { name: 'Alkaline Phosphatase',unit: 'U/L',   optimal: [37,153],    borderline: [153,220],  desc: 'Liver and bone enzyme. Can rise during heavy training or bone growth.' },
+      { name: 'AST',                 unit: 'U/L',   optimal: [10,35],     borderline: [35,80],    desc: 'Liver enzyme also released by muscle damage. Commonly elevated after intense strength training.' },
+      { name: 'ALT',                 unit: 'U/L',   optimal: [6,29],      borderline: [29,60],    desc: 'Most specific liver enzyme. Elevated = liver stress, fatty liver disease, or hepatitis.' },
+    ],
+  },
+  {
+    name: 'Hemoglobin A1C',
+    color: '#059669',
+    panelDesc: 'Reflects average blood sugar over the past 90 days. Gold standard for diagnosing pre-diabetes and diabetes — essential for weight loss and metabolic health clients.',
+    markers: [
+      { name: 'HbA1c',                              unit: '%',       optimal: [0,5.7],    borderline: [5.7,6.4],  desc: '3-month blood sugar average. 5.7–6.4% = pre-diabetic. Above 6.5% = diabetic. Drops with exercise and diet changes.' },
+      { name: 'Estimated Average Glucose (mg/dL)', unit: 'mg/dL',  optimal: [70,120],   borderline: [120,154],  desc: 'Calculated 3-month average glucose in mg/dL derived from HbA1c. Below 120 is ideal for non-diabetics.' },
+      { name: 'Estimated Average Glucose (mmol/L)',unit: 'mmol/L', optimal: [3.9,6.7],  borderline: [6.7,8.6],  desc: 'Calculated 3-month average glucose in mmol/L derived from HbA1c. International unit equivalent.' },
+      { name: 'Fasting Glucose',                   unit: 'mg/dL',  optimal: [70,99],    borderline: [100,125],  desc: 'Same-day fasting blood sugar. Cross-reference with HbA1c to separate daily spikes from chronic elevation.' },
+      { name: 'Fasting Insulin',                   unit: 'µIU/mL', optimal: [2,20],     borderline: [20,30],    desc: 'High fasting insulin signals resistance even before glucose rises — the earliest metabolic warning sign.' },
+      { name: 'HOMA-IR',                           unit: 'index',  optimal: [0,1.5],    borderline: [1.5,3.0],  desc: 'Calculated insulin resistance score (Glucose × Insulin ÷ 405). Above 1.9 = insulin resistance.' },
+    ],
+  },
+  {
+    name: 'Other / Additional',
+    color: '#0284C7',
+    panelDesc: 'Hormones, vitamins, inflammation markers, and specialty tests. Provides deeper insight into recovery capacity, energy optimization, and long-term health.',
+    markers: [
+      { name: 'Testosterone',      unit: 'ng/dL',   optimal: [400,1000], borderline: [300,400],  desc: 'Primary male hormone. Low = fatigue, low libido, and muscle loss. Exercise naturally raises testosterone.' },
+      { name: 'Free Testosterone', unit: 'pg/mL',   optimal: [9,30],     borderline: [5,9],      desc: 'Unbound, bioavailable testosterone. More relevant than total T for symptoms of low testosterone.' },
+      { name: 'SHBG',              unit: 'nmol/L',  optimal: [10,57],    borderline: [57,80],    desc: 'Binds testosterone, making it unavailable to cells. High SHBG can leave low free T even with normal total.' },
+      { name: 'Estradiol',         unit: 'pg/mL',   optimal: [10,40],    borderline: [40,60],    desc: 'Estrogen in men — needed for bone and joint health. Too high often means excess fat converting testosterone.' },
+      { name: 'TSH',               unit: 'mIU/L',   optimal: [0.4,4.0],  borderline: [4.0,10.0], desc: 'Thyroid stimulating hormone. High = hypothyroid — sluggish metabolism, fatigue, and weight gain.' },
+      { name: 'Free T3',           unit: 'pg/mL',   optimal: [2.3,4.2],  borderline: [1.8,2.3],  desc: 'Active thyroid hormone driving metabolism. Low = slow metabolism even when TSH looks normal.' },
+      { name: 'Free T4',           unit: 'ng/dL',   optimal: [0.8,1.8],  borderline: [0.6,0.8],  desc: 'Thyroid output hormone that converts to T3. Measures the thyroid gland\'s production capacity.' },
+      { name: 'Cortisol',          unit: 'µg/dL',   optimal: [6,23],     borderline: [23,30],    desc: 'Stress hormone. Chronically high = muscle breakdown, fat gain, poor sleep, and immune suppression.' },
+      { name: 'DHEA-S',            unit: 'µg/dL',   optimal: [100,400],  borderline: [50,100],   desc: 'Adrenal hormone. Low = adrenal fatigue and low energy. Declines with age and chronic stress.' },
+      { name: 'Vitamin D',         unit: 'ng/mL',   optimal: [40,80],    borderline: [20,40],    desc: 'Critical for bone density, immunity, mood, testosterone production, and muscle function. Most people are low.' },
+      { name: 'B12',               unit: 'pg/mL',   optimal: [400,900],  borderline: [200,400],  desc: 'Essential for nerve health, energy production, and red cell formation. Often low in plant-based diets.' },
+      { name: 'Folate',            unit: 'ng/mL',   optimal: [4,999],    borderline: [2,4],      desc: 'B vitamin needed for DNA repair and red cell production. Works with B12. Low causes anemia and fatigue.' },
+      { name: 'Iron',              unit: 'µg/dL',   optimal: [60,170],   borderline: [40,60],    desc: 'Needed to make hemoglobin. Low = iron-deficiency anemia — fatigue, breathlessness, and poor endurance.' },
+      { name: 'Ferritin',          unit: 'ng/mL',   optimal: [30,300],   borderline: [12,30],    desc: 'Iron storage protein. Better marker than serum iron alone. Low ferritin = depleted iron reserves.' },
+      { name: 'CRP',               unit: 'mg/L',    optimal: [0,1.0],    borderline: [1.0,3.0],  desc: 'High-sensitivity C-reactive protein — systemic inflammation. High = disease risk and poor recovery.' },
+      { name: 'Homocysteine',      unit: 'µmol/L',  optimal: [0,10],     borderline: [10,15],    desc: 'Inflammation amino acid. Elevated = cardiovascular risk and B vitamin deficiency.' },
+      { name: 'Omega-3 Index',     unit: '%',       optimal: [8,999],    borderline: [4,8],      desc: 'EPA+DHA percentage in red cells. Low = inflammation and poor heart health. Fish oil moves this marker.' },
+      { name: 'Magnesium',         unit: 'mg/dL',   optimal: [1.7,2.3],  borderline: [1.5,1.7],  desc: 'Cofactor for 300+ enzymes. Low = cramping, poor sleep, fatigue, anxiety, and insulin resistance.' },
+      { name: 'Zinc',              unit: 'µg/dL',   optimal: [60,120],   borderline: [40,60],    desc: 'Immune function, testosterone production, wound healing. Depleted rapidly by heavy sweating.' },
+      { name: 'PSA',               unit: 'ng/mL',   optimal: [0,4.0],    borderline: [4.0,10.0], desc: 'Prostate-specific antigen (men 40+). Screens for prostate enlargement or cancer. Important baseline.' },
+    ],
+  },
+]
+
+// Flat lookup map for all markers by name
+const MARKERS = Object.fromEntries(BLOOD_PANELS.flatMap(p => p.markers.map(m => [m.name, m])))
+
+const MARKER_CATEGORIES = Object.fromEntries(BLOOD_PANELS.map(p => [p.name, p.markers.map(m => m.name)]))
+
+const HIGHER_IS_BETTER = new Set(['HDL','Hemoglobin','Hematocrit','RBC','eGFR','Testosterone','Free Testosterone','DHEA-S','Free T3','Free T4','Vitamin D','B12','Folate','Iron','Ferritin','Omega-3 Index','Magnesium','Zinc','Total Protein','Albumin'])
+
+function getMarkerStatus(name, value) {
+  const m = MARKERS[name]
+  if (!m || value === '' || value === null || value === undefined) return 'empty'
+  const v = parseFloat(value)
+  if (isNaN(v)) return 'empty'
+  const [oLow, oHigh] = m.optimal
+  const [bLow, bHigh] = m.borderline
+  if (v >= oLow && v <= oHigh) return 'optimal'
+  if ((v >= bLow && v <= bHigh) || (v > oHigh && v <= bHigh) || (v < oLow && v >= bLow)) return 'borderline'
+  return 'out'
+}
+
+function statusColor(status) {
+  if (status === 'optimal') return C.green
+  if (status === 'borderline') return C.orange
+  if (status === 'out') return C.red
+  return C.border
+}
+
+function BloodWorkPieChart({ records }) {
+  const canvasRef = useRef(null)
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    let opt = 0, bord = 0, out = 0
+    for (const rec of records) {
+      for (const [name, val] of Object.entries(rec.markers || {})) {
+        const s = getMarkerStatus(name, val)
+        if (s === 'optimal') opt++
+        else if (s === 'borderline') bord++
+        else if (s === 'out') out++
+      }
+    }
+    const total = opt + bord + out
+    if (total === 0) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      ctx.fillStyle = C.sub
+      ctx.font = '12px Montserrat,sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText('No data', 80, 80)
+      return
+    }
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    const slices = [
+      { count: opt, color: C.green, label: 'Optimal' },
+      { count: bord, color: C.orange, label: 'Borderline' },
+      { count: out, color: C.red, label: 'Out of Range' },
+    ]
+    let startAngle = -Math.PI / 2
+    const cx = 80, cy = 80, r = 65
+    for (const s of slices) {
+      if (s.count === 0) continue
+      const angle = (s.count / total) * 2 * Math.PI
+      ctx.beginPath()
+      ctx.moveTo(cx, cy)
+      ctx.arc(cx, cy, r, startAngle, startAngle + angle)
+      ctx.closePath()
+      ctx.fillStyle = s.color
+      ctx.fill()
+      startAngle += angle
+    }
+    ctx.beginPath()
+    ctx.arc(cx, cy, 30, 0, 2 * Math.PI)
+    ctx.fillStyle = C.card
+    ctx.fill()
+    ctx.fillStyle = C.text
+    ctx.font = 'bold 13px Montserrat,sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText(total, cx, cy + 5)
+  }, [records])
+
+  const counts = { opt: 0, bord: 0, out: 0 }
+  for (const rec of records) {
+    for (const [name, val] of Object.entries(rec.markers || {})) {
+      const s = getMarkerStatus(name, val)
+      if (s === 'optimal') counts.opt++
+      else if (s === 'borderline') counts.bord++
+      else if (s === 'out') counts.out++
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+      <canvas ref={canvasRef} width={160} height={160} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {[['optimal', C.green, 'Optimal', counts.opt], ['borderline', C.orange, 'Borderline', counts.bord], ['out', C.red, 'Out of Range', counts.out]].map(([k, color, label, count]) => (
+          <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 12, height: 12, borderRadius: '50%', background: color }} />
+            <span style={{ fontSize: 12, color: C.text }}>{label}</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color }}>{count}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+async function parsePdfBloodWork(file, panel = null) {
+  const fd = new FormData()
+  fd.append('pdf', file)
+  if (panel) fd.append('panel', panel)
+  const res = await fetch('/api/parse-bloodwork', { method: 'POST', body: fd })
+  const data = await res.json()
+  if (data.error) throw new Error(data.error)
+  return data
+}
+
+function BloodWorkPanel({ client, onBack }) {
+  const currentYear = new Date().getFullYear()
+  const years = [currentYear, currentYear - 1, currentYear - 2, currentYear - 3, currentYear - 4]
+  const [frequency, setFrequency] = useState('Annual')
+  const [records, setRecords] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [expandedYear, setExpandedYear] = useState(currentYear)
+  const [expandedPeriod, setExpandedPeriod] = useState(null)
+  const [drafts, setDrafts] = useState({})
+  const [saving, setSaving] = useState({})
+  const [parsing, setParsing] = useState({})
+  const [aiResult, setAiResult] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
+  const [showComparison, setShowComparison] = useState(false)
+  const [showManual, setShowManual] = useState({})
+  const fileInputRefs = useRef({})
+
+  const periods = frequency === 'Quarterly' ? ['Q1', 'Q2', 'Q3', 'Q4'] : frequency === 'Semi-Annual' ? ['H1', 'H2'] : ['Annual']
+
+  useEffect(() => {
+    setLoading(true)
+    getBloodWork(client.id).then(data => {
+      setRecords(data)
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }, [client.id])
+
+  function getRecord(year, period) {
+    return records.find(r => r.year === year && r.period === period) || null
+  }
+
+  function getDraftKey(year, period) { return `${year}-${period}` }
+
+  function getDraft(year, period) {
+    const key = getDraftKey(year, period)
+    if (drafts[key]) return drafts[key]
+    const rec = getRecord(year, period)
+    return rec ? { ...rec.markers } : {}
+  }
+
+  function setMarker(year, period, name, value) {
+    const key = getDraftKey(year, period)
+    setDrafts(d => ({ ...d, [key]: { ...(d[key] || getDraft(year, period)), [name]: value } }))
+  }
+
+  async function handlePdfUpload(year, period, file, panel) {
+    if (!file) return
+    const key = getDraftKey(year, period)
+    const pKey = panel ? `${key}-${panel}` : key
+    setParsing(p => ({ ...p, [pKey]: true }))
+    try {
+      const { markers, count } = await parsePdfBloodWork(file, panel)
+      if (!count || count === 0) {
+        alert('Could not extract marker values from this PDF. Make sure it is a text-based PDF (not a scan) and contains the expected markers.')
+        setParsing(p => ({ ...p, [pKey]: false }))
+        return
+      }
+      setDrafts(d => ({ ...d, [key]: { ...(d[key] || getDraft(year, period)), ...markers } }))
+      setExpandedPeriod(key)
+    } catch (e) {
+      alert('PDF parsing failed: ' + e.message)
+    }
+    setParsing(p => ({ ...p, [pKey]: false }))
+  }
+
+  async function handleSave(year, period) {
+    const key = getDraftKey(year, period)
+    setSaving(s => ({ ...s, [key]: true }))
+    try {
+      const existing = getRecord(year, period)
+      const saved = await saveBloodWork({
+        id: existing?.id,
+        client_id: client.id,
+        year,
+        period,
+        frequency,
+        markers: drafts[key] || getDraft(year, period),
+        notes: existing?.notes || '',
+        test_date: existing?.test_date || null,
+      })
+      setRecords(recs => {
+        const others = recs.filter(r => !(r.year === year && r.period === period))
+        return saved ? [...others, saved] : others
+      })
+      setDrafts(d => { const nd = { ...d }; delete nd[key]; return nd })
+    } catch (e) {
+      alert('Save failed: ' + e.message)
+    }
+    setSaving(s => ({ ...s, [key]: false }))
+  }
+
+  async function handleDelete(year, period) {
+    const rec = getRecord(year, period)
+    if (!rec) return
+    if (!confirm('Delete this blood work record?')) return
+    await deleteBloodWork(rec.id)
+    setRecords(recs => recs.filter(r => r.id !== rec.id))
+  }
+
+  async function handleAiAnalysis() {
+    setAiLoading(true)
+    setAiResult('')
+    try {
+      const dataStr = records.map(r => `${r.year} ${r.period}: ${Object.entries(r.markers || {}).map(([k, v]) => `${k}=${v}`).join(', ')}`).join('\n')
+      const text = await callClaude([{
+        role: 'user',
+        content: `You are a health & fitness advisor analyzing blood work for a personal trainer named Freddy.\n\nClient: ${client.name}\nBlood Work History:\n${dataStr || 'No data yet'}\n\nProvide analysis in exactly 4 sections:\n\n✅ WHAT'S IMPROVING\nList markers trending in the right direction and what that means for this client's fitness.\n\n⚠️ NEEDS ATTENTION\nFor each flagged marker: state the value, what it measures, likely contributing causes (lifestyle, diet, training, stress, etc.), and what happens if it stays elevated/low.\n\n🎯 FREDDY'S ACTION PLAN\nSpecific training and nutrition changes Freddy should implement based on these results. Be precise — e.g. "add 3g fish oil daily", "reduce HIIT frequency", "prioritize sleep for cortisol".\n\n📈 YEAR-OVER-YEAR SUMMARY\nThe most important trend across all periods and one headline win or concern.\n\nBe direct, specific, and actionable. No generic advice.`
+      }], 2000)
+      setAiResult(text)
+    } catch (e) {
+      setAiResult('Error: ' + e.message)
+    }
+    setAiLoading(false)
+  }
+
+  function getTrendArrow(markerName, vals) {
+    if (vals.length < 2) return '→'
+    const last = parseFloat(vals[vals.length - 1])
+    const prev = parseFloat(vals[vals.length - 2])
+    if (isNaN(last) || isNaN(prev)) return '→'
+    const diff = last - prev
+    if (Math.abs(diff) < 0.001) return '→'
+    const higherBetter = HIGHER_IS_BETTER.has(markerName)
+    if (higherBetter) return diff > 0 ? '▲' : '▼'
+    return diff < 0 ? '▲' : '▼'
+  }
+
+  function getTrendColor(markerName, vals) {
+    const arrow = getTrendArrow(markerName, vals)
+    if (arrow === '→') return C.sub
+    if (arrow === '▲') return C.green
+    return C.red
+  }
+
+  const allPeriodKeys = []
+  for (const y of [...years].reverse()) {
+    for (const p of periods) {
+      if (getRecord(y, p)) allPeriodKeys.push(`${y} ${p}`)
+    }
+  }
+
+  const allMarkerNames = Object.keys(MARKERS)
+
+  // Per-year pie data for multi-year comparison
+  const yearSummaries = years.map(year => {
+    const yearRecords = records.filter(r => r.year === year)
+    let opt = 0, bord = 0, out = 0
+    for (const rec of yearRecords) {
+      for (const [name, val] of Object.entries(rec.markers || {})) {
+        const s = getMarkerStatus(name, val)
+        if (s === 'optimal') opt++
+        else if (s === 'borderline') bord++
+        else if (s === 'out') out++
+      }
+    }
+    return { year, opt, bord, out, total: opt + bord + out }
+  }).filter(s => s.total > 0)
+
+  return (
+    <div style={{ maxWidth: 900, margin: '0 auto', padding: '24px 16px', fontFamily: 'Montserrat,sans-serif' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+        <Btn onClick={onBack} outline small color={C.sub}>← Back</Btn>
+        <div style={{ fontWeight: 800, fontSize: 22, letterSpacing: 3, color: C.text }}>🩸 Blood Work</div>
+        <div style={{ fontSize: 13, color: C.sub }}>{client.name}</div>
+      </div>
+
+      {/* Frequency selector */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '14px 20px', marginBottom: 16 }}>
+        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 10 }}>Testing Frequency</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {['Quarterly', 'Semi-Annual', 'Annual'].map(f => (
+            <button key={f} onClick={() => setFrequency(f)} style={{ padding: '8px 16px', borderRadius: 8, border: `1.5px solid ${frequency === f ? C.accent : C.border}`, background: frequency === f ? C.accent + '18' : 'transparent', color: frequency === f ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>{f}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Multi-year pie comparison */}
+      {yearSummaries.length > 0 && (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 14 }}>Year-over-Year Snapshot</div>
+          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            {yearSummaries.map(({ year, opt, bord, out, total }) => (
+              <div key={year} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, minWidth: 120 }}>
+                <BloodWorkPieChart records={records.filter(r => r.year === year)} />
+                <div style={{ fontWeight: 800, fontSize: 13, color: C.text }}>{year}</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
+                  {opt > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: C.green }}>✅ {opt}</span>}
+                  {bord > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: C.orange }}>⚠️ {bord}</span>}
+                  {out > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: C.red }}>❌ {out}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Year-over-year marker table */}
+      {allPeriodKeys.length > 1 && (
+        <div style={{ marginBottom: 16 }}>
+          <button onClick={() => setShowComparison(!showComparison)} style={{ padding: '8px 16px', borderRadius: 8, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
+            {showComparison ? '▲ Hide' : '▼ Show'} Marker Comparison Table
+          </button>
+        </div>
+      )}
+
+      {showComparison && allPeriodKeys.length > 1 && (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 16, overflowX: 'auto' }}>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 12 }}>All Markers Over Time</div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left', padding: '6px 8px', color: C.sub, fontWeight: 700, borderBottom: `1px solid ${C.border}`, minWidth: 130 }}>Marker</th>
+                {allPeriodKeys.map(pk => (
+                  <th key={pk} style={{ textAlign: 'center', padding: '6px 8px', color: C.sub, fontWeight: 700, borderBottom: `1px solid ${C.border}`, minWidth: 70 }}>{pk}</th>
+                ))}
+                <th style={{ textAlign: 'center', padding: '6px 8px', color: C.sub, fontWeight: 700, borderBottom: `1px solid ${C.border}` }}>Trend</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allMarkerNames.map(markerName => {
+                const vals = allPeriodKeys.map(pk => {
+                  const [y, ...rest] = pk.split(' '); const p = rest.join(' ')
+                  const rec = getRecord(parseInt(y), p)
+                  return rec?.markers?.[markerName] ?? ''
+                })
+                if (vals.every(v => v === '')) return null
+                const numVals = vals.filter(v => v !== '')
+                return (
+                  <tr key={markerName}>
+                    <td style={{ padding: '5px 8px', color: C.text, fontWeight: 600, borderBottom: `1px solid ${C.border}22` }}>{markerName}</td>
+                    {vals.map((v, i) => {
+                      const s = getMarkerStatus(markerName, v)
+                      return (
+                        <td key={i} style={{ textAlign: 'center', padding: '5px 8px', borderBottom: `1px solid ${C.border}22` }}>
+                          {v !== '' ? <span style={{ color: statusColor(s), fontWeight: 700 }}>{v}</span> : <span style={{ color: C.border }}>—</span>}
+                        </td>
+                      )
+                    })}
+                    <td style={{ textAlign: 'center', padding: '5px 8px', borderBottom: `1px solid ${C.border}22`, fontWeight: 800, fontSize: 14, color: getTrendColor(markerName, numVals) }}>
+                      {getTrendArrow(markerName, numVals)}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* AI Analysis */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 20px', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: aiResult ? 12 : 0 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', flex: 1 }}>🤖 AI Analysis & Focus Areas</div>
+          <Btn onClick={handleAiAnalysis} disabled={aiLoading || records.length === 0} small color={C.accent}>
+            {aiLoading ? '⏳ Analyzing…' : records.length === 0 ? 'Upload records first' : '✨ Run Analysis'}
+          </Btn>
+        </div>
+        {aiResult && (
+          <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, color: C.text, lineHeight: 1.8, borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>{aiResult}</div>
+        )}
+      </div>
+
+      {/* Year accordions */}
+      {loading ? <Spinner /> : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {years.map(year => {
+            const yearRecords = records.filter(r => r.year === year)
+            const isExpanded = expandedYear === year
+            return (
+              <div key={year} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden' }}>
+                <div onClick={() => setExpandedYear(isExpanded ? null : year)} style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span style={{ fontWeight: 800, fontSize: 16, color: C.text }}>{year}</span>
+                    {yearRecords.length > 0 && (
+                      <span style={{ fontSize: 10, background: C.green + '18', color: C.green, borderRadius: 10, padding: '2px 10px', fontWeight: 700 }}>✅ {yearRecords.length} record{yearRecords.length > 1 ? 's' : ''}</span>
+                    )}
+                  </div>
+                  <span style={{ fontSize: 11, color: C.sub }}>{isExpanded ? '▲' : '▼'}</span>
                 </div>
 
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 11, color: C.sub }}>
-                  {lead.phone && <span>📞 {lead.phone}</span>}
-                  {lead.email && <span>✉️ {lead.email}</span>}
-                  <span>Added {dateAdded}</span>
-                  {lastContact && <span style={{ color: overdue ? C.red : C.sub }}>Last contact: {lastContact}</span>}
-                  {!lastContact && !overdue && <span>No contact yet</span>}
-                </div>
+                {isExpanded && (
+                  <div style={{ borderTop: `1px solid ${C.border}`, padding: '16px 20px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {periods.map(period => {
+                        const rec = getRecord(year, period)
+                        const pKey = getDraftKey(year, period)
+                        const isExpP = expandedPeriod === pKey
+                        const draft = getDraft(year, period)
+                        const isDirty = !!drafts[pKey]
+                        const isParsing = !!parsing[pKey]
+                        const isManual = !!showManual[pKey]
+                        const markerCount = Object.keys(draft).filter(k => draft[k] !== '' && draft[k] !== null && draft[k] !== undefined).length
 
-                {lead.notes && (
-                  <div style={{ marginTop: 8, fontSize: 12, color: C.sub, fontStyle: 'italic', borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
-                    {lead.notes.length > 100 ? lead.notes.slice(0, 100) + '…' : lead.notes}
+                        return (
+                          <div key={period} style={{ border: `1.5px solid ${rec ? C.green + '55' : C.border}`, borderRadius: 10, overflow: 'hidden' }}>
+                            <div onClick={() => setExpandedPeriod(isExpP ? null : pKey)} style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', background: rec ? C.green + '08' : C.faint }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <span style={{ fontWeight: 700, fontSize: 13, color: C.text }}>{period}</span>
+                                {rec && <span style={{ fontSize: 10, color: C.green, fontWeight: 700 }}>● {markerCount} markers saved</span>}
+                                {isDirty && !rec && <span style={{ fontSize: 10, color: C.orange, fontWeight: 700 }}>● {markerCount} markers ready to save</span>}
+                                {isDirty && rec && <span style={{ fontSize: 10, color: C.orange, fontWeight: 700 }}>● Unsaved changes</span>}
+                              </div>
+                              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                {rec && (
+                                  <button onClick={e => { e.stopPropagation(); handleDelete(year, period) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.red, fontSize: 11, fontWeight: 700 }}>Delete</button>
+                                )}
+                                <span style={{ fontSize: 11, color: C.sub }}>{isExpP ? '▲' : '▼'}</span>
+                              </div>
+                            </div>
+
+                            {isExpP && (
+                              <div style={{ padding: '16px' }}>
+                                {/* Per-panel upload sections */}
+                                {BLOOD_PANELS.map(panel => {
+                                  const panelParsing = !!parsing[`${pKey}-${panel.name}`]
+                                  const panelFileKey = `${pKey}-${panel.name}`
+                                  const panelMarkerCount = panel.markers.filter(m => draft[m.name] !== '' && draft[m.name] != null).length
+                                  return (
+                                    <div key={panel.name} style={{ border: `1.5px solid ${panel.color}33`, borderRadius: 10, marginBottom: 12, overflow: 'hidden' }}>
+                                      {/* Panel header with upload button */}
+                                      <div style={{ background: panel.color + '0d', padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                          <div style={{ width: 10, height: 10, borderRadius: '50%', background: panel.color, flexShrink: 0 }} />
+                                          <div style={{ fontWeight: 800, fontSize: 12, color: C.text }}>{panel.name}</div>
+                                          {panelMarkerCount > 0 && (
+                                            <span style={{ fontSize: 10, fontWeight: 700, color: panel.color, background: panel.color + '18', padding: '1px 8px', borderRadius: 6 }}>
+                                              {panelMarkerCount} marker{panelMarkerCount !== 1 ? 's' : ''} filled
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div style={{ display: 'flex', align: 'center', gap: 8, flexShrink: 0 }}>
+                                          <input
+                                            ref={el => { fileInputRefs.current[panelFileKey] = el }}
+                                            type="file"
+                                            accept=".pdf"
+                                            style={{ display: 'none' }}
+                                            onChange={e => { if (e.target.files?.[0]) handlePdfUpload(year, period, e.target.files[0], panel.name); e.target.value = '' }}
+                                          />
+                                          <button
+                                            onClick={e => { e.stopPropagation(); fileInputRefs.current[panelFileKey]?.click() }}
+                                            disabled={panelParsing}
+                                            style={{ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${panel.color}`, background: panel.color + '18', color: panel.color, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: panelParsing ? 'not-allowed' : 'pointer', opacity: panelParsing ? 0.7 : 1, whiteSpace: 'nowrap' }}>
+                                            {panelParsing ? '⏳ Reading…' : panelMarkerCount > 0 ? '↺ Re-upload PDF' : '📄 Upload PDF'}
+                                          </button>
+                                        </div>
+                                      </div>
+
+                                      {/* Panel description */}
+                                      <div style={{ padding: '8px 14px', fontSize: 10, color: C.sub, background: C.faint, borderBottom: `1px solid ${panel.color}22` }}>
+                                        {panel.panelDesc}
+                                      </div>
+
+                                      {/* Marker inputs */}
+                                      <div style={{ padding: '12px 14px' }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
+                                          {panel.markers.map(m => {
+                                            const val = draft[m.name] ?? ''
+                                            const status = getMarkerStatus(m.name, val)
+                                            const borderCol = status === 'empty' ? C.border : statusColor(status)
+                                            return (
+                                              <div key={m.name} style={{ gridColumn: status !== 'empty' && val !== '' ? 'span 1' : undefined }}>
+                                                <div style={{ fontSize: 10, color: C.sub, marginBottom: 3, fontWeight: 600 }}>{m.name} <span style={{ color: C.border }}>({m.unit})</span></div>
+                                                <input
+                                                  type="number"
+                                                  step="any"
+                                                  value={val}
+                                                  onChange={e => setMarker(year, period, m.name, e.target.value)}
+                                                  placeholder={`${m.optimal[0]}–${m.optimal[1] === 999 ? '↑' : m.optimal[1]}`}
+                                                  style={{ width: '100%', padding: '6px 10px', borderRadius: 6, border: `2px solid ${borderCol}`, background: status !== 'empty' ? statusColor(status) + '0a' : C.bg, color: C.text, fontFamily: 'Montserrat,sans-serif', fontSize: 12, boxSizing: 'border-box', outline: 'none' }}
+                                                />
+                                                {val !== '' && status !== 'empty' && (
+                                                  <div style={{ fontSize: 9, marginTop: 2, color: statusColor(status), fontWeight: 700 }}>
+                                                    {status === 'optimal' ? '✅ Optimal' : status === 'borderline' ? '⚠️ Borderline' : '❌ Out of range'}
+                                                  </div>
+                                                )}
+                                                <div style={{ fontSize: 9, color: C.sub, marginTop: 4, lineHeight: 1.4, opacity: 0.85 }}>{m.desc}</div>
+                                              </div>
+                                            )
+                                          })}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )
+                                })}
+
+                                <div style={{ marginTop: 8, display: 'flex', gap: 10 }}>
+                                  <Btn onClick={() => handleSave(year, period)} disabled={saving[pKey]} small color={C.accent}>
+                                    {saving[pKey] ? 'Saving…' : '💾 Save All'}
+                                  </Btn>
+                                  {isDirty && (
+                                    <Btn onClick={() => setDrafts(d => { const nd = { ...d }; delete nd[pKey]; return nd })} outline small color={C.sub}>Discard</Btn>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
                   </div>
                 )}
               </div>
@@ -5899,6 +8627,9 @@ export default function App() {
   const [assessment, setAssessment] = useState(null)
   const [allClients, setAllClients] = useState([])
   const [forceNewAssessment, setForceNewAssessment] = useState(false)
+  const [rosterKey, setRosterKey] = useState(0)
+  const [showBossPanel, setShowBossPanel] = useState(false)
+  const [bossCount, setBossCount] = useState(0)
 
   // Load all clients for linked-client switching
   const refreshAllClients = useCallback(async () => {
@@ -5918,6 +8649,15 @@ export default function App() {
       if (d.authed) { setAuthed(true); refreshAllClients() }
     }).catch(() => {}).finally(() => setCheckingAuth(false))
   }, [refreshAllClients])
+
+  const refreshBossCount = useCallback(() => {
+    getAllLeads().then(leads => {
+      const count = leads.filter(l => { const s = getOutreachStep(l); return s && s.isDue && !s.isComplete }).length
+      setBossCount(count)
+    }).catch(() => {})
+  }, [])
+
+  useEffect(() => { if (authed) refreshBossCount() }, [authed, refreshBossCount])
 
   // Prevent iPad/iOS keyboard from pushing the viewport around
   useEffect(() => {
@@ -5941,7 +8681,7 @@ export default function App() {
   if (checkingAuth) return null
   if (!authed) return <LoginScreen onLogin={() => { setAuthed(true); refreshAllClients() }} />
 
-  const goToClient = (c) => { setClient(c); setView('client'); refreshAllClients() }
+  const goToClient = (c) => { setClient(c); setView('client'); setRosterKey(k => k + 1); refreshAllClients() }
   const updateClient = (c) => { setClient(c); setAllClients(prev => prev.map(p => p.id === c.id ? c : p)) }
   const switchToClient = (c) => { setClient(c); setView('client') }
   const openIntake = () => { setClient(null); setView('intake') }
@@ -5961,26 +8701,27 @@ export default function App() {
   return (
     <div style={{ minHeight: '100dvh', background: C.bg, display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
-      <div style={{ padding: '12px 24px', borderBottom: `1px solid ${C.border}`, background: C.panel, display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', flexShrink: 0 }} className="no-print">
-        <button onClick={() => setView('roster')} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ padding: '8px 12px', borderBottom: `1px solid ${C.border}`, background: C.panel, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', flexShrink: 0 }} className="no-print">
+        <button onClick={() => setView('roster')} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           <div>
-            <span style={{ fontWeight: 800, fontSize: 15, letterSpacing: 2, color: '#8C9199' }}>FREDDY</span>
-            <span style={{ fontWeight: 800, fontSize: 15, letterSpacing: 2, color: C.accent, marginLeft: 3 }}>FIT</span>
+            <span style={{ fontWeight: 800, fontSize: 14, letterSpacing: 2, color: '#8C9199' }}>FREDDY</span>
+            <span style={{ fontWeight: 800, fontSize: 14, letterSpacing: 2, color: C.accent, marginLeft: 3 }}>FIT</span>
           </div>
-          <div style={{ width: 1, height: 20, background: C.border }} />
-          <div style={{ fontSize: 11, color: C.sub, letterSpacing: 2, fontWeight: 600, textTransform: 'uppercase' }}>TrainDesk</div>
+          <div style={{ width: 1, height: 18, background: C.border }} />
+          <div style={{ fontSize: 10, color: C.sub, letterSpacing: 2, fontWeight: 600, textTransform: 'uppercase' }}>TrainDesk</div>
         </button>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {view !== 'roster' && (
-            <div style={{ fontSize: 12, color: C.sub }}>
-              {view === 'intake' ? 'New Client' : view === 'assessment' ? assessment?.name : view === 'program' ? 'Program Builder' : view === 'workout' ? 'Workout Generator' : view === 'protocols' ? 'Protocol Advisor' : view === 'signin' ? 'Sign-In Sheet' : view === 'weightTracker' ? 'Weight Tracker' : view === 'editClient' ? 'Edit Client' : view === 'leads' ? 'CRM Leads' : client?.name}
-            </div>
-          )}
-          <button onClick={() => setView('leads')} style={{ padding: '4px 10px', borderRadius: 6, border: `1.5px solid ${view === 'leads' ? C.accent : C.border}`, background: view === 'leads' ? C.accent + '18' : 'transparent', color: view === 'leads' ? C.accent : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
-            CRM Leads
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+          <button onClick={() => setShowBossPanel(true)} style={{ padding: '4px 8px', borderRadius: 6, border: `1.5px solid ${bossCount > 0 ? C.orange : C.border}`, background: bossCount > 0 ? C.orange + '18' : 'transparent', color: bossCount > 0 ? C.orange : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', whiteSpace: 'nowrap' }}>
+            🎯 Boss{bossCount > 0 ? ` (${bossCount})` : ''}
           </button>
-          <button onClick={async () => { await fetch('/api/auth', { method: 'DELETE' }); setAuthed(false) }} style={{ padding: '4px 10px', borderRadius: 6, border: `1px solid ${C.border}`, background: 'transparent', color: C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
-            Log Out
+          <button onClick={() => setView('schedule')} style={{ padding: '4px 8px', borderRadius: 6, border: `1.5px solid ${view === 'schedule' ? C.accent : C.border}`, background: view === 'schedule' ? C.accent + '18' : 'transparent', color: view === 'schedule' ? C.accent : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', whiteSpace: 'nowrap' }}>
+            📅 Schedule
+          </button>
+          <button onClick={() => setView('leads')} style={{ padding: '4px 8px', borderRadius: 6, border: `1.5px solid ${view === 'leads' ? C.accent : C.border}`, background: view === 'leads' ? C.accent + '18' : 'transparent', color: view === 'leads' ? C.accent : C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', whiteSpace: 'nowrap' }}>
+            CRM
+          </button>
+          <button onClick={async () => { await fetch('/api/auth', { method: 'DELETE' }); setAuthed(false) }} style={{ padding: '4px 8px', borderRadius: 6, border: `1px solid ${C.border}`, background: 'transparent', color: C.sub, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', whiteSpace: 'nowrap' }}>
+            Out
           </button>
         </div>
       </div>
@@ -5993,7 +8734,7 @@ export default function App() {
 
       {/* Content */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {view === 'roster' && <ClientRoster onSelectClient={goToClient} onNewClient={openIntake} />}
+        {view === 'roster' && <ClientRoster key={rosterKey} onSelectClient={goToClient} onNewClient={openIntake} onOpenSchedule={() => setView('schedule')} />}
         {view === 'client' && client && (
           <ClientProfile
             client={client}
@@ -6004,6 +8745,8 @@ export default function App() {
             onProtocolAdvisor={c => { setClient(c); setView('protocols') }}
             onSignInSheet={c => { setClient(c); setView('signin') }}
             onWeightTracker={c => { setClient(c); setView('weightTracker') }}
+            onSubscription={c => { setClient(c); setView('subscription') }}
+            onBloodWork={c => { setClient(c); setView('bloodWork') }}
             onEditClient={openEditClient}
             onBack={() => setView('roster')}
             allClients={allClients}
@@ -6053,7 +8796,7 @@ export default function App() {
         )}
         {view === 'intake' && (
           <ClientIntakeForm
-            onSave={(c) => { goToClient({ ...c, assessments: {} }) }}
+            onSave={(c) => { setRosterKey(k => k + 1); setView('roster') }}
             onBack={() => setView('roster')}
           />
         )}
@@ -6064,8 +8807,22 @@ export default function App() {
             onBack={() => setView('client')}
           />
         )}
-        {view === 'leads' && <CrmLeads onBack={() => setView('roster')} />}
+        {view === 'subscription' && client && (
+          <SubscriptionTracker
+            client={client}
+            onBack={() => setView('client')}
+          />
+        )}
+        {view === 'bloodWork' && client && <BloodWorkPanel client={client} onBack={() => setView('client')} />}
+        {view === 'leads' && <CrmLeads onBack={() => setView('roster')} onNavigateToRoster={() => setView('roster')} />}
+        {view === 'schedule' && <Schedule onBack={() => setView('roster')} allClients={allClients} />}
       </div>
+      {showBossPanel && (
+        <CrmBossPanel
+          onClose={() => setShowBossPanel(false)}
+          onGoToCrm={() => { setShowBossPanel(false); setView('leads') }}
+        />
+      )}
     </div>
   )
 }
