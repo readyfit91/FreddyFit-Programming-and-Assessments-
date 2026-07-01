@@ -6284,43 +6284,54 @@ function packLeadNotes(intake_notes, booked_consultation, committed_package) {
   return JSON.stringify({ intake_notes: intake_notes || '', booked_consultation: !!booked_consultation, committed_package: !!committed_package })
 }
 
+const AI_CHANNELS = [
+  { key: 'Text',   emoji: '💬', label: 'Text' },
+  { key: 'Call',   emoji: '📞', label: 'Call Script' },
+  { key: 'Email',  emoji: '✉️', label: 'Email' },
+  { key: 'Letter', emoji: '📬', label: 'Letter' },
+]
+
 function AiCoachModal({ lead, onClose, stepOverride }) {
+  const step = stepOverride || getOutreachStep(lead) || OUTREACH_SEQUENCE[0]
+  const [channel, setChannel] = useState(step.channel || 'Text')
   const [msg, setMsg] = useState('')
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
-  const step = stepOverride || getOutreachStep(lead) || OUTREACH_SEQUENCE[0]
-  const chCol = CHANNEL_COLORS[step.channel] || CHANNEL_COLORS.Text
+  const chCol = CHANNEL_COLORS[channel] || CHANNEL_COLORS.Text
 
   const generate = async () => {
     setLoading(true)
     setMsg('')
     try {
-      const channelFormat = step.channel === 'Text'
-        ? `TEXT MESSAGE RULES:\n- 2-3 sentences max, conversational tone\n- Reference their specific goal or barrier by name\n- Sign off: "— Freddy | FreddyFit Personal Training"\n- No excessive emojis`
-        : step.channel === 'Call'
-        ? `PHONE CALL SCRIPT (30 seconds spoken):\n- Opening: "Hi [Name], this is Freddy with FreddyFit Personal Training..."\n- Middle: Reference their specific goal (1 sentence)\n- Invite them to their complimentary in-person consultation at FreddyFit Personal Training\n- Closing: Leave your number if voicemail\n- Natural conversational language`
-        : `EMAIL FORMAT:\n- Subject line first (starting with "Subject:")\n- Professional warm tone, like a real person not a marketing blast\n- Reference something specific from their intake\n- Mention FreddyFit Personal Training's complimentary consultation\n- Sign off: "Warm regards,\\nFreddy\\nFreddyFit Personal Training\\n6047 Telegraph Rd, Saint Louis, MO 63123\\n314-584-9389"`
+      const parsed = parseLeadNotes(lead.notes)
+      const channelFormat = channel === 'Text'
+        ? `TEXT MESSAGE RULES:\n- 2-3 sentences max, conversational and warm\n- Reference their specific goal by name\n- End with a clear easy question to respond to\n- Sign off: "— Freddy | FreddyFit"\n- No excessive emojis, keep it real`
+        : channel === 'Call'
+        ? `PHONE CALL SCRIPT:\n- Write a complete word-for-word call script Freddy can read aloud\n- Opening (5 sec): "Hi [Name], this is Freddy calling from FreddyFit Personal Training in Saint Louis..."\n- Bridge (10 sec): Reference their specific goal or intake note naturally\n- Pitch (10 sec): Invite them to their FREE in-person consultation — no commitment, just come in\n- Close (5 sec): Confirm a time OR leave callback number\n- VOICEMAIL VERSION: Also write a 20-second voicemail version at the end\n- Label each section clearly`
+        : channel === 'Email'
+        ? `EMAIL FORMAT:\n- Subject line first (label it "Subject:")\n- Opening: Personal, warm, reference something specific from their intake\n- Body: 2-3 short paragraphs — who Freddy is, what they can accomplish together, the free consultation offer\n- CTA: One clear next step (reply, call, book)\n- Sign off:\n  "Warm regards,\n  Freddy\n  FreddyFit Personal Training\n  6047 Telegraph Rd, Saint Louis, MO 63129\n  📞 314-584-9389\n  🌐 getfreddyfit.com"\n- Professional but personal — not a mass marketing email`
+        : `PHYSICAL LETTER FORMAT:\n- This will be printed and mailed, so write it as a formal letter\n- Header: Today's date, their name and address if known\n- Salutation: "Dear [Name],"\n- Paragraph 1: Personal intro — Freddy saw their form and wanted to reach out personally\n- Paragraph 2: Reference their specific goal, what FreddyFit can do for them\n- Paragraph 3: Invite them to a FREE no-commitment consultation\n- Paragraph 4: How to reach Freddy\n- Closing:\n  "Sincerely,\n  Freddy\n  FreddyFit Personal Training\n  6047 Telegraph Rd, Saint Louis, MO 63129\n  314-584-9389"\n- Warm and personal, like a handwritten letter — not a form letter`
 
-      const prompt = `You are writing on behalf of Freddy at FreddyFit Personal Training in Saint Louis, MO (6047 Telegraph Rd).
+      const prompt = `You are writing on behalf of Freddy, owner of FreddyFit Personal Training in Saint Louis, MO (6047 Telegraph Rd, 63129). Phone: 314-584-9389.
 
-Generate a personalized outreach message. Use the lead's actual intake data to make it feel personal.
+Write a personalized outreach message using the lead's real intake data. Make it feel like Freddy wrote it himself — genuine, warm, direct.
 
-LEAD:
+LEAD INFO:
 Name: ${lead.name}
 Goal: ${lead.goal || 'Not specified'}
 Phone: ${lead.phone || 'N/A'}
-Intake notes: ${parseLeadNotes(lead.notes).intake_notes || 'None'}
-
-SEQUENCE CONTEXT:
-This is Step ${step.step} of 9 in the 30-day follow-up (Day ${step.day + 1}).
-What this message should accomplish: ${step.action}
+Email: ${lead.email || 'N/A'}
+Source: ${lead.source || 'N/A'}
+Intake notes: ${parsed.intake_notes || 'None provided'}
+Days since joined: ${(getOutreachStep(lead) || {}).daysSinceAdded ?? 0}
 
 ${channelFormat}
 
-Output only the message. Nothing else.`
-      const result = await callClaude([{ role: 'user', content: prompt }], 500)
+Output only the message/script. No intro, no explanation, just the content ready to use.`
+
+      const result = await callClaude([{ role: 'user', content: prompt }], 800)
       setMsg(result)
-    } catch (e) { setMsg('Error generating message. Please try again.') }
+    } catch (e) { setMsg('Error generating — please try again.') }
     setLoading(false)
   }
 
@@ -6330,38 +6341,45 @@ Output only the message. Nothing else.`
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '20px 20px 0 0', width: '100%', maxWidth: 560, padding: '24px 24px 36px', maxHeight: '80vh', overflowY: 'auto', fontFamily: 'Montserrat,sans-serif' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '20px 20px 0 0', width: '100%', maxWidth: 560, padding: '24px 24px 36px', maxHeight: '85vh', overflowY: 'auto', fontFamily: 'Montserrat,sans-serif' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>
-            <div style={{ fontWeight: 800, fontSize: 16, color: C.text }}>🤖 AI {step.channel} Message</div>
-            <div style={{ fontSize: 12, color: C.sub, marginTop: 2 }}>{lead.name} — Step {step.step}/9 · Day {(step.day || 0) + 1}/30</div>
+            <div style={{ fontWeight: 800, fontSize: 16, color: C.text }}>✨ AI Outreach Generator</div>
+            <div style={{ fontSize: 12, color: C.sub, marginTop: 2 }}>{lead.name}{lead.goal ? ` · ${lead.goal}` : ''}</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: C.sub }}>×</button>
         </div>
 
-        <div style={{ background: chCol.bg, border: `1.5px solid ${chCol.border}`, borderRadius: 10, padding: '10px 14px', marginBottom: 14 }}>
-          <div style={{ fontWeight: 800, fontSize: 12, color: chCol.text }}>{step.emoji} {step.channel.toUpperCase()} — Step {step.step} of 9</div>
-          <div style={{ fontSize: 11, color: chCol.text, marginTop: 4, lineHeight: 1.5, opacity: 0.85 }}>{step.why}</div>
+        {/* Channel selector */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16 }}>
+          {AI_CHANNELS.map(ch => (
+            <button key={ch.key} onClick={() => { setChannel(ch.key); setMsg('') }}
+              style={{ padding: '10px 6px', borderRadius: 10, border: `2px solid ${channel === ch.key ? C.accent : C.border}`, background: channel === ch.key ? C.accent + '12' : C.faint, color: channel === ch.key ? C.accent : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer', textAlign: 'center', transition: 'all .15s' }}>
+              <div style={{ fontSize: 18, marginBottom: 3 }}>{ch.emoji}</div>
+              {ch.label}
+            </button>
+          ))}
         </div>
 
-        <Btn onClick={generate} disabled={loading} style={{ width: '100%', marginBottom: 14 }}>
-          {loading ? '✨ Writing…' : msg ? '↺ Regenerate' : '✨ Generate Message'}
-        </Btn>
+        <button onClick={generate} disabled={loading}
+          style={{ width: '100%', padding: '13px', borderRadius: 10, border: 'none', background: loading ? C.border : C.accent, color: '#fff', fontFamily: 'Montserrat,sans-serif', fontWeight: 800, fontSize: 13, cursor: loading ? 'not-allowed' : 'pointer', marginBottom: 14, letterSpacing: 0.5 }}>
+          {loading ? '✨ Writing…' : msg ? `↺ Regenerate ${AI_CHANNELS.find(c=>c.key===channel)?.label}` : `✨ Generate ${AI_CHANNELS.find(c=>c.key===channel)?.label}`}
+        </button>
 
         {msg && (
           <div style={{ background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: '14px 16px', marginBottom: 12 }}>
-            <div style={{ fontSize: 13, color: C.text, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{msg}</div>
+            <div style={{ fontSize: 13, color: C.text, lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>{msg}</div>
           </div>
         )}
 
         {msg && (
           <button onClick={copy} style={{ width: '100%', padding: '12px', borderRadius: 10, border: `1.5px solid ${copied ? C.green : C.border}`, background: copied ? C.green + '18' : 'transparent', color: copied ? C.green : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
-            {copied ? '✓ Copied!' : '📋 Copy Message'}
+            {copied ? '✓ Copied to clipboard!' : '📋 Copy'}
           </button>
         )}
         {!msg && !loading && (
-          <div style={{ fontSize: 11, color: C.sub, textAlign: 'center', marginTop: 8 }}>
-            AI will write a personalized {step.channel.toLowerCase()} message for {lead.name} based on their intake.
+          <div style={{ fontSize: 11, color: C.sub, textAlign: 'center', marginTop: 4 }}>
+            Pick a format above and tap Generate — AI writes it using {lead.name}'s actual intake data.
           </div>
         )}
       </div>
