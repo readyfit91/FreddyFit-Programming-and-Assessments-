@@ -6412,6 +6412,8 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
   const [converting, setConverting] = useState(false)
   const [advancing, setAdvancing] = useState(null)
   const [showCold, setShowCold] = useState(false)
+  const [lastRefreshed, setLastRefreshed] = useState(null)
+  const [testStatus, setTestStatus] = useState(null) // null | 'sending' | 'ok' | { error }
 
   const today = localDate()
 
@@ -6421,12 +6423,31 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
     try {
       const data = await getAllLeads()
       setLeads(data)
+      setLastRefreshed(new Date())
     } catch (e) {
       console.error('CRM load error:', e)
       setLoadError(e.message || 'Failed to load leads')
     }
     setLoading(false)
   }, [])
+
+  const sendTestLead = async () => {
+    setTestStatus('sending')
+    try {
+      const res = await fetch('/api/leads', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: '🧪 TEST LEAD ' + new Date().toLocaleTimeString(), phone: '000-000-0000', email: 'test@test.com', goal: 'Testing CRM pipeline', source: 'CRM Test' })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      setTestStatus('ok')
+      await load()
+      setTimeout(() => setTestStatus(null), 4000)
+    } catch (e) {
+      setTestStatus({ error: e.message })
+    }
+  }
 
   useEffect(() => {
     load()
@@ -6677,19 +6698,34 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
       <LogoHeader />
       {aiCoachLead && <AiCoachModal lead={aiCoachLead} onClose={() => setAiCoachLead(null)} />}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: C.sub }}>←</button>
             <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 4, color: C.text }}>CRM LEADS</div>
           </div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 4, marginLeft: 32 }}>
-            {activeLeads.length} active{coldLeads.length > 0 && ` · ${coldLeads.length} cold`}
-            {actionItems.length > 0 && <span style={{ color: C.orange, marginLeft: 8, fontWeight: 700 }}>🎯 {actionItems.length} need outreach</span>}
+            {loading ? 'Loading…' : loadError ? '⚠️ Load error' : `${activeLeads.length} active${coldLeads.length > 0 ? ` · ${coldLeads.length} cold` : ''}`}
+            {!loading && !loadError && actionItems.length > 0 && <span style={{ color: C.orange, marginLeft: 8, fontWeight: 700 }}>🎯 {actionItems.length} need outreach</span>}
+            {lastRefreshed && !loading && <span style={{ color: C.green, marginLeft: 8 }}>✓ {lastRefreshed.toLocaleTimeString()}</span>}
           </div>
         </div>
-        <Btn onClick={openNew}>+ New Lead</Btn>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button onClick={load} title="Refresh" style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '7px 10px', fontSize: 14, cursor: 'pointer', color: C.sub }}>↻</button>
+          <Btn onClick={openNew}>+ New Lead</Btn>
+        </div>
       </div>
+
+      {/* Pipeline test banner */}
+      {testStatus && (
+        <div style={{ background: testStatus === 'ok' ? C.green + '18' : testStatus === 'sending' ? C.accent + '12' : '#FEF2F2', border: `1.5px solid ${testStatus === 'ok' ? C.green : testStatus === 'sending' ? C.accent : '#FCA5A5'}`, borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 12, fontWeight: 700, color: testStatus === 'ok' ? C.green : testStatus === 'sending' ? C.accent : '#991B1B' }}>
+          {testStatus === 'sending' ? '⏳ Sending test lead…' : testStatus === 'ok' ? '✅ Test lead saved successfully! Check the list below — pipeline is working.' : `❌ SAVE FAILED: ${testStatus.error}`}
+        </div>
+      )}
+      <button onClick={sendTestLead} disabled={testStatus === 'sending'}
+        style={{ width: '100%', marginBottom: 20, padding: '10px', borderRadius: 8, border: `1.5px dashed ${C.border}`, background: 'transparent', color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 600, fontSize: 12, cursor: testStatus === 'sending' ? 'not-allowed' : 'pointer' }}>
+        🧪 Tap to test — sends a test lead and shows if the database saves it
+      </button>
 
       {/* ── LOAD ERROR ── */}
       {loadError && (

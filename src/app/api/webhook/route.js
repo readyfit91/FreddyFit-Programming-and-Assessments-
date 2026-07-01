@@ -114,6 +114,7 @@ export async function POST(request) {
     }
 
     const { error } = await supabase.from('leads').insert({
+      id: crypto.randomUUID(),
       name: leadName,
       email: (body.email || '').trim(),
       phone: (body.phone || '').trim(),

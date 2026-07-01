@@ -119,7 +119,8 @@ export async function POST(request) {
 
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })
 
-    const { error } = await supabase.from('leads').insert({
+    const { data: inserted, error } = await supabase.from('leads').insert({
+      id: crypto.randomUUID(),
       name: name.trim(),
       phone: phone?.trim() || '',
       email: email?.trim() || '',
@@ -128,11 +129,11 @@ export async function POST(request) {
       status: 'New Lead',
       date_added: today,
       updated_at: new Date().toISOString()
-    })
+    }).select()
 
     if (error) throw error
 
-    return Response.json({ success: true }, { headers: CORS })
+    return Response.json({ success: true, id: inserted?.[0]?.id }, { headers: CORS })
   } catch (err) {
     console.error('Lead capture error:', err)
     return Response.json({ error: err.message || 'Failed to save lead' }, { status: 500, headers: CORS })
