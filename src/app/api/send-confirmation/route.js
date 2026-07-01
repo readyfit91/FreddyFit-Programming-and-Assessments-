@@ -49,9 +49,6 @@ function sessionIcon(type) {
 export async function POST(request) {
   try {
     const { clientName, clientEmail, date, time, sessionType, notes, recurring } = await request.json()
-    const origin = new URL(request.url).origin
-    const logoSrc = `${origin}/logo.png`
-
     if (!clientEmail) return Response.json({ error: 'No client email provided' }, { status: 400 })
 
     const html = `
@@ -72,8 +69,9 @@ export async function POST(request) {
           <!-- Header -->
           <tr>
             <td style="background:${BRAND.black};padding:36px 40px;text-align:center;">
-              <img src="${logoSrc}" alt="FreddyFit" width="120" height="auto"
-                style="display:block;margin:0 auto 16px;max-width:120px;" />
+              <div style="font-size:32px;font-weight:900;letter-spacing:-1px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;margin-bottom:8px;">
+                <span style="color:${BRAND.white};">FREDDY</span><span style="color:${BRAND.accent};">FIT</span>
+              </div>
               <div style="color:${BRAND.white};font-size:11px;letter-spacing:4px;text-transform:uppercase;font-weight:700;">Professional Fitness Coaching</div>
             </td>
           </tr>
@@ -199,8 +197,9 @@ export async function POST(request) {
           <!-- Footer -->
           <tr>
             <td style="background:${BRAND.black};padding:28px 40px;text-align:center;">
-              <img src="${logoSrc}" alt="FreddyFit" width="80" height="auto"
-                style="display:block;margin:0 auto 14px;max-width:80px;opacity:0.85;" />
+              <div style="font-size:22px;font-weight:900;letter-spacing:-0.5px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;margin-bottom:12px;">
+                <span style="color:#FFFFFF;opacity:0.85;">FREDDY</span><span style="color:${BRAND.accent};">FIT</span>
+              </div>
               <div style="font-size:11px;color:#888;letter-spacing:2px;text-transform:uppercase;font-weight:700;margin-bottom:6px;">FreddyFit Professional Coaching</div>
               <div style="font-size:11px;color:#666;margin-bottom:4px;">6047 Telegraph Road, Saint Louis, MO 63129</div>
               <div style="font-size:10px;color:#555;margin-top:8px;">© ${new Date().getFullYear()} FreddyFit. All rights reserved.</div>
