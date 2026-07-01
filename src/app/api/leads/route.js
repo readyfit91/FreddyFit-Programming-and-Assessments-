@@ -3,6 +3,16 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+}
+
+export async function OPTIONS() {
+  return new Response(null, { status: 204, headers: CORS })
+}
+
 function getClient() {
   if (!supabaseUrl || !supabaseKey) throw new Error('Database not configured')
   return createClient(supabaseUrl, supabaseKey)
@@ -77,10 +87,24 @@ function localDate() {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 }
 
+async function parseBody(request) {
+  const ct = request.headers.get('content-type') || ''
+  if (ct.includes('application/json')) return request.json()
+  if (ct.includes('application/x-www-form-urlencoded') || ct.includes('multipart/form-data')) {
+    const fd = await request.formData()
+    const obj = {}
+    for (const [k, v] of fd.entries()) obj[k] = v
+    return obj
+  }
+  const text = await request.text()
+  try { return JSON.parse(text) } catch {}
+  return Object.fromEntries(new URLSearchParams(text))
+}
+
 // POST /api/leads — public endpoint used by the lead capture form
 export async function POST(request) {
   try {
-    const body = await request.json()
+    const body = await parseBody(request)
     const { name, phone, email, goal, source } = body
 
     if (!name || !name.trim()) {
@@ -108,9 +132,9 @@ export async function POST(request) {
 
     if (error) throw error
 
-    return Response.json({ success: true })
+    return Response.json({ success: true }, { headers: CORS })
   } catch (err) {
     console.error('Lead capture error:', err)
-    return Response.json({ error: err.message || 'Failed to save lead' }, { status: 500 })
+    return Response.json({ error: err.message || 'Failed to save lead' }, { status: 500, headers: CORS })
   }
 }

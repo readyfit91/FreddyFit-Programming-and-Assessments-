@@ -58,10 +58,28 @@ export async function OPTIONS() {
   return new Response(null, { status: 204, headers: CORS })
 }
 
+// Parse body regardless of content type (JSON, form-encoded, or multipart)
+async function parseBody(request) {
+  const ct = request.headers.get('content-type') || ''
+  if (ct.includes('application/json')) {
+    return request.json()
+  }
+  if (ct.includes('application/x-www-form-urlencoded') || ct.includes('multipart/form-data')) {
+    const formData = await request.formData()
+    const obj = {}
+    for (const [k, v] of formData.entries()) obj[k] = v
+    return obj
+  }
+  // Fallback: try JSON, then form text
+  const text = await request.text()
+  try { return JSON.parse(text) } catch {}
+  return Object.fromEntries(new URLSearchParams(text))
+}
+
 // POST /api/webhook — receives intake form data from getfreddyfit.com
 export async function POST(request) {
   try {
-    const body = await request.json()
+    const body = await parseBody(request)
 
     if (!supabaseUrl || !supabaseKey) {
       return Response.json({ error: 'Database not configured' }, { status: 500, headers: CORS })
