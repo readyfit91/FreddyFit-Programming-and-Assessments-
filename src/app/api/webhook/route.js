@@ -86,7 +86,7 @@ export async function POST(request) {
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey)
-    const today = new Date().toISOString().split('T')[0]
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })
 
     const isForm1 = !!(body.commitment || body.barrier || body.days_per_week || body.need)
     const isForm2 = !!(body.medical_history || body.motivation || body.current_weight || body.preferred_contact_time)

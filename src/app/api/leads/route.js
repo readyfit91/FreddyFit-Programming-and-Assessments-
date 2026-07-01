@@ -117,7 +117,8 @@ export async function POST(request) {
 
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    const today = new Date().toISOString().split('T')[0]
+    // Use CDT (America/Chicago) date so leads added in the evening don't get tomorrow's date
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })
 
     const { error } = await supabase.from('leads').insert({
       name: name.trim(),

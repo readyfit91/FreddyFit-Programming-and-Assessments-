@@ -116,8 +116,9 @@ export default function LeadCapture() {
               </div>
 
               {status === 'error' && (
-                <div style={{ background: RED + '12', border: `1px solid ${RED}33`, borderRadius: 8, padding: '10px 14px', fontSize: 12, color: RED, fontWeight: 600 }}>
-                  {errorMsg || 'Something went wrong. Please try again.'}
+                <div style={{ background: RED + '18', border: `2px solid ${RED}`, borderRadius: 10, padding: '14px 16px', fontSize: 13, color: RED, fontWeight: 700, lineHeight: 1.5 }}>
+                  ⚠️ Submission failed — please screenshot this and send to Freddy:<br />
+                  <span style={{ fontSize: 12, fontWeight: 600, wordBreak: 'break-all' }}>{errorMsg || 'Network error — check your connection and try again.'}</span>
                 </div>
               )}
 
