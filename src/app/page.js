@@ -6159,7 +6159,7 @@ function LoginScreen({ onLogin }) {
 // Studies: texts open 98% in 3 min, calls convert 8x better, email nurtures long-term
 const OUTREACH_SEQUENCE = [
   { day: 0,  step: 1, channel: 'Text',  emoji: '💬',
-    action: '🆕 NEW LEAD — Text them within the hour:\n\n"Hey [Name]! This is Freddy from FreddyFit 👋 I just got your intake form — love the goal! I\'d love to jump on a quick 10-min call to go over your notes and get your FREE consultation on the books. What\'s your schedule like this week? 💪"\n\nGoal: get them on a call so you can review their notes together and lock in the consultation date.',
+    action: '🆕 NEW LEAD — Text them within the hour. A pre-written text is shown below — copy it and send it now. Goal: confirm you got their form and lock in a quick 10-min call to go over their notes and schedule the FREE consultation.',
     why: 'Text within 1 hour = 7x higher conversion. Leads go cold within 24 hours.' },
   { day: 1,  step: 2, channel: 'Call',  emoji: '📞',
     action: 'Call them directly — they saw your text, now seal it with a voice call. When they answer: "Hey [Name], it\'s Freddy from FreddyFit! I wanted to personally reach out after reviewing your form — I love your goal and think we can make serious progress together. I just want to go over a couple quick things from your notes and get your complimentary consultation scheduled. Do you have 10 minutes right now?"\n\nLeave a voicemail if no answer.',
@@ -6268,20 +6268,20 @@ const LEAD_STATUS_COLORS = {
 }
 const LEAD_SOURCES = ['Instagram', 'Facebook', 'Referral', 'Walk-in', 'Website', 'Email', 'Zapier / Email', 'Other']
 
-// Lead notes are stored as JSON: { intake_notes, booked_consultation, committed_package }
+// Lead notes are stored as JSON: { intake_notes, booked_consultation, booked_functionalfit, committed_package }
 // Old plain-text notes are treated as intake_notes
 function parseLeadNotes(raw) {
-  if (!raw) return { intake_notes: '', booked_consultation: false, committed_package: false }
+  if (!raw) return { intake_notes: '', booked_consultation: false, booked_functionalfit: false, committed_package: false }
   try {
     const p = JSON.parse(raw)
     if (p && typeof p === 'object' && !Array.isArray(p)) {
-      return { intake_notes: p.intake_notes || '', booked_consultation: !!p.booked_consultation, committed_package: !!p.committed_package }
+      return { intake_notes: p.intake_notes || '', booked_consultation: !!p.booked_consultation, booked_functionalfit: !!(p.booked_functionalfit || p.committed_package), committed_package: !!p.committed_package }
     }
   } catch {}
-  return { intake_notes: raw, booked_consultation: false, committed_package: false }
+  return { intake_notes: raw, booked_consultation: false, booked_functionalfit: false, committed_package: false }
 }
-function packLeadNotes(intake_notes, booked_consultation, committed_package) {
-  return JSON.stringify({ intake_notes: intake_notes || '', booked_consultation: !!booked_consultation, committed_package: !!committed_package })
+function packLeadNotes(intake_notes, booked_consultation, booked_functionalfit, committed_package) {
+  return JSON.stringify({ intake_notes: intake_notes || '', booked_consultation: !!booked_consultation, booked_functionalfit: !!booked_functionalfit, committed_package: !!committed_package })
 }
 
 const AI_CHANNELS = [
@@ -6312,6 +6312,10 @@ function AiCoachModal({ lead, onClose, stepOverride }) {
         ? `EMAIL FORMAT:\n- Subject line first (label it "Subject:")\n- Opening: Personal, warm, reference something specific from their intake\n- Body: 2-3 short paragraphs — who Freddy is, what they can accomplish together, the free consultation offer\n- CTA: One clear next step (reply, call, book)\n- Sign off:\n  "Warm regards,\n  Freddy\n  FreddyFit Personal Training\n  6047 Telegraph Rd, Saint Louis, MO 63129\n  📞 314-584-9389\n  🌐 getfreddyfit.com"\n- Professional but personal — not a mass marketing email`
         : `PHYSICAL LETTER FORMAT:\n- This will be printed and mailed, so write it as a formal letter\n- Header: Today's date, their name and address if known\n- Salutation: "Dear [Name],"\n- Paragraph 1: Personal intro — Freddy saw their form and wanted to reach out personally\n- Paragraph 2: Reference their specific goal, what FreddyFit can do for them\n- Paragraph 3: Invite them to a FREE no-commitment consultation\n- Paragraph 4: How to reach Freddy\n- Closing:\n  "Sincerely,\n  Freddy\n  FreddyFit Personal Training\n  6047 Telegraph Rd, Saint Louis, MO 63129\n  314-584-9389"\n- Warm and personal, like a handwritten letter — not a form letter`
 
+      const currentStep = getOutreachStep(lead)
+      const isDay0 = currentStep && currentStep.step === 1 && currentStep.day === 0
+      const day0Extra = isDay0 ? `\n\nIMPORTANT — This is a Day 0 first contact. The message must:\n1. Confirm that Freddy received their intake form\n2. Reference their specific goal warmly\n3. Ask what their schedule looks like today or tomorrow to hop on a quick 10-min call\n4. Make clear the call is to go over their notes together and schedule the FREE consultation\n5. Keep it brief, warm, and conversational — not salesy` : ''
+
       const prompt = `You are writing on behalf of Freddy, owner of FreddyFit Personal Training in Saint Louis, MO (6047 Telegraph Rd, 63129). Phone: 314-584-9389.
 
 Write a personalized outreach message using the lead's real intake data. Make it feel like Freddy wrote it himself — genuine, warm, direct.
@@ -6324,6 +6328,7 @@ Email: ${lead.email || 'N/A'}
 Source: ${lead.source || 'N/A'}
 Intake notes: ${parsed.intake_notes || 'None provided'}
 Days since joined: ${(getOutreachStep(lead) || {}).daysSinceAdded ?? 0}
+${day0Extra}
 
 ${channelFormat}
 
@@ -6917,6 +6922,8 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
   const [loadError, setLoadError] = useState(null)
   const [aiCoachLead, setAiCoachLead] = useState(null)
   const [busy, setBusy] = useState(null)
+  const [outcomeLeadId, setOutcomeLeadId] = useState(null) // which lead is in "what happened?" flow
+  const [copiedDay0, setCopiedDay0] = useState(null)
   const today = localDate()
 
   const load = async () => {
@@ -6951,6 +6958,30 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
       await load()
     } catch (e) { alert('Error: ' + e.message) }
     setBusy(null)
+  }
+
+  // outcome: 'no_response' | 'consultation' | 'functionalfit' | 'both'
+  const markOutcome = async (lead, outcome) => {
+    setOutcomeLeadId(null)
+    setBusy(lead.id)
+    try {
+      const parsed = parseLeadNotes(lead.notes)
+      if (outcome === 'consultation' || outcome === 'both') parsed.booked_consultation = true
+      if (outcome === 'functionalfit' || outcome === 'both') parsed.booked_functionalfit = true
+      await saveLead({
+        ...lead,
+        last_contact_date: today,
+        notes: packLeadNotes(parsed.intake_notes, parsed.booked_consultation, parsed.booked_functionalfit, parsed.committed_package)
+      })
+      await load()
+    } catch (e) { alert('Error: ' + e.message) }
+    setBusy(null)
+  }
+
+  const copyDay0Text = (leadId, text) => {
+    navigator.clipboard.writeText(text).catch(() => {})
+    setCopiedDay0(leadId)
+    setTimeout(() => setCopiedDay0(l => l === leadId ? null : l), 2500)
   }
 
   const markCold = async (lead) => {
@@ -7071,44 +7102,84 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
                     </div>
 
                     {/* Status badges */}
-                    {(parsed.booked_consultation || parsed.committed_package) && (
+                    {(parsed.booked_consultation || parsed.booked_functionalfit || parsed.committed_package) && (
                       <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
                         {parsed.booked_consultation && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: C.green + '22', color: C.green, border: `1px solid ${C.green}44` }}>📅 Consultation Booked</span>}
-                        {parsed.committed_package && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: C.green + '22', color: C.green, border: `1px solid ${C.green}44` }}>💪 Committed to Package</span>}
+                        {(parsed.booked_functionalfit || parsed.committed_package) && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: C.orange + '22', color: C.orange, border: `1px solid ${C.orange}44` }}>💪 FunctionalFit Booked</span>}
                       </div>
                     )}
 
+                    {/* Day 0: inline ready-to-copy text */}
+                    {step.step === 1 && step.day === 0 && (() => {
+                      const firstName = lead.name.split(' ')[0]
+                      const template = `Hey ${firstName}! This is Freddy from FreddyFit 👋 Just got your intake form${lead.goal ? ` — love the ${lead.goal} goal!` : ''} I'd love to hop on a quick 10-min call to go over your notes and get your FREE consultation scheduled. What does your schedule look like today or tomorrow? 💪\n— Freddy | FreddyFit`
+                      return (
+                        <div style={{ background: '#EFF6FF', border: '1.5px solid #BFDBFE', borderRadius: 10, padding: '10px 12px', marginBottom: 10 }}>
+                          <div style={{ fontWeight: 800, fontSize: 11, color: '#1D4ED8', marginBottom: 6 }}>📱 READY TO SEND — Copy & Text Now</div>
+                          <div style={{ fontSize: 12, color: '#1e40af', lineHeight: 1.6, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{template}</div>
+                          <button onClick={() => copyDay0Text(lead.id, template)}
+                            style={{ width: '100%', padding: '7px', borderRadius: 7, border: `1.5px solid ${copiedDay0 === lead.id ? C.green : '#BFDBFE'}`, background: copiedDay0 === lead.id ? C.green + '18' : '#fff', color: copiedDay0 === lead.id ? C.green : '#1D4ED8', fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
+                            {copiedDay0 === lead.id ? '✓ Copied to clipboard!' : '📋 Copy Text'}
+                          </button>
+                        </div>
+                      )
+                    })()}
+
                     {/* AI message button */}
-                    <button onClick={() => setAiCoachLead(lead)} style={{ width: '100%', marginBottom: 8, padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.accent}44`, background: C.accent + '12', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer', textAlign: 'left' }}>
-                      ✨ Generate {step.channel} Message to Send
+                    <button onClick={() => setAiCoachLead(lead)} style={{ width: '100%', marginBottom: 10, padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.accent}44`, background: C.accent + '12', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer', textAlign: 'left' }}>
+                      ✨ {step.step === 1 && step.day === 0 ? 'Personalize with AI Instead' : `Generate ${step.channel} Message`}
                     </button>
 
-                    {/* Boss action buttons */}
-                    <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>Did you complete today's task?</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 8 }}>
-                      <button onClick={() => markDone(lead)} disabled={isBusy}
-                        style={{ padding: '9px 8px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer', opacity: isBusy ? 0.6 : 1 }}>
-                        {isBusy ? '…' : '✅ Yes — Done'}
-                      </button>
-                      <button onClick={() => markCold(lead)} disabled={isBusy}
-                        style={{ padding: '9px 8px', borderRadius: 8, border: `1.5px solid ${C.red}55`, background: C.red + '0d', color: C.red, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer' }}>
-                        ❌ No — Go Cold
-                      </button>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <button onClick={() => scheduleConsultation(lead, false)} disabled={isBusy}
-                        style={{ padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.accent}`, background: C.accent + '12', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer', textAlign: 'left' }}>
-                        📅 Scheduled Consultation
-                      </button>
-                      <button onClick={() => scheduleConsultation(lead, true)} disabled={isBusy}
-                        style={{ padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.orange}`, background: C.orange + '12', color: C.orange, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer', textAlign: 'left' }}>
-                        📅💪 Scheduled Consultation + Committed to FunctionalFit
-                      </button>
+                    {/* Did you reach out? / outcome flow */}
+                    {outcomeLeadId !== lead.id ? (
+                      <>
+                        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>Did you reach out today?</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                          <button onClick={() => setOutcomeLeadId(lead.id)} disabled={isBusy}
+                            style={{ padding: '10px 8px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer' }}>
+                            ✅ Yes I Did
+                          </button>
+                          <button onClick={() => markCold(lead)} disabled={isBusy}
+                            style={{ padding: '10px 8px', borderRadius: 8, border: `1.5px solid ${C.red}55`, background: C.red + '0d', color: C.red, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer' }}>
+                            🥶 Mark Cold
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>What happened?</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 6 }}>
+                          <button onClick={() => markOutcome(lead, 'no_response')} disabled={isBusy}
+                            style={{ padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, background: C.faint, color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer', textAlign: 'left' }}>
+                            🔄 No Response — Keep Following Up
+                          </button>
+                          <button onClick={() => markOutcome(lead, 'consultation')} disabled={isBusy}
+                            style={{ padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.accent}`, background: C.accent + '12', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer', textAlign: 'left' }}>
+                            📅 Booked Consultation
+                          </button>
+                          <button onClick={() => markOutcome(lead, 'functionalfit')} disabled={isBusy}
+                            style={{ padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.orange}`, background: C.orange + '12', color: C.orange, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer', textAlign: 'left' }}>
+                            💪 Booked FunctionalFit
+                          </button>
+                          <button onClick={() => markOutcome(lead, 'both')} disabled={isBusy}
+                            style={{ padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer', textAlign: 'left' }}>
+                            🎯 Booked Consultation + FunctionalFit
+                          </button>
+                        </div>
+                        <button onClick={() => setOutcomeLeadId(null)}
+                          style={{ width: '100%', padding: '7px', borderRadius: 8, border: `1px solid ${C.border}`, background: 'transparent', color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 600, fontSize: 11, cursor: 'pointer' }}>
+                          ← Back
+                        </button>
+                      </>
+                    )}
+
+                    {/* Convert to Client */}
+                    {(parsed.booked_consultation || parsed.booked_functionalfit) && (
                       <button onClick={() => bossConvert(lead)} disabled={isBusy}
-                        style={{ padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer', textAlign: 'left' }}>
-                        ⭐ Convert to Client
+                        style={{ width: '100%', marginTop: 8, padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer', textAlign: 'left' }}>
+                        ⭐ Convert to Full Client
                       </button>
-                    </div>
+                    )}
                   </div>
                 )
               })}
