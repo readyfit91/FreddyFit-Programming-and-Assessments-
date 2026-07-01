@@ -1,15 +1,8 @@
 import { Resend } from 'resend'
-import { readFileSync } from 'fs'
-import { join } from 'path'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
-// Embed logo as base64 so it always shows in email clients
-let logoSrc = ''
-try {
-  const buf = readFileSync(join(process.cwd(), 'public', 'logo.png'))
-  logoSrc = `data:image/png;base64,${buf.toString('base64')}`
-} catch { logoSrc = '' }
+const logoSrc = `${process.env.NEXT_PUBLIC_APP_URL || 'https://getfreddyfit.com'}/logo.png`
 
 const BRAND = {
   black:   '#0A0A0A',
