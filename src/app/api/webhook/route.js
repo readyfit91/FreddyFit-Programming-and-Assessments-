@@ -22,51 +22,91 @@ function commitmentToStatus(commitment = '') {
 function row(label, value) {
   if (!value) return ''
   return `
-    <tr>
-      <td style="padding:10px 12px;border-bottom:1px solid #F1F5F9;color:#64748B;font-size:13px;white-space:nowrap;vertical-align:top;width:180px">${label}</td>
-      <td style="padding:10px 12px;border-bottom:1px solid #F1F5F9;font-size:14px;vertical-align:top">${value}</td>
-    </tr>`
+      <tr>
+        <td style="padding:12px 16px;background:#F8FAFC;border-bottom:1px solid #E2E8F0;font-size:12px;font-weight:600;color:#64748B;text-transform:uppercase;letter-spacing:0.05em;width:180px;vertical-align:top">${label}</td>
+        <td style="padding:12px 16px;border-bottom:1px solid #E2E8F0;font-size:14px;color:#1E293B;vertical-align:top;line-height:1.5">${value}</td>
+      </tr>`
 }
 
 function buildEmail(name, body, status, source) {
-  const isAssessment = body._form === 'assessment'
+  const isAssessment   = body._form === 'assessment'
   const isConsultation = body._form === 'consultation'
+  const formLabel      = isConsultation ? 'Consultation Request' : 'Performance Assessment'
+
+  const statusColor = status === 'Follow Up' ? '#16A34A' : status === 'Cold' ? '#94A3B8' : '#2BAADF'
 
   const assessmentRows = isAssessment ? `
-    ${row('Primary Goal', body.goal)}
-    ${row('Current Barriers', body.barrier)}
-    ${row('Training Days/Week', body.days_per_week)}
-    ${row('Biggest Need', body.need)}
-    ${row('Commitment', body.commitment)}
+      ${row('Primary Goal', body.goal)}
+      ${row('Current Barriers', body.barrier)}
+      ${row('Training Days / Week', body.days_per_week)}
+      ${row('Biggest Need', body.need)}
+      ${row('Commitment Level', body.commitment)}
   ` : ''
 
   const consultationRows = isConsultation ? `
-    ${row('How They Heard', body.source)}
-    ${row('Current Weight', body.current_weight)}
-    ${row('Fitness Goal', body.goal)}
-    ${row('Why It Matters', body.goal_importance)}
-    ${row('Injuries / Medical', body.medical_history)}
-    ${row('Best Time to Reach', body.preferred_contact_time)}
-    ${row('Additional Info', body.message)}
+      ${row('How They Found Us', body.source)}
+      ${row('Current Weight', body.current_weight)}
+      ${row('Primary Fitness Goal', body.goal)}
+      ${row('Why This Goal Matters', body.goal_importance)}
+      ${row('Injuries / Medical History', body.medical_history)}
+      ${row('Best Time to Reach', body.preferred_contact_time)}
+      ${row('Additional Information', body.message)}
   ` : ''
 
-  return `
-    <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;background:#fff">
-      <h2 style="color:#2BAADF;margin:0 0 4px;font-size:22px">New ${isConsultation ? 'Consultation Request' : 'Lead'}: ${name}</h2>
-      <p style="margin:0 0 20px;color:#64748B;font-size:13px">Status: <strong>${status}</strong> &nbsp;|&nbsp; Source: <strong>${source}</strong></p>
-      <table style="width:100%;border-collapse:collapse;border:1px solid #E2E8F0;border-radius:8px;overflow:hidden">
-        ${row('Name', name)}
-        ${row('Email', body.email)}
-        ${row('Phone', body.phone)}
-        ${assessmentRows}
-        ${consultationRows}
-        ${row('Submitted', body.timestamp)}
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F1F5F9;padding:32px 16px">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">
+
+        <!-- Header -->
+        <tr>
+          <td style="background:#1E293B;border-radius:12px 12px 0 0;padding:28px 32px">
+            <p style="margin:0;font-size:12px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:#2BAADF">FreddyFit</p>
+            <h1 style="margin:6px 0 0;font-size:22px;font-weight:700;color:#FFFFFF">New ${formLabel}</h1>
+          </td>
+        </tr>
+
+        <!-- Status bar -->
+        <tr>
+          <td style="background:#2BAADF;padding:10px 32px">
+            <table width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="font-size:13px;color:#fff">Status: <strong>${status}</strong></td>
+                <td align="right" style="font-size:13px;color:#fff">Source: <strong>${source}</strong></td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- Contact info -->
+        <tr>
+          <td style="background:#ffffff;padding:0">
+            <table width="100%" cellpadding="0" cellspacing="0">
+              ${row('Name', name)}
+              ${row('Email', body.email ? `<a href="mailto:${body.email}" style="color:#2BAADF">${body.email}</a>` : '')}
+              ${row('Phone', body.phone ? `<a href="tel:${body.phone}" style="color:#2BAADF">${body.phone}</a>` : '')}
+              ${assessmentRows}
+              ${consultationRows}
+              ${row('Submitted', body.timestamp)}
+            </table>
+          </td>
+        </tr>
+
+        <!-- CTA -->
+        <tr>
+          <td style="background:#ffffff;border-top:2px solid #F1F5F9;border-radius:0 0 12px 12px;padding:24px 32px;text-align:center">
+            <a href="https://myfitpro.vercel.app" style="display:inline-block;background:#2BAADF;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:14px 32px;border-radius:8px">View in CRM &rarr;</a>
+          </td>
+        </tr>
+
       </table>
-      <div style="margin-top:24px">
-        <a href="https://myfitpro.vercel.app" style="background:#2BAADF;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px">Open CRM &#x2192;</a>
-      </div>
-    </div>
-  `
+    </td></tr>
+  </table>
+</body>
+</html>`
 }
 
 async function parseBody(request) {
@@ -100,23 +140,25 @@ export async function POST(request) {
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })
 
     const leadName = (body.name || '').trim() || (body.email || '').trim() || 'Unknown Lead'
-    const status = commitmentToStatus(body.commitment || '')
-    const source = body._form === 'assessment' ? 'FunctionalFIT Form' : body._form === 'consultation' ? 'Consultation Form' : 'Website'
+    const status   = commitmentToStatus(body.commitment || '')
+    const source   = body._form === 'assessment'   ? 'FunctionalFIT Form'
+                   : body._form === 'consultation' ? 'Consultation Form'
+                   : 'Website'
     const goal = (body.goal || '').slice(0, 300)
 
     const noteLines = [
-      body.goal                 && `Goal: ${body.goal}`,
-      body.barrier              && `Barrier: ${body.barrier}`,
-      body.days_per_week        && `Training days/week: ${body.days_per_week}`,
-      body.need                 && `Needs most: ${body.need}`,
-      body.commitment           && `Commitment: ${body.commitment}`,
-      body.source               && `How they heard: ${body.source}`,
-      body.current_weight       && `Current weight: ${body.current_weight}`,
-      body.goal_importance      && `Goal importance: ${body.goal_importance}`,
-      body.medical_history      && `Medical/Injuries: ${body.medical_history}`,
+      body.goal                   && `Goal: ${body.goal}`,
+      body.barrier                && `Barrier: ${body.barrier}`,
+      body.days_per_week          && `Training days/week: ${body.days_per_week}`,
+      body.need                   && `Needs most: ${body.need}`,
+      body.commitment             && `Commitment: ${body.commitment}`,
+      body.source                 && `How they heard: ${body.source}`,
+      body.current_weight         && `Current weight: ${body.current_weight}`,
+      body.goal_importance        && `Goal importance: ${body.goal_importance}`,
+      body.medical_history        && `Medical/Injuries: ${body.medical_history}`,
       body.preferred_contact_time && `Best time: ${body.preferred_contact_time}`,
-      body.message              && `Message: ${body.message}`,
-      body.timestamp            && `Submitted: ${body.timestamp}`,
+      body.message                && `Message: ${body.message}`,
+      body.timestamp              && `Submitted: ${body.timestamp}`,
     ].filter(Boolean)
     const notes = noteLines.join('\n')
 
