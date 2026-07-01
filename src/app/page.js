@@ -2283,8 +2283,10 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
       const intakeJson = JSON.stringify({ ...intakeFields, goal_3_month, goal_6_month, goal_1_year })
       const goal = [goal_3_month, goal_6_month, goal_1_year].filter(Boolean).join(' | ')
 
+      const existingNotes = isEdit ? (() => { try { return JSON.parse(existingClient.trainerNotes || '{}') } catch { return {} } })() : {}
+      const mergedNotes = JSON.stringify({ ...existingNotes, ...JSON.parse(intakeJson) })
       const clientData = isEdit
-        ? { ...existingClient, name, dob, goal, email: form.email || '', equipment: existingClient.equipment || '', trainerNotes: intakeJson }
+        ? { ...existingClient, name, dob, goal, email: form.email || '', equipment: existingClient.equipment || '', trainerNotes: mergedNotes }
         : { name, dob, goal, email: form.email || '', equipment: '', trainerNotes: intakeJson, assessments: {} }
       const saved = await saveClient(clientData)
       onSave(saved ? { ...clientData, id: saved.id, trainerNotes: saved.trainer_notes || intakeJson } : clientData)
