@@ -2,8 +2,6 @@ import { Resend } from 'resend'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
-const logoSrc = `${process.env.NEXT_PUBLIC_APP_URL || 'https://getfreddyfit.com'}/logo.png`
-
 const BRAND = {
   black:   '#0A0A0A',
   accent:  '#2563EB',
@@ -51,6 +49,8 @@ function sessionIcon(type) {
 export async function POST(request) {
   try {
     const { clientName, clientEmail, date, time, sessionType, notes, recurring } = await request.json()
+    const origin = new URL(request.url).origin
+    const logoSrc = `${origin}/logo.png`
 
     if (!clientEmail) return Response.json({ error: 'No client email provided' }, { status: 400 })
 
