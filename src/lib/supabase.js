@@ -19,6 +19,7 @@ export async function getAllClients() {
 export async function saveClient(client) {
   const payload = {
     name: client.name,
+    email: client.email || '',
     goal: client.goal || '',
     dob: client.dob || '',
     equipment: client.equipment || '',

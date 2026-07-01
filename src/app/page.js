@@ -2276,8 +2276,8 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
       const goal = [goal_3_month, goal_6_month, goal_1_year].filter(Boolean).join(' | ')
 
       const clientData = isEdit
-        ? { ...existingClient, name, dob, goal, equipment: existingClient.equipment || '', trainerNotes: intakeJson }
-        : { id: makeId(), name, dob, goal, equipment: '', trainerNotes: intakeJson, assessments: {} }
+        ? { ...existingClient, name, dob, goal, email: form.email || '', equipment: existingClient.equipment || '', trainerNotes: intakeJson }
+        : { id: makeId(), name, dob, goal, email: form.email || '', equipment: '', trainerNotes: intakeJson, assessments: {} }
       await saveClient(clientData)
       onSave(clientData)
     } catch (e) {
@@ -7679,7 +7679,7 @@ function Schedule({ onBack, allClients }) {
               {filteredClients.length > 0 && (
                 <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: `1px solid ${C.border}`, borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.10)', zIndex: 10, marginTop: 2 }}>
                   {filteredClients.map(c => (
-                    <button key={c.id} onClick={() => { setClientSearch(c.name); setForm(f => ({ ...f, client_name: c.name, client_id: c.id, client_email: c.email || f.client_email })) }}
+                    <button key={c.id} onClick={() => { setClientSearch(c.name); setForm(f => ({ ...f, client_name: c.name, client_id: c.id, client_email: c.email || '' })) }}
                       style={{ display: 'block', width: '100%', padding: '9px 14px', background: 'transparent', border: 'none', borderBottom: `1px solid ${C.border}22`, fontSize: 13, fontWeight: 600, color: C.text, cursor: 'pointer', textAlign: 'left', fontFamily: 'Montserrat,sans-serif' }}
                       onMouseEnter={e => e.currentTarget.style.background = C.faint}
                       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
