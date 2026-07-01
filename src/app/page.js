@@ -4499,7 +4499,7 @@ function WeightTracker({ client, onBack }) {
                   doc.text('FreddyFit Performance Center', 36, 30)
                   doc.setFont('helvetica', 'normal')
                   doc.setFontSize(9)
-                  doc.text('6047 Telegraph Road  ·  Saint Louis, MO 63123  ·  myfitpro@getfreddyfit.com  ·  314-584-9389', 36, 46)
+                  doc.text('6047 Telegraph Road  ·  Saint Louis, MO 63129  ·  myfitpro@getfreddyfit.com  ·  314-584-9389', 36, 46)
                   doc.setFont('helvetica', 'bold')
                   doc.setFontSize(12)
                   doc.text('PATIENT PROGRESS REPORT', 36, 62)
@@ -4663,7 +4663,7 @@ function WeightTracker({ client, onBack }) {
                     doc.setPage(p)
                     doc.setFontSize(8)
                     doc.setTextColor(113, 128, 150)
-                    doc.text('FreddyFit Performance Center  ·  6047 Telegraph Rd, Saint Louis MO 63123  ·  Confidential Patient Report', 36, doc.internal.pageSize.getHeight() - 20)
+                    doc.text('FreddyFit Performance Center  ·  6047 Telegraph Rd, Saint Louis MO 63129  ·  Confidential Patient Report', 36, doc.internal.pageSize.getHeight() - 20)
                     doc.text(`Page ${p} of ${pages}`, W - 36, doc.internal.pageSize.getHeight() - 20, { align: 'right' })
                   }
                   doc.save(`${client.name.replace(/\s+/g, '_')}_weight_report.pdf`)
