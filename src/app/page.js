@@ -7030,6 +7030,7 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
   }
 
   const markCold = async (lead) => {
+    if (!confirm(`Mark ${lead.name} as Cold?\n\nThey'll move to the Cold folder. You can always reactivate them later.`)) return
     setBusy(lead.id)
     try {
       await saveLead({ ...lead, status: 'Cold', last_contact_date: today })
@@ -7179,16 +7180,14 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
                     {outcomeLeadId !== lead.id ? (
                       <>
                         <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1, color: C.sub, textTransform: 'uppercase', marginBottom: 6 }}>Did you reach out today?</div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                          <button onClick={() => setOutcomeLeadId(lead.id)} disabled={isBusy}
-                            style={{ padding: '10px 8px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer' }}>
-                            ✅ Yes I Did
-                          </button>
-                          <button onClick={() => markCold(lead)} disabled={isBusy}
-                            style={{ padding: '10px 8px', borderRadius: 8, border: `1.5px solid ${C.red}55`, background: C.red + '0d', color: C.red, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer' }}>
-                            🥶 Mark Cold
-                          </button>
-                        </div>
+                        <button onClick={() => setOutcomeLeadId(lead.id)} disabled={isBusy}
+                          style={{ width: '100%', padding: '10px 8px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: isBusy ? 'not-allowed' : 'pointer', marginBottom: 6 }}>
+                          ✅ Yes I Did
+                        </button>
+                        <button onClick={() => markCold(lead)} disabled={isBusy}
+                          style={{ width: '100%', padding: '7px 8px', borderRadius: 8, border: `1px solid ${C.border}`, background: 'transparent', color: C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 600, fontSize: 10, cursor: isBusy ? 'not-allowed' : 'pointer' }}>
+                          🥶 Mark as Cold
+                        </button>
                       </>
                     ) : (
                       <>
