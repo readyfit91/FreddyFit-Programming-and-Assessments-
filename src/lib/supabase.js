@@ -202,9 +202,13 @@ export async function getAllLeads() {
   const { data, error } = await supabase
     .from('leads')
     .select('*')
-    .order('updated_at', { ascending: false })
   if (error) throw new Error(`Leads query failed: ${error.message}`)
-  return data || []
+  // Sort client-side so no missing-column errors can block the fetch
+  return (data || []).sort((a, b) => {
+    const aDate = a.updated_at || a.date_added || ''
+    const bDate = b.updated_at || b.date_added || ''
+    return bDate.localeCompare(aDate)
+  })
 }
 
 export async function saveLead(lead) {
