@@ -198,17 +198,15 @@ export async function deleteWeightLog(logId) {
 // ── CRM LEADS ────────────────────────────────────────────────────────────────
 
 export async function getAllLeads() {
-  if (!supabase) throw new Error('Database not configured — check Supabase environment variables')
-  const { data, error } = await supabase
-    .from('leads')
-    .select('*')
-  if (error) throw new Error(`Leads query failed: ${error.message}`)
-  // Sort client-side so no missing-column errors can block the fetch
-  return (data || []).sort((a, b) => {
-    const aDate = a.updated_at || a.date_added || ''
-    const bDate = b.updated_at || b.date_added || ''
-    return bDate.localeCompare(aDate)
-  })
+  // Fetch via API route — server-side always has env vars available
+  const res = await fetch('/api/leads')
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error || `Failed to load leads (${res.status})`)
+  }
+  const { leads, error } = await res.json()
+  if (error) throw new Error(error)
+  return leads || []
 }
 
 export async function saveLead(lead) {
