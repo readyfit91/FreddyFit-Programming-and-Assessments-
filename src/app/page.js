@@ -1,5 +1,13 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
+
+// Returns YYYY-MM-DD in local time (not UTC)
+function localDate(d = new Date()) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
 import { getAllClients, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog, getAllLeads, saveLead, deleteLead, getBloodWork, saveBloodWork, deleteBloodWork, getSessions, getRecurringSessions, saveSession, deleteSession } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
 import { FIELD_MODIFIERS } from '../lib/modifiers'
@@ -44,7 +52,7 @@ function Btn({onClick,children,color=C.accent,outline=false,small=false,disabled
 
 // ── SCROLLING REMINDER TICKER ────────────────────────────────────────────────
 function ReminderTicker({ clients }) {
-  const today = new Date().toISOString().split('T')[0]
+  const today = localDate()
   const allReminders = (clients || []).flatMap(c => {
     let intake = null
     try { intake = JSON.parse(c.trainerNotes || c.trainer_notes || '{}') } catch {}
@@ -4171,7 +4179,7 @@ function WeightTracker({ client, onBack }) {
   const [rating, setRating] = useState('')
   const [behaviorTags, setBehaviorTags] = useState([])
   const [behaviorNotes, setBehaviorNotes] = useState('')
-  const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0])
+  const [logDate, setLogDate] = useState(localDate())
   const [showHistory, setShowHistory] = useState(false)
   const [showJourneyModal, setShowJourneyModal] = useState(false)
   const chartRef = useRef(null)
@@ -4202,7 +4210,7 @@ function WeightTracker({ client, onBack }) {
         behaviorNotes,
         loggedAt: new Date(logDate + 'T12:00:00').toISOString()
       })
-      setWeight(''); setBodyFat(''); setBmi(''); setRating(''); setBehaviorTags([]); setBehaviorNotes(''); setLogDate(new Date().toISOString().split('T')[0])
+      setWeight(''); setBodyFat(''); setBmi(''); setRating(''); setBehaviorTags([]); setBehaviorNotes(''); setLogDate(localDate())
       await load()
     } catch (e) { alert('Error saving: ' + e.message) }
     setSaving(false)
@@ -5029,7 +5037,7 @@ function ClientReminders({ client, onUpdate }) {
     await saveReminders(reminders.filter(r => r.id !== id))
   }
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = localDate()
   const upcoming = reminders.filter(r => !r.done && r.date >= today)
   const overdue = reminders.filter(r => !r.done && r.date < today)
   const completed = reminders.filter(r => r.done)
@@ -5870,10 +5878,10 @@ function ClientRoster({ onSelectClient, onNewClient, onOpenSchedule }) {
 
   useEffect(() => {
     const today = new Date()
-    const todayStr = today.toISOString().slice(0, 10)
+    const todayStr = localDate(today)
     const end = new Date(today)
     end.setDate(end.getDate() + 6)
-    const endStr = end.toISOString().slice(0, 10)
+    const endStr = localDate(end)
     getSessions(todayStr, endStr).then(all => {
       setTodaySessions(all.filter(s => s.date === todayStr))
       setUpcomingSessions(all.filter(s => s.date > todayStr))
@@ -6013,7 +6021,7 @@ function ClientRoster({ onSelectClient, onNewClient, onOpenSchedule }) {
 
       {/* All Reminders Dashboard */}
       {!loading && (() => {
-        const today = new Date().toISOString().split('T')[0]
+        const today = localDate()
         const allReminders = clients.flatMap(c => {
           let intake = null
           try { intake = JSON.parse(c.trainerNotes || c.trainer_notes || '{}') } catch {}
@@ -6057,7 +6065,7 @@ function ClientRoster({ onSelectClient, onNewClient, onOpenSchedule }) {
         let intake = null
         try { intake = JSON.parse(c.trainerNotes || c.trainer_notes || '{}') } catch {}
         const reminders = (intake?.reminders || []).filter(r => !r.done)
-        const today = new Date().toISOString().split('T')[0]
+        const today = localDate()
         const overdueCount = reminders.filter(r => r.date < today).length
         const nextReminder = reminders.sort((a, b) => new Date(a.date) - new Date(b.date))[0]
         return (
@@ -6373,7 +6381,7 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
   const [advancing, setAdvancing] = useState(null)
   const [showCold, setShowCold] = useState(false)
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = localDate()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -6863,7 +6871,7 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
   const [loading, setLoading] = useState(true)
   const [aiCoachLead, setAiCoachLead] = useState(null)
   const [busy, setBusy] = useState(null)
-  const today = new Date().toISOString().split('T')[0]
+  const today = localDate()
 
   const load = () => getAllLeads().then(setLeads).catch(() => {}).finally(() => setLoading(false))
   useEffect(() => { load() }, [])
@@ -7100,9 +7108,9 @@ function SubscriptionTracker({ client, onBack }) {
 
   const [sub, setSub] = useState(() => loadSub())
   const [setupPkg, setSetupPkg] = useState(SUB_PACKAGES[0].label)
-  const [setupDate, setSetupDate] = useState(new Date().toISOString().split('T')[0])
+  const [setupDate, setSetupDate] = useState(localDate())
   const [signModal, setSignModal] = useState(null)
-  const [sigDate, setSigDate] = useState(new Date().toISOString().split('T')[0])
+  const [sigDate, setSigDate] = useState(localDate())
   const [sigNotes, setSigNotes] = useState('')
   const [signature, setSignature] = useState('')
   const [showCalendar, setShowCalendar] = useState(false)
@@ -7142,7 +7150,7 @@ function SubscriptionTracker({ client, onBack }) {
   }
 
   const openSignModal = (periodIdx) => {
-    setSigDate(new Date().toISOString().split('T')[0]); setSigNotes(''); setSignature('')
+    setSigDate(localDate()); setSigNotes(''); setSignature('')
     setSignModal(periodIdx)
   }
 
@@ -7222,10 +7230,10 @@ function SubscriptionTracker({ client, onBack }) {
           {Array.from({ length: daysInMonth }, (_, i) => {
             const day = i + 1
             const d = new Date(year, month, day)
-            const dateStr = d.toISOString().split('T')[0]
+            const dateStr = localDate(d)
             const pIdx = getPeriodForDate(d)
             const hasSession = sessionDates.has(dateStr)
-            const today = new Date().toISOString().split('T')[0]
+            const today = localDate()
             const isToday = dateStr === today
             return (
               <div key={day} style={{ textAlign: 'center', padding: '5px 2px', borderRadius: 6, fontSize: 11, fontWeight: hasSession ? 800 : 400, background: hasSession ? (pIdx >= 0 ? periodColors[pIdx] + '30' : C.faint) : pIdx >= 0 ? periodColors[pIdx] + '10' : 'transparent', color: pIdx >= 0 ? periodColors[pIdx] : C.sub, border: isToday ? `1.5px solid ${C.accent}` : '1.5px solid transparent', position: 'relative' }}>
@@ -7439,7 +7447,7 @@ function Schedule({ onBack, allClients }) {
   const weekEnd = new Date(weekStart)
   weekEnd.setDate(weekEnd.getDate() + 6)
 
-  const fmt = d => d.toISOString().slice(0, 10)
+  const fmt = localDate
 
   useEffect(() => {
     const load = async () => {
