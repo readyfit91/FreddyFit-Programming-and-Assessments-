@@ -8488,6 +8488,7 @@ export default function App() {
   const [assessment, setAssessment] = useState(null)
   const [allClients, setAllClients] = useState([])
   const [forceNewAssessment, setForceNewAssessment] = useState(false)
+  const [rosterKey, setRosterKey] = useState(0)
   const [showBossPanel, setShowBossPanel] = useState(false)
   const [bossCount, setBossCount] = useState(0)
 
@@ -8541,7 +8542,7 @@ export default function App() {
   if (checkingAuth) return null
   if (!authed) return <LoginScreen onLogin={() => { setAuthed(true); refreshAllClients() }} />
 
-  const goToClient = (c) => { setClient(c); setView('client'); refreshAllClients() }
+  const goToClient = (c) => { setClient(c); setView('client'); setRosterKey(k => k + 1); refreshAllClients() }
   const updateClient = (c) => { setClient(c); setAllClients(prev => prev.map(p => p.id === c.id ? c : p)) }
   const switchToClient = (c) => { setClient(c); setView('client') }
   const openIntake = () => { setClient(null); setView('intake') }
@@ -8594,7 +8595,7 @@ export default function App() {
 
       {/* Content */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {view === 'roster' && <ClientRoster onSelectClient={goToClient} onNewClient={openIntake} onOpenSchedule={() => setView('schedule')} />}
+        {view === 'roster' && <ClientRoster key={rosterKey} onSelectClient={goToClient} onNewClient={openIntake} onOpenSchedule={() => setView('schedule')} />}
         {view === 'client' && client && (
           <ClientProfile
             client={client}
@@ -8656,7 +8657,7 @@ export default function App() {
         )}
         {view === 'intake' && (
           <ClientIntakeForm
-            onSave={(c) => { goToClient({ ...c, assessments: {} }) }}
+            onSave={(c) => { setRosterKey(k => k + 1); setView('roster') }}
             onBack={() => setView('roster')}
           />
         )}
