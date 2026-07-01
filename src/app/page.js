@@ -6159,14 +6159,14 @@ function LoginScreen({ onLogin }) {
 // Studies: texts open 98% in 3 min, calls convert 8x better, email nurtures long-term
 const OUTREACH_SEQUENCE = [
   { day: 0,  step: 1, channel: 'Text',  emoji: '💬',
-    action: 'Send this message now:\n\n"Hey [Name]! This is Freddy from FreddyFit Personal Training 👋 I just received your intake form — thank you for reaching out! I\'d love to jump on a quick 10-minute call to go over your notes and get your complimentary consultation scheduled. What does your schedule look like this week? 💪"\n\nSend within the first hour — leads go cold fast.',
-    why: 'Texts open 98% within 3 minutes. First contact within 1 hour increases conversion by 7x.' },
-  { day: 1,  step: 2, channel: 'Text',  emoji: '💬',
-    action: 'Follow-up text — they haven\'t replied yet, keep it short and easy to respond to, reference their goal again',
+    action: '🆕 NEW LEAD — Text them within the hour:\n\n"Hey [Name]! This is Freddy from FreddyFit 👋 I just got your intake form — love the goal! I\'d love to jump on a quick 10-min call to go over your notes and get your FREE consultation on the books. What\'s your schedule like this week? 💪"\n\nGoal: get them on a call so you can review their notes together and lock in the consultation date.',
+    why: 'Text within 1 hour = 7x higher conversion. Leads go cold within 24 hours.' },
+  { day: 1,  step: 2, channel: 'Call',  emoji: '📞',
+    action: 'Call them directly — they saw your text, now seal it with a voice call. When they answer: "Hey [Name], it\'s Freddy from FreddyFit! I wanted to personally reach out after reviewing your form — I love your goal and think we can make serious progress together. I just want to go over a couple quick things from your notes and get your complimentary consultation scheduled. Do you have 10 minutes right now?"\n\nLeave a voicemail if no answer.',
+    why: 'A personal call after a text dramatically increases show rates for consultations.' },
+  { day: 3,  step: 3, channel: 'Text',  emoji: '💬',
+    action: 'Follow-up text — keep it short and low pressure:\n\n"Hey [Name]! Just wanted to check in — I know life gets busy 😊 Still love to get your complimentary consultation booked. Takes 10 min to go over your notes and build your plan. This week still work? 💪"',
     why: '50% of deals go to whoever follows up first. Most people forget to reply, not ignore.' },
-  { day: 3,  step: 3, channel: 'Call',  emoji: '📞',
-    action: 'Phone call — texts aren\'t landing, calls convert 8x better. Reference their goal. Invite them to their complimentary consultation at FreddyFit Personal Training. Leave a voicemail if no answer.',
-    why: 'Phone calls convert 8x better than texts for consultations. Try 4–6pm.' },
   { day: 5,  step: 4, channel: 'Email', emoji: '✉️',
     action: 'Warm intro email — personal tone, reference their intake answers, explain what the complimentary consultation covers, include your contact info. Subject line first.',
     why: 'Reaching on a 3rd channel catches people who missed texts/calls.' },
@@ -6888,11 +6888,23 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
 function CrmBossPanel({ onClose, onGoToCrm }) {
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(null)
   const [aiCoachLead, setAiCoachLead] = useState(null)
   const [busy, setBusy] = useState(null)
   const today = localDate()
 
-  const load = () => getAllLeads().then(setLeads).catch(e => console.error('Boss panel load error:', e)).finally(() => setLoading(false))
+  const load = async () => {
+    setLoading(true)
+    setLoadError(null)
+    try {
+      const data = await getAllLeads()
+      setLeads(data)
+    } catch (e) {
+      console.error('Boss panel load error:', e)
+      setLoadError(e.message || 'Failed to load leads')
+    }
+    setLoading(false)
+  }
   useEffect(() => { load() }, [])
 
   const actionItems = leads
@@ -6959,7 +6971,7 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
             <div>
               <div style={{ fontWeight: 800, fontSize: 16, color: C.text }}>🎯 Boss Mode</div>
               <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>
-                {loading ? 'Loading…' : actionItems.length === 0 ? 'All caught up!' : `${actionItems.length} lead${actionItems.length !== 1 ? 's' : ''} need outreach now`}
+                {loading ? 'Loading…' : loadError ? '⚠️ Load failed — tap Retry' : actionItems.length === 0 ? 'All caught up!' : `${actionItems.length} lead${actionItems.length !== 1 ? 's' : ''} need outreach now`}
               </div>
             </div>
             <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: C.sub }}>×</button>
@@ -6967,11 +6979,19 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '14px 14px 24px' }}>
-          {loading ? <Spinner /> : actionItems.length === 0 ? (
+          {loading ? <Spinner /> : loadError ? (
+            <div style={{ textAlign: 'center', padding: 40 }}>
+              <div style={{ fontSize: 32, marginBottom: 10 }}>⚠️</div>
+              <div style={{ fontWeight: 700, color: C.red, marginBottom: 6 }}>Failed to load leads</div>
+              <div style={{ fontSize: 12, color: C.sub, marginBottom: 16 }}>{loadError}</div>
+              <button onClick={load} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Retry</button>
+            </div>
+          ) : actionItems.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 48 }}>
               <div style={{ fontSize: 40, marginBottom: 12 }}>✅</div>
               <div style={{ fontWeight: 700, color: C.text, marginBottom: 6 }}>All caught up!</div>
-              <div style={{ fontSize: 12, color: C.sub }}>No outreach due right now. Check back tomorrow.</div>
+              <div style={{ fontSize: 12, color: C.sub, marginBottom: 4 }}>No outreach due right now. Check back tomorrow.</div>
+              <div style={{ fontSize: 11, color: C.sub, opacity: 0.6 }}>{leads.filter(l => l.status !== 'Client' && l.status !== 'Cold').length} active lead{leads.filter(l => l.status !== 'Client' && l.status !== 'Cold').length !== 1 ? 's' : ''} being tracked</div>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
