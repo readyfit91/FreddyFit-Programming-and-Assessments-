@@ -1,6 +1,15 @@
 import { Resend } from 'resend'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
+
+// Embed logo as base64 so it always shows in email clients
+let logoSrc = ''
+try {
+  const buf = readFileSync(join(process.cwd(), 'public', 'logo.png'))
+  logoSrc = `data:image/png;base64,${buf.toString('base64')}`
+} catch { logoSrc = '' }
 
 const BRAND = {
   black:   '#0A0A0A',
@@ -52,8 +61,6 @@ export async function POST(request) {
 
     if (!clientEmail) return Response.json({ error: 'No client email provided' }, { status: 400 })
 
-    const logoUrl = 'https://getfreddyfit.com/logo.png'
-
     const html = `
 <!DOCTYPE html>
 <html lang="en">
@@ -72,7 +79,7 @@ export async function POST(request) {
           <!-- Header -->
           <tr>
             <td style="background:${BRAND.black};padding:36px 40px;text-align:center;">
-              <img src="${logoUrl}" alt="FreddyFit" width="120" height="auto"
+              <img src="${logoSrc}" alt="FreddyFit" width="120" height="auto"
                 style="display:block;margin:0 auto 16px;max-width:120px;" />
               <div style="color:${BRAND.white};font-size:11px;letter-spacing:4px;text-transform:uppercase;font-weight:700;">Professional Fitness Coaching</div>
             </td>
@@ -199,7 +206,7 @@ export async function POST(request) {
           <!-- Footer -->
           <tr>
             <td style="background:${BRAND.black};padding:28px 40px;text-align:center;">
-              <img src="${logoUrl}" alt="FreddyFit" width="80" height="auto"
+              <img src="${logoSrc}" alt="FreddyFit" width="80" height="auto"
                 style="display:block;margin:0 auto 14px;max-width:80px;opacity:0.85;" />
               <div style="font-size:11px;color:#888;letter-spacing:2px;text-transform:uppercase;font-weight:700;margin-bottom:6px;">FreddyFit Professional Coaching</div>
               <div style="font-size:11px;color:#666;margin-bottom:4px;">6047 Telegraph Road, Saint Louis, MO 63129</div>
