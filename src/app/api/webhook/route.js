@@ -30,6 +30,70 @@ function mapSource(src = '') {
   return src || 'Website'
 }
 
+// Normalise a formsubmit.co webhook payload.
+// formsubmit.co can send the form fields either as a flat JSON object or
+// wrapped inside a "data" key.  Meta fields start with "_".
+function extractFields(raw) {
+  // If fields are nested under a "data" key, flatten them up
+  const fields = (raw.data && typeof raw.data === 'object') ? { ...raw, ...raw.data } : raw
+  return fields
+}
+
+// Map Assessment quiz field names (which contain spaces) to normalised keys
+function normaliseAssessmentFields(f) {
+  return {
+    name: (`${f['First Name'] || ''} ${f['Last Name'] || ''}`).trim() || f.name || '',
+    email: f['Email'] || f.email || '',
+    phone: f['Phone Number'] || f.phone || '',
+    goal: f['Primary Goal'] || f.goal || '',
+    barrier: f['Current Barriers'] || f.barrier || '',
+    days_per_week: f['Training Days Per Week'] || f.days_per_week || '',
+    need: f['Biggest Need'] || f.need || '',
+    commitment: f['Commitment Level'] || f.commitment || '',
+    timestamp: f['Timestamp'] || '',
+    _form: 'assessment',
+  }
+}
+
+// Map Consultation form field names to normalised keys
+function normaliseConsultationFields(f) {
+  return {
+    name: f.name || '',
+    email: f.email || '',
+    phone: f.phone || '',
+    goal: f.fitness_goal || f.goal || '',
+    source: f.referral_source || f.source || '',
+    current_weight: f.current_weight || '',
+    goal_importance: f.goal_importance || '',
+    medical_history: [f.injuries, f.medication].filter(Boolean).join(' | ') || f.medical_history || '',
+    preferred_contact_time: f.contact_availability || f.preferred_contact_time || '',
+    message: f.message || '',
+    _form: 'consultation',
+  }
+}
+
+// Detect which form sent the payload and return normalised fields
+function normaliseFields(raw) {
+  const f = extractFields(raw)
+
+  // Assessment quiz signals: space-separated field names or known keys
+  const isAssessment = !!(
+    f['First Name'] || f['Last Name'] || f['Primary Goal'] ||
+    f['Current Barriers'] || f['Commitment Level'] || f['Biggest Need']
+  )
+  if (isAssessment) return normaliseAssessmentFields(f)
+
+  // Consultation form signals
+  const isConsultation = !!(
+    f.fitness_goal || f.referral_source || f.injuries ||
+    f.medication || f.contact_availability || f.goal_importance
+  )
+  if (isConsultation) return normaliseConsultationFields(f)
+
+  // Legacy / unknown — return as-is so existing logic still works
+  return f
+}
+
 function buildNotes(body) {
   const lines = []
   if (body.goal)                    lines.push(`🎯 Goal: ${body.goal}`)
@@ -38,12 +102,14 @@ function buildNotes(body) {
   if (body.need)                    lines.push(`💡 Needs most: ${body.need}`)
   if (body.commitment)              lines.push(`✅ Commitment: ${body.commitment}`)
   if (body.current_weight)          lines.push(`⚖️ Current weight: ${body.current_weight}`)
+  if (body.goal_importance)         lines.push(`🔥 Goal importance: ${body.goal_importance}`)
   if (body.motivation)              lines.push(`💬 Motivation: ${body.motivation}`)
   if (body.preferred_contact_time)  lines.push(`🕐 Best time to contact: ${body.preferred_contact_time}`)
   if (body.medical_history)         lines.push(`🏥 Medical/Injuries: ${body.medical_history}`)
   if (body.medications)             lines.push(`💊 Medications: ${body.medications}`)
   if (body.additional_info)         lines.push(`📝 Additional: ${body.additional_info}`)
   if (body.message)                 lines.push(`💬 Message: ${body.message}`)
+  if (body.timestamp)               lines.push(`🕒 Submitted: ${body.timestamp}`)
   return lines.join('\n')
 }
 
@@ -70,10 +136,10 @@ export async function POST(request) {
   const isFormSubmit = ct.includes('application/x-www-form-urlencoded') || ct.includes('multipart/form-data')
 
   try {
-    const body = await parseBody(request)
+    const raw = await parseBody(request)
+    const body = normaliseFields(raw)
 
-    // Strip FormSubmit.co / Web3Forms internal fields
-    const nextUrl = body._next || body.redirect || 'https://getfreddyfit.com'
+    const nextUrl = raw._next || raw.redirect || 'https://getfreddyfit.com'
 
     if (!supabaseUrl || !supabaseKey) {
       if (isFormSubmit) return Response.redirect(nextUrl + '?status=error', 302)
@@ -83,20 +149,24 @@ export async function POST(request) {
     const supabase = createClient(supabaseUrl, supabaseKey)
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })
 
-    const leadName = (body.name
-      ? body.name
-      : `${body.first_name || ''} ${body.last_name || ''}`.trim() || body.email || 'Unknown Lead'
-    ).trim() || body.email || 'Unknown Lead'
+    const leadName = (body.name || body.email || 'Unknown Lead').trim() || 'Unknown Lead'
 
-    const isForm1 = !!(body.commitment || body.barrier || body.days_per_week || body.need)
     let status = 'New Lead'
     let source = 'Website'
 
-    if (isForm1) {
+    if (body._form === 'assessment') {
       status = commitmentToStatus(body.commitment)
       source = 'FunctionalFIT Form'
+    } else if (body._form === 'consultation') {
+      source = mapSource(body.source || '')
     } else {
-      source = mapSource(body.source || body.how_did_you_hear || body._form || '')
+      // Legacy path: detect by field presence
+      if (body.commitment || body.barrier || body.days_per_week || body.need) {
+        status = commitmentToStatus(body.commitment)
+        source = 'FunctionalFIT Form'
+      } else {
+        source = mapSource(body.source || body.how_did_you_hear || body._form || '')
+      }
     }
 
     const notes = buildNotes(body)
@@ -117,7 +187,7 @@ export async function POST(request) {
 
     if (error) throw error
 
-    // Send email notification to Freddy
+    // Email notification to Freddy
     try {
       await resend.emails.send({
         from: 'myfitpro@getfreddyfit.com',
@@ -132,6 +202,7 @@ export async function POST(request) {
               ${body.email ? `<tr><td style="padding:8px 0;color:#64748B;font-size:13px">Email</td><td style="padding:8px 0">${body.email}</td></tr>` : ''}
               ${goal ? `<tr><td style="padding:8px 0;color:#64748B;font-size:13px">Goal</td><td style="padding:8px 0">${goal}</td></tr>` : ''}
               <tr><td style="padding:8px 0;color:#64748B;font-size:13px">Source</td><td style="padding:8px 0">${source}</td></tr>
+              <tr><td style="padding:8px 0;color:#64748B;font-size:13px">Status</td><td style="padding:8px 0">${status}</td></tr>
               ${notes ? `<tr><td style="padding:8px 0;color:#64748B;font-size:13px;vertical-align:top">Notes</td><td style="padding:8px 0;white-space:pre-wrap">${notes}</td></tr>` : ''}
             </table>
             <div style="margin-top:24px">
@@ -142,10 +213,8 @@ export async function POST(request) {
       })
     } catch (emailErr) {
       console.error('Email notification failed:', emailErr)
-      // Don't fail the whole request if email fails — lead is already saved
     }
 
-    // Redirect browser back to site, or return JSON for API calls
     if (isFormSubmit) {
       return Response.redirect(nextUrl + '?submitted=1', 302)
     }
