@@ -23,30 +23,43 @@ function row(label, value) {
   if (!value) return ''
   return `
     <tr>
-      <td style="padding:10px 12px;border-bottom:1px solid #F1F5F9;color:#64748B;font-size:13px;white-space:nowrap;vertical-align:top;width:160px">${label}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #F1F5F9;color:#64748B;font-size:13px;white-space:nowrap;vertical-align:top;width:180px">${label}</td>
       <td style="padding:10px 12px;border-bottom:1px solid #F1F5F9;font-size:14px;vertical-align:top">${value}</td>
     </tr>`
 }
 
 function buildEmail(name, body, status, source) {
+  const isAssessment = body._form === 'assessment'
+  const isConsultation = body._form === 'consultation'
+
+  const assessmentRows = isAssessment ? `
+    ${row('Primary Goal', body.goal)}
+    ${row('Current Barriers', body.barrier)}
+    ${row('Training Days/Week', body.days_per_week)}
+    ${row('Biggest Need', body.need)}
+    ${row('Commitment', body.commitment)}
+  ` : ''
+
+  const consultationRows = isConsultation ? `
+    ${row('How They Heard', body.source)}
+    ${row('Current Weight', body.current_weight)}
+    ${row('Fitness Goal', body.goal)}
+    ${row('Why It Matters', body.goal_importance)}
+    ${row('Injuries / Medical', body.medical_history)}
+    ${row('Best Time to Reach', body.preferred_contact_time)}
+    ${row('Additional Info', body.message)}
+  ` : ''
+
   return `
     <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;background:#fff">
-      <h2 style="color:#2BAADF;margin:0 0 4px;font-size:22px">New Lead: ${name}</h2>
+      <h2 style="color:#2BAADF;margin:0 0 4px;font-size:22px">New ${isConsultation ? 'Consultation Request' : 'Lead'}: ${name}</h2>
       <p style="margin:0 0 20px;color:#64748B;font-size:13px">Status: <strong>${status}</strong> &nbsp;|&nbsp; Source: <strong>${source}</strong></p>
       <table style="width:100%;border-collapse:collapse;border:1px solid #E2E8F0;border-radius:8px;overflow:hidden">
         ${row('Name', name)}
         ${row('Email', body.email)}
         ${row('Phone', body.phone)}
-        ${row('Primary Goal', body.goal)}
-        ${row('Current Barriers', body.barrier)}
-        ${row('Training Days/Week', body.days_per_week)}
-        ${row('Biggest Need', body.need)}
-        ${row('Commitment', body.commitment)}
-        ${row('Current Weight', body.current_weight)}
-        ${row('Goal Importance', body.goal_importance)}
-        ${row('Injuries / Medical', body.medical_history)}
-        ${row('Best Time to Reach', body.preferred_contact_time)}
-        ${row('Message', body.message)}
+        ${assessmentRows}
+        ${consultationRows}
         ${row('Submitted', body.timestamp)}
       </table>
       <div style="margin-top:24px">
@@ -88,21 +101,22 @@ export async function POST(request) {
 
     const leadName = (body.name || '').trim() || (body.email || '').trim() || 'Unknown Lead'
     const status = commitmentToStatus(body.commitment || '')
-    const source = body._form === 'assessment' ? 'FunctionalFIT Form' : 'Website'
+    const source = body._form === 'assessment' ? 'FunctionalFIT Form' : body._form === 'consultation' ? 'Consultation Form' : 'Website'
     const goal = (body.goal || '').slice(0, 300)
 
     const noteLines = [
-      body.goal            && `Goal: ${body.goal}`,
-      body.barrier         && `Barrier: ${body.barrier}`,
-      body.days_per_week   && `Training days/week: ${body.days_per_week}`,
-      body.need            && `Needs most: ${body.need}`,
-      body.commitment      && `Commitment: ${body.commitment}`,
-      body.current_weight  && `Current weight: ${body.current_weight}`,
-      body.goal_importance && `Goal importance: ${body.goal_importance}`,
-      body.medical_history && `Medical/Injuries: ${body.medical_history}`,
+      body.goal                 && `Goal: ${body.goal}`,
+      body.barrier              && `Barrier: ${body.barrier}`,
+      body.days_per_week        && `Training days/week: ${body.days_per_week}`,
+      body.need                 && `Needs most: ${body.need}`,
+      body.commitment           && `Commitment: ${body.commitment}`,
+      body.source               && `How they heard: ${body.source}`,
+      body.current_weight       && `Current weight: ${body.current_weight}`,
+      body.goal_importance      && `Goal importance: ${body.goal_importance}`,
+      body.medical_history      && `Medical/Injuries: ${body.medical_history}`,
       body.preferred_contact_time && `Best time: ${body.preferred_contact_time}`,
-      body.message         && `Message: ${body.message}`,
-      body.timestamp       && `Submitted: ${body.timestamp}`,
+      body.message              && `Message: ${body.message}`,
+      body.timestamp            && `Submitted: ${body.timestamp}`,
     ].filter(Boolean)
     const notes = noteLines.join('\n')
 
@@ -125,7 +139,7 @@ export async function POST(request) {
       await resend.emails.send({
         from: 'myfitpro@getfreddyfit.com',
         to: 'readyfit91@gmail.com',
-        subject: `New Lead: ${leadName}`,
+        subject: `New ${body._form === 'consultation' ? 'Consultation' : 'Lead'}: ${leadName}`,
         html: buildEmail(leadName, body, status, source)
       })
     } catch (emailErr) {
