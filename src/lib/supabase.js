@@ -8,35 +8,29 @@ export const supabase = supabaseUrl ? createClient(supabaseUrl, supabaseKey) : n
 // ── CLIENTS ──────────────────────────────────────────────────────────────────
 
 export async function getAllClients() {
-  const { data, error } = await supabase
-    .from('clients')
-    .select('*')
-    .order('created_at', { ascending: false })
-  if (error) throw error
-  return data || []
+  const res = await fetch('/api/clients')
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error || `Failed to load clients (${res.status})`)
+  }
+  const { clients, error } = await res.json()
+  if (error) throw new Error(error)
+  return clients || []
 }
 
 export async function saveClient(client) {
-  const payload = {
-    name: client.name,
-    email: client.email || '',
-    goal: client.goal || '',
-    dob: client.dob || '',
-    equipment: client.equipment || '',
-    trainer_notes: client.trainerNotes || '',
-    updated_at: new Date().toISOString()
+  const res = await fetch('/api/clients', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(client)
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error || `Failed to save client (${res.status})`)
   }
-  if (client.id) {
-    // Existing client — update by id
-    const { data, error } = await supabase.from('clients').update(payload).eq('id', client.id).select()
-    if (error) throw error
-    return data?.[0] || null
-  } else {
-    // New client — insert with a fresh UUID
-    const { data, error } = await supabase.from('clients').insert({ ...payload, id: crypto.randomUUID() }).select()
-    if (error) throw error
-    return data?.[0] || null
-  }
+  const { client: saved, error } = await res.json()
+  if (error) throw new Error(error)
+  return saved
 }
 
 export async function deleteClient(clientId) {
