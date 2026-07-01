@@ -7430,7 +7430,7 @@ function Schedule({ onBack, allClients }) {
   })
   const [sessions, setSessions] = useState([])
   const [booking, setBooking] = useState(null) // { date, time } or { session } for editing
-  const [form, setForm] = useState({ client_name: '', client_id: null, session_type: 'FIT60', duration: 60, notes: '', link: '' })
+  const [form, setForm] = useState({ client_name: '', client_id: null, client_email: '', session_type: 'FIT60', duration: 60, notes: '', link: '' })
   const [recurring, setRecurring] = useState(false)
   const [clientSearch, setClientSearch] = useState('')
   const [saving, setSaving] = useState(false)
@@ -7485,7 +7485,7 @@ function Schedule({ onBack, allClients }) {
 
   const openNew = (date, hour) => {
     const time = `${String(hour).padStart(2, '0')}:00`
-    setForm({ client_name: '', client_id: null, session_type: 'FIT60', duration: 60, notes: '', link: '' })
+    setForm({ client_name: '', client_id: null, client_email: '', session_type: 'FIT60', duration: 60, notes: '', link: '' })
     setRecurring(false)
     setClientSearch('')
     setBooking({ date: fmt(date), time })
@@ -7496,7 +7496,7 @@ function Schedule({ onBack, allClients }) {
     const target = session._virtualOf
       ? sessions.find(s => s.id === session._virtualOf) || session
       : session
-    setForm({ client_name: target.client_name, client_id: target.client_id, session_type: target.session_type || 'FIT60', duration: target.duration, notes: target.notes || '', link: target.link || '' })
+    setForm({ client_name: target.client_name, client_id: target.client_id, client_email: target.client_email || '', session_type: target.session_type || 'FIT60', duration: target.duration, notes: target.notes || '', link: target.link || '' })
     setRecurring(target.recurring || false)
     setClientSearch(target.client_name)
     setBooking({ session: target })
@@ -7516,9 +7516,8 @@ function Schedule({ onBack, allClients }) {
         const filtered = prev.filter(s => s.id !== saved.id)
         return [...filtered, saved].sort((a, b) => a.time.localeCompare(b.time))
       })
-      // Send confirmation email if client has an email on file
-      const clientRecord = allClients.find(c => c.id === form.client_id)
-      const clientEmail = clientRecord?.email || ''
+      // Send confirmation email if client has an email
+      const clientEmail = form.client_email?.trim() || ''
       if (clientEmail && !booking.session) {
         fetch('/api/send-confirmation', {
           method: 'POST',
@@ -7680,7 +7679,7 @@ function Schedule({ onBack, allClients }) {
               {filteredClients.length > 0 && (
                 <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: `1px solid ${C.border}`, borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.10)', zIndex: 10, marginTop: 2 }}>
                   {filteredClients.map(c => (
-                    <button key={c.id} onClick={() => { setClientSearch(c.name); setForm(f => ({ ...f, client_name: c.name, client_id: c.id })) }}
+                    <button key={c.id} onClick={() => { setClientSearch(c.name); setForm(f => ({ ...f, client_name: c.name, client_id: c.id, client_email: c.email || f.client_email })) }}
                       style={{ display: 'block', width: '100%', padding: '9px 14px', background: 'transparent', border: 'none', borderBottom: `1px solid ${C.border}22`, fontSize: 13, fontWeight: 600, color: C.text, cursor: 'pointer', textAlign: 'left', fontFamily: 'Montserrat,sans-serif' }}
                       onMouseEnter={e => e.currentTarget.style.background = C.faint}
                       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
@@ -7689,6 +7688,15 @@ function Schedule({ onBack, allClients }) {
                   ))}
                 </div>
               )}
+            </div>
+
+            {/* Client Email */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 5 }}>Client Email <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(for confirmation)</span></div>
+              <input value={form.client_email} onChange={e => setForm(f => ({ ...f, client_email: e.target.value }))}
+                placeholder="client@email.com"
+                type="email"
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontFamily: 'Montserrat,sans-serif', color: C.text, boxSizing: 'border-box' }} />
             </div>
 
             {/* Session Type */}
