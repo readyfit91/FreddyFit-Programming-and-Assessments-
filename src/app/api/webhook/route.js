@@ -11,6 +11,21 @@ const CORS = {
   'Access-Control-Allow-Headers': 'Content-Type',
 }
 
+// Case-insensitive field lookup — handles spaces, underscores, and mixed case
+// e.g. get(f, 'First Name') also matches 'first_name', 'firstname', 'first name'
+function get(obj, ...keys) {
+  for (const key of keys) {
+    if (obj[key] !== undefined && obj[key] !== '') return obj[key]
+    const needle = key.toLowerCase().replace(/[\s_]+/g, '')
+    for (const k of Object.keys(obj)) {
+      if (k.toLowerCase().replace(/[\s_]+/g, '') === needle) {
+        if (obj[k] !== undefined && obj[k] !== '') return obj[k]
+      }
+    }
+  }
+  return ''
+}
+
 function commitmentToStatus(commitment = '') {
   const c = commitment.toLowerCase()
   if (c.includes('serious') || c.includes('ready to start') || c.includes('sign up')) return 'Follow Up'
@@ -30,86 +45,81 @@ function mapSource(src = '') {
   return src || 'Website'
 }
 
-// Normalise a formsubmit.co webhook payload.
-// formsubmit.co can send the form fields either as a flat JSON object or
-// wrapped inside a "data" key.  Meta fields start with "_".
+// Unwrap formsubmit.co payloads that nest fields inside a "data" key
 function extractFields(raw) {
-  // If fields are nested under a "data" key, flatten them up
-  const fields = (raw.data && typeof raw.data === 'object') ? { ...raw, ...raw.data } : raw
-  return fields
+  return (raw.data && typeof raw.data === 'object') ? { ...raw, ...raw.data } : raw
 }
 
-// Map Assessment quiz field names (which contain spaces) to normalised keys
-function normaliseAssessmentFields(f) {
-  return {
-    name: (`${f['First Name'] || ''} ${f['Last Name'] || ''}`).trim() || f.name || '',
-    email: f['Email'] || f.email || '',
-    phone: f['Phone Number'] || f.phone || '',
-    goal: f['Primary Goal'] || f.goal || '',
-    barrier: f['Current Barriers'] || f.barrier || '',
-    days_per_week: f['Training Days Per Week'] || f.days_per_week || '',
-    need: f['Biggest Need'] || f.need || '',
-    commitment: f['Commitment Level'] || f.commitment || '',
-    timestamp: f['Timestamp'] || '',
-    _form: 'assessment',
-  }
-}
-
-// Map Consultation form field names to normalised keys
-function normaliseConsultationFields(f) {
-  return {
-    name: f.name || '',
-    email: f.email || '',
-    phone: f.phone || '',
-    goal: f.fitness_goal || f.goal || '',
-    source: f.referral_source || f.source || '',
-    current_weight: f.current_weight || '',
-    goal_importance: f.goal_importance || '',
-    medical_history: [f.injuries, f.medication].filter(Boolean).join(' | ') || f.medical_history || '',
-    preferred_contact_time: f.contact_availability || f.preferred_contact_time || '',
-    message: f.message || '',
-    _form: 'consultation',
-  }
-}
-
-// Detect which form sent the payload and return normalised fields
 function normaliseFields(raw) {
   const f = extractFields(raw)
 
-  // Assessment quiz signals: space-separated field names or known keys
-  const isAssessment = !!(
-    f['First Name'] || f['Last Name'] || f['Primary Goal'] ||
-    f['Current Barriers'] || f['Commitment Level'] || f['Biggest Need']
-  )
-  if (isAssessment) return normaliseAssessmentFields(f)
+  const firstName  = get(f, 'First Name', 'first_name', 'firstname')
+  const lastName   = get(f, 'Last Name', 'last_name', 'lastname')
+  const commitment = get(f, 'Commitment Level', 'commitment_level', 'commitment')
+  const primaryGoal = get(f, 'Primary Goal', 'primary_goal', 'goal')
+  const barriers   = get(f, 'Current Barriers', 'current_barriers', 'barrier', 'barriers')
+  const trainingDays = get(f, 'Training Days Per Week', 'training_days_per_week', 'days_per_week')
+  const biggestNeed = get(f, 'Biggest Need', 'biggest_need', 'need')
+  const emailVal   = get(f, 'Email', 'email')
+  const phoneVal   = get(f, 'Phone Number', 'phone_number', 'phone')
+  const timestamp  = get(f, 'Timestamp', 'timestamp')
 
-  // Consultation form signals
-  const isConsultation = !!(
-    f.fitness_goal || f.referral_source || f.injuries ||
-    f.medication || f.contact_availability || f.goal_importance
-  )
-  if (isConsultation) return normaliseConsultationFields(f)
+  // Assessment quiz: identified by presence of quiz-specific fields
+  if (firstName || commitment || primaryGoal || barriers || trainingDays || biggestNeed) {
+    const name = firstName ? `${firstName} ${lastName}`.trim() : get(f, 'name')
+    return {
+      name,
+      email: emailVal,
+      phone: phoneVal,
+      goal: primaryGoal,
+      barrier: barriers,
+      days_per_week: trainingDays,
+      need: biggestNeed,
+      commitment,
+      timestamp,
+      _form: 'assessment',
+    }
+  }
 
-  // Legacy / unknown — return as-is so existing logic still works
+  // Consultation form fields
+  const fitnessGoal = get(f, 'fitness_goal', 'goal')
+  const referral    = get(f, 'referral_source', 'source', 'how_did_you_hear')
+  if (fitnessGoal || referral || get(f, 'injuries') || get(f, 'medication') || get(f, 'contact_availability')) {
+    return {
+      name: get(f, 'name'),
+      email: emailVal || get(f, 'email'),
+      phone: phoneVal || get(f, 'phone'),
+      goal: fitnessGoal,
+      source: referral,
+      current_weight: get(f, 'current_weight'),
+      goal_importance: get(f, 'goal_importance'),
+      medical_history: [get(f, 'injuries'), get(f, 'medication')].filter(Boolean).join(' | '),
+      preferred_contact_time: get(f, 'contact_availability', 'preferred_contact_time'),
+      message: get(f, 'message'),
+      _form: 'consultation',
+    }
+  }
+
+  // Fallback: pass through as-is
   return f
 }
 
 function buildNotes(body) {
   const lines = []
-  if (body.goal)                    lines.push(`🎯 Goal: ${body.goal}`)
-  if (body.barrier)                 lines.push(`🚧 Barrier: ${body.barrier}`)
-  if (body.days_per_week)           lines.push(`📅 Training days/week: ${body.days_per_week}`)
-  if (body.need)                    lines.push(`💡 Needs most: ${body.need}`)
-  if (body.commitment)              lines.push(`✅ Commitment: ${body.commitment}`)
-  if (body.current_weight)          lines.push(`⚖️ Current weight: ${body.current_weight}`)
-  if (body.goal_importance)         lines.push(`🔥 Goal importance: ${body.goal_importance}`)
-  if (body.motivation)              lines.push(`💬 Motivation: ${body.motivation}`)
-  if (body.preferred_contact_time)  lines.push(`🕐 Best time to contact: ${body.preferred_contact_time}`)
-  if (body.medical_history)         lines.push(`🏥 Medical/Injuries: ${body.medical_history}`)
-  if (body.medications)             lines.push(`💊 Medications: ${body.medications}`)
-  if (body.additional_info)         lines.push(`📝 Additional: ${body.additional_info}`)
-  if (body.message)                 lines.push(`💬 Message: ${body.message}`)
-  if (body.timestamp)               lines.push(`🕒 Submitted: ${body.timestamp}`)
+  if (body.goal)                   lines.push(`🎯 Goal: ${body.goal}`)
+  if (body.barrier)                lines.push(`\uD83D\UDEA7 Barrier: ${body.barrier}`)
+  if (body.days_per_week)          lines.push(`📅 Training days/week: ${body.days_per_week}`)
+  if (body.need)                   lines.push(`💡 Needs most: ${body.need}`)
+  if (body.commitment)             lines.push(`✅ Commitment: ${body.commitment}`)
+  if (body.current_weight)         lines.push(`⚖️ Current weight: ${body.current_weight}`)
+  if (body.goal_importance)        lines.push(`🔥 Goal importance: ${body.goal_importance}`)
+  if (body.motivation)             lines.push(`💬 Motivation: ${body.motivation}`)
+  if (body.preferred_contact_time) lines.push(`🕐 Best time: ${body.preferred_contact_time}`)
+  if (body.medical_history)        lines.push(`🏥 Medical/Injuries: ${body.medical_history}`)
+  if (body.medications)            lines.push(`💊 Medications: ${body.medications}`)
+  if (body.additional_info)        lines.push(`📝 Additional: ${body.additional_info}`)
+  if (body.message)                lines.push(`💬 Message: ${body.message}`)
+  if (body.timestamp)              lines.push(`🕒 Submitted: ${body.timestamp}`)
   return lines.join('\n')
 }
 
@@ -137,7 +147,11 @@ export async function POST(request) {
 
   try {
     const raw = await parseBody(request)
+    // Log the raw payload so we can see exactly what formsubmit.co sends
+    console.log('WEBHOOK RAW PAYLOAD:', JSON.stringify(raw))
+
     const body = normaliseFields(raw)
+    console.log('WEBHOOK NORMALISED:', JSON.stringify(body))
 
     const nextUrl = raw._next || raw.redirect || 'https://getfreddyfit.com'
 
@@ -160,12 +174,11 @@ export async function POST(request) {
     } else if (body._form === 'consultation') {
       source = mapSource(body.source || '')
     } else {
-      // Legacy path: detect by field presence
       if (body.commitment || body.barrier || body.days_per_week || body.need) {
         status = commitmentToStatus(body.commitment)
         source = 'FunctionalFIT Form'
       } else {
-        source = mapSource(body.source || body.how_did_you_hear || body._form || '')
+        source = mapSource(body.source || body.how_did_you_hear || '')
       }
     }
 
@@ -187,7 +200,6 @@ export async function POST(request) {
 
     if (error) throw error
 
-    // Email notification to Freddy
     try {
       await resend.emails.send({
         from: 'myfitpro@getfreddyfit.com',
@@ -206,7 +218,7 @@ export async function POST(request) {
               ${notes ? `<tr><td style="padding:8px 0;color:#64748B;font-size:13px;vertical-align:top">Notes</td><td style="padding:8px 0;white-space:pre-wrap">${notes}</td></tr>` : ''}
             </table>
             <div style="margin-top:24px">
-              <a href="https://myfitpro.vercel.app" style="background:#2BAADF;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px">Open CRM →</a>
+              <a href="https://myfitpro.vercel.app" style="background:#2BAADF;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px">Open CRM &#x2192;</a>
             </div>
           </div>
         `
