@@ -6372,6 +6372,7 @@ Output only the message. Nothing else.`
 function CrmLeads({ onBack, onNavigateToRoster }) {
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(null)
   const [search, setSearch] = useState('')
   const [editing, setEditing] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -6385,7 +6386,14 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
 
   const load = useCallback(async () => {
     setLoading(true)
-    try { setLeads(await getAllLeads()) } catch (e) { console.error('CRM load error:', e) }
+    setLoadError(null)
+    try {
+      const data = await getAllLeads()
+      setLeads(data)
+    } catch (e) {
+      console.error('CRM load error:', e)
+      setLoadError(e.message || 'Failed to load leads')
+    }
     setLoading(false)
   }, [])
 
@@ -6646,6 +6654,17 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
         <Btn onClick={openNew}>+ New Lead</Btn>
       </div>
 
+      {/* ── LOAD ERROR ── */}
+      {loadError && (
+        <div style={{ background: '#FEF2F2', border: '2px solid #FCA5A5', borderRadius: 12, padding: '14px 18px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 13, color: '#991B1B' }}>⚠️ Failed to load leads</div>
+            <div style={{ fontSize: 12, color: '#7F1D1D', marginTop: 4 }}>{loadError}</div>
+          </div>
+          <button onClick={load} style={{ background: '#DC2626', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>Retry</button>
+        </div>
+      )}
+
       {/* ── BOSS PANEL ── */}
       {!loading && actionItems.length > 0 && (
         <div style={{ background: '#FFFBEB', border: '2px solid #F59E0B', borderRadius: 14, padding: '16px 18px', marginBottom: 16 }}>
@@ -6873,7 +6892,7 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
   const [busy, setBusy] = useState(null)
   const today = localDate()
 
-  const load = () => getAllLeads().then(setLeads).catch(() => {}).finally(() => setLoading(false))
+  const load = () => getAllLeads().then(setLeads).catch(e => console.error('Boss panel load error:', e)).finally(() => setLoading(false))
   useEffect(() => { load() }, [])
 
   const actionItems = leads

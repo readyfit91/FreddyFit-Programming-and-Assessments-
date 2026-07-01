@@ -198,12 +198,12 @@ export async function deleteWeightLog(logId) {
 // ── CRM LEADS ────────────────────────────────────────────────────────────────
 
 export async function getAllLeads() {
-  if (!supabase) return []
+  if (!supabase) throw new Error('Database not configured — check Supabase environment variables')
   const { data, error } = await supabase
     .from('leads')
     .select('*')
-    .order('date_added', { ascending: false })
-  if (error) throw error
+    .order('updated_at', { ascending: false })
+  if (error) throw new Error(`Leads query failed: ${error.message}`)
   return data || []
 }
 
