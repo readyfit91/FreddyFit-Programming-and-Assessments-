@@ -2285,9 +2285,9 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
 
       const clientData = isEdit
         ? { ...existingClient, name, dob, goal, email: form.email || '', equipment: existingClient.equipment || '', trainerNotes: intakeJson }
-        : { id: makeId(), name, dob, goal, email: form.email || '', equipment: '', trainerNotes: intakeJson, assessments: {} }
-      await saveClient(clientData)
-      onSave(clientData)
+        : { name, dob, goal, email: form.email || '', equipment: '', trainerNotes: intakeJson, assessments: {} }
+      const saved = await saveClient(clientData)
+      onSave(saved ? { ...clientData, id: saved.id, trainerNotes: saved.trainer_notes || intakeJson } : clientData)
     } catch (e) {
       alert('Error saving: ' + e.message)
     }
