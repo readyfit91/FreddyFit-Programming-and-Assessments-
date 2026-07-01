@@ -6194,7 +6194,7 @@ function getOutreachStep(lead) {
   if (!dateAdded) return null
 
   const today = new Date()
-  const daysSinceAdded = Math.floor((today - dateAdded) / 86400000)
+  const daysSinceAdded = Math.max(0, Math.floor((today - dateAdded) / 86400000))
 
   // Which step was last completed — inferred from last_contact_date
   let completedUpToDay = -1

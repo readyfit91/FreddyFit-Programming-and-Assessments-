@@ -117,7 +117,7 @@ export async function POST(request) {
 
     const supabase = createClient(supabaseUrl, supabaseKey)
 
-    const today = new Date().toISOString().split('T')[0]
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })
 
     const { error } = await supabase.from('leads').insert({
       name: name.trim(),
