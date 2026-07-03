@@ -7672,7 +7672,7 @@ function Schedule({ onBack, allClients }) {
   })
   const [sessions, setSessions] = useState([])
   const [booking, setBooking] = useState(null) // { date, time } or { session } for editing
-  const [form, setForm] = useState({ client_name: '', client_id: null, client_email: '', session_type: 'FIT60', duration: 60, notes: '', link: '' })
+  const [form, setForm] = useState({ client_name: '', client_id: null, client_email: '', client_phone: '', session_type: 'FIT60', duration: 60, notes: '', link: '' })
   const [recurring, setRecurring] = useState(false)
   const [clientSearch, setClientSearch] = useState('')
   const [saving, setSaving] = useState(false)
@@ -7727,7 +7727,7 @@ function Schedule({ onBack, allClients }) {
 
   const openNew = (date, hour) => {
     const time = `${String(hour).padStart(2, '0')}:00`
-    setForm({ client_name: '', client_id: null, client_email: '', session_type: 'FIT60', duration: 60, notes: '', link: '' })
+    setForm({ client_name: '', client_id: null, client_email: '', client_phone: '', session_type: 'FIT60', duration: 60, notes: '', link: '' })
     setRecurring(false)
     setClientSearch('')
     setBooking({ date: fmt(date), time })
@@ -7738,7 +7738,7 @@ function Schedule({ onBack, allClients }) {
     const target = session._virtualOf
       ? sessions.find(s => s.id === session._virtualOf) || session
       : session
-    setForm({ client_name: target.client_name, client_id: target.client_id, client_email: target.client_email || '', session_type: target.session_type || 'FIT60', duration: target.duration, notes: target.notes || '', link: target.link || '' })
+    setForm({ client_name: target.client_name, client_id: target.client_id, client_email: target.client_email || '', client_phone: target.client_phone || '', session_type: target.session_type || 'FIT60', duration: target.duration, notes: target.notes || '', link: target.link || '' })
     setRecurring(target.recurring || false)
     setClientSearch(target.client_name)
     setBooking({ session: target })
@@ -7771,6 +7771,22 @@ function Schedule({ onBack, allClients }) {
             time: payload.time,
             sessionType: form.session_type,
             notes: form.notes,
+            recurring,
+          })
+        }).catch(() => {}) // fire-and-forget, don't block UI
+      }
+      // Send confirmation SMS if client has a phone number
+      const clientPhone = form.client_phone?.trim() || ''
+      if (clientPhone && !booking.session) {
+        fetch('/api/send-sms-confirmation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clientName: form.client_name,
+            clientPhone,
+            date: payload.date,
+            time: payload.time,
+            sessionType: form.session_type,
             recurring,
           })
         }).catch(() => {}) // fire-and-forget, don't block UI
@@ -7924,8 +7940,15 @@ function Schedule({ onBack, allClients }) {
                     <button key={c.id} onClick={() => {
                       setClientSearch(c.name)
                       let email = c.email || ''
-                      if (!email) { try { email = JSON.parse(c.trainerNotes || '{}').email || '' } catch {} }
-                      setForm(f => ({ ...f, client_name: c.name, client_id: c.id, client_email: email }))
+                      let phone = c.phone || ''
+                      if (!email || !phone) {
+                        try {
+                          const notes = JSON.parse(c.trainerNotes || '{}')
+                          if (!email) email = notes.email || ''
+                          if (!phone) phone = notes.phone || ''
+                        } catch {}
+                      }
+                      setForm(f => ({ ...f, client_name: c.name, client_id: c.id, client_email: email, client_phone: phone }))
                     }}
                       style={{ display: 'block', width: '100%', padding: '9px 14px', background: 'transparent', border: 'none', borderBottom: `1px solid ${C.border}22`, fontSize: 13, fontWeight: 600, color: C.text, cursor: 'pointer', textAlign: 'left', fontFamily: 'Montserrat,sans-serif' }}
                       onMouseEnter={e => e.currentTarget.style.background = C.faint}
@@ -7943,6 +7966,15 @@ function Schedule({ onBack, allClients }) {
               <input value={form.client_email} onChange={e => setForm(f => ({ ...f, client_email: e.target.value }))}
                 placeholder="client@email.com"
                 type="email"
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontFamily: 'Montserrat,sans-serif', color: C.text, boxSizing: 'border-box' }} />
+            </div>
+
+            {/* Client Phone */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 5 }}>Client Phone <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(for SMS confirmation)</span></div>
+              <input value={form.client_phone} onChange={e => setForm(f => ({ ...f, client_phone: e.target.value }))}
+                placeholder="(555) 123-4567"
+                type="tel"
                 style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontFamily: 'Montserrat,sans-serif', color: C.text, boxSizing: 'border-box' }} />
             </div>
 

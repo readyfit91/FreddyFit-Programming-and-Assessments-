@@ -301,6 +301,8 @@ export async function saveSession(session) {
   const payload = {
     client_id: session.client_id || null,
     client_name: session.client_name || '',
+    client_email: session.client_email || '',
+    client_phone: session.client_phone || '',
     date: session.date,
     time: session.time,
     session_type: session.session_type || 'FIT60',

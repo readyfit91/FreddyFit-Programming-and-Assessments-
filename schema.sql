@@ -78,3 +78,31 @@ create table if not exists leads (
 
 alter table leads enable row level security;
 create policy "allow all" on leads for all using (true) with check (true);
+
+-- ── SESSIONS (calendar bookings) ────────────────────────────────────────────
+
+create table if not exists sessions (
+  id uuid primary key default gen_random_uuid(),
+  client_id text references clients(id) on delete set null,
+  client_name text not null default '',
+  client_email text default '',
+  client_phone text default '',
+  date date not null,
+  time text not null,
+  session_type text default 'FIT60',
+  duration integer default 60,
+  recurring boolean default false,
+  notes text default '',
+  link text default '',
+  exceptions jsonb not null default '[]',
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- Safe to run against an existing sessions table that predates this file.
+alter table sessions add column if not exists client_email text default '';
+alter table sessions add column if not exists client_phone text default '';
+
+alter table sessions enable row level security;
+drop policy if exists "allow all" on sessions;
+create policy "allow all" on sessions for all using (true) with check (true);
