@@ -121,6 +121,12 @@ export default function LeadCapture() {
                 </div>
               )}
 
+              <div style={{ fontSize: 11, color: SUB, lineHeight: 1.6 }}>
+                By submitting, you agree to receive text messages and emails from FreddyFit about your inquiry. Msg &amp; data rates may apply. Reply STOP to opt out. See our{' '}
+                <a href="/privacy" style={{ color: ACCENT, fontWeight: 700 }}>Privacy Policy</a> and{' '}
+                <a href="/terms" style={{ color: ACCENT, fontWeight: 700 }}>Terms</a>.
+              </div>
+
               <button type="submit" disabled={status === 'submitting' || !form.name.trim()}
                 style={{ padding: '14px', borderRadius: 10, border: 'none', background: status === 'submitting' ? '#CBD5E0' : ACCENT, color: '#fff', fontFamily: 'Montserrat, sans-serif', fontWeight: 800, fontSize: 14, cursor: status === 'submitting' ? 'not-allowed' : 'pointer', letterSpacing: 1, marginTop: 4, transition: 'background .15s' }}>
                 {status === 'submitting' ? 'Sending…' : 'Submit →'}
