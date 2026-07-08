@@ -7642,7 +7642,9 @@ function SubscriptionTracker({ client, onBack }) {
 
 // ── SCHEDULE ─────────────────────────────────────────────────────────────────
 
-const HOURS = Array.from({ length: 14 }, (_, i) => i + 6) // 6am–7pm
+const DAY_START_MIN = 6 * 60   // 6:00am
+const DAY_END_MIN = 20 * 60    // 8:00pm (exclusive)
+const SLOT_OPTIONS = [15, 30, 60]
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 function fmt12(time) {
   if (!time) return ''
@@ -7650,6 +7652,13 @@ function fmt12(time) {
   const ampm = h >= 12 ? 'PM' : 'AM'
   const hour = h % 12 || 12
   return `${hour}:${String(m).padStart(2,'0')} ${ampm}`
+}
+function minutesToTime(mins) {
+  return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`
+}
+function timeToMinutes(time) {
+  const [h, m] = time.split(':').map(Number)
+  return h * 60 + (m || 0)
 }
 const SESSION_TYPES = [
   { label: 'FIT60',                   duration: 60,  color: '#2563EB' },
@@ -7677,6 +7686,14 @@ function Schedule({ onBack, allClients }) {
   const [clientSearch, setClientSearch] = useState('')
   const [saving, setSaving] = useState(false)
   const [deleteMode, setDeleteMode] = useState(false)
+  const [slotMinutes, setSlotMinutes] = useState(30)
+
+  // ── Quick Book: pick a day + time and it autosaves as you fill it in ──────
+  const [showQuickBook, setShowQuickBook] = useState(false)
+  const [quickForm, setQuickForm] = useState(null)
+  const [quickClientSearch, setQuickClientSearch] = useState('')
+  const [quickSaveState, setQuickSaveState] = useState('idle') // idle | saving | saved | error
+  const quickSaveTimer = useRef(null)
 
   const weekEnd = new Date(weekStart)
   weekEnd.setDate(weekEnd.getDate() + 6)
@@ -7725,8 +7742,8 @@ function Schedule({ onBack, allClients }) {
     setWeekStart(d)
   }
 
-  const openNew = (date, hour) => {
-    const time = `${String(hour).padStart(2, '0')}:00`
+  const openNew = (date, slotStart) => {
+    const time = minutesToTime(slotStart)
     setForm({ client_name: '', client_id: null, client_email: '', session_type: 'FIT60', duration: 60, notes: '', link: '' })
     setRecurring(false)
     setClientSearch('')
@@ -7810,11 +7827,66 @@ function Schedule({ onBack, allClients }) {
     closeBooking()
   }
 
-  const sessionAt = (date, hour) => sessions.filter(s => s.date === fmt(date) && s.time.startsWith(String(hour).padStart(2, '0')))
+  const sessionAt = (date, slotStart) => sessions.filter(s => {
+    if (s.date !== fmt(date)) return false
+    const mins = timeToMinutes(s.time)
+    return mins >= slotStart && mins < slotStart + slotMinutes
+  })
+
+  const slots = []
+  for (let m = DAY_START_MIN; m < DAY_END_MIN; m += slotMinutes) slots.push(m)
 
   const filteredClients = clientSearch.length > 0
     ? allClients.filter(c => c.name.toLowerCase().includes(clientSearch.toLowerCase())).slice(0, 6)
     : []
+
+  const filteredQuickClients = quickClientSearch.length > 0
+    ? allClients.filter(c => c.name.toLowerCase().includes(quickClientSearch.toLowerCase())).slice(0, 6)
+    : []
+
+  // ── Quick Book handlers ────────────────────────────────────────────────
+  const openQuickBook = () => {
+    setQuickForm({
+      id: null, client_name: '', client_id: null, client_email: '',
+      date: fmt(today), time: minutesToTime(DAY_START_MIN),
+      session_type: 'FIT60', duration: 60, notes: '', link: '', recurring: false
+    })
+    setQuickClientSearch('')
+    setQuickSaveState('idle')
+    if (quickSaveTimer.current) clearTimeout(quickSaveTimer.current)
+    setShowQuickBook(true)
+  }
+
+  const closeQuickBook = () => {
+    setShowQuickBook(false)
+    if (quickSaveTimer.current) clearTimeout(quickSaveTimer.current)
+  }
+
+  const updateQuickForm = (patch) => {
+    setQuickForm(prev => {
+      const next = { ...prev, ...patch }
+      if (quickSaveTimer.current) clearTimeout(quickSaveTimer.current)
+      if (!next.client_name.trim() || !next.date || !next.time) {
+        setQuickSaveState('idle')
+        return next
+      }
+      setQuickSaveState('saving')
+      quickSaveTimer.current = setTimeout(async () => {
+        try {
+          const saved = await saveSession(next)
+          setQuickForm(f => (f ? { ...f, id: saved.id } : f))
+          setSessions(prevSessions => {
+            const filtered = prevSessions.filter(s => s.id !== saved.id)
+            return [...filtered, saved].sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : a.time < b.time ? -1 : 1)
+          })
+          setQuickSaveState('saved')
+        } catch (e) {
+          setQuickSaveState('error')
+        }
+      }, 700)
+      return next
+    })
+  }
 
   const isToday = d => fmt(d) === fmt(today)
 
@@ -7840,6 +7912,24 @@ function Schedule({ onBack, allClients }) {
         </div>
       </div>
 
+      {/* Slot size + Quick Book */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Increment</span>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {SLOT_OPTIONS.map(m => (
+              <button key={m} onClick={() => setSlotMinutes(m)}
+                style={{ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${slotMinutes === m ? C.accent : C.border}`, background: slotMinutes === m ? C.accent + '18' : '#fff', color: slotMinutes === m ? C.accent : C.sub, fontSize: 11, fontWeight: 800, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+                {m}m
+              </button>
+            ))}
+          </div>
+        </div>
+        <button onClick={openQuickBook} style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: C.accent, color: '#fff', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+          + Quick Book
+        </button>
+      </div>
+
       {/* Calendar grid */}
       <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
         <div style={{ minWidth: 420 }}>
@@ -7858,25 +7948,29 @@ function Schedule({ onBack, allClients }) {
 
           {/* Time rows */}
           <div style={{ maxHeight: 560, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
-            {HOURS.map(hour => (
-              <div key={hour} style={{ display: 'grid', gridTemplateColumns: '44px repeat(7, 1fr)', borderBottom: `1px solid ${C.border}22` }}>
-                <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, padding: '10px 4px 0', textAlign: 'right' }}>
-                  {hour === 12 ? '12p' : hour < 12 ? `${hour}a` : `${hour - 12}p`}
+            {slots.map(slotStart => {
+              const onHour = slotStart % 60 === 0
+              const hour = Math.floor(slotStart / 60)
+              const rowHeight = slotMinutes === 60 ? 48 : slotMinutes === 30 ? 34 : 24
+              return (
+              <div key={slotStart} style={{ display: 'grid', gridTemplateColumns: '44px repeat(7, 1fr)', borderBottom: `1px solid ${C.border}${onHour ? '33' : '11'}` }}>
+                <div style={{ fontSize: 9, fontWeight: onHour ? 700 : 400, color: C.sub, padding: '4px 4px 0', textAlign: 'right', opacity: onHour ? 1 : 0.6 }}>
+                  {onHour ? (hour === 12 ? '12p' : hour < 12 ? `${hour}a` : `${hour - 12}p`) : (slotMinutes === 15 ? `:${String(slotStart % 60).padStart(2, '0')}` : '')}
                 </div>
                 {weekDates.map((d, di) => {
-                  const slots = sessionAt(d, hour)
+                  const slotSessions = sessionAt(d, slotStart)
                   return (
-                    <div key={di} onClick={() => openNew(d, hour)}
-                      style={{ borderLeft: `1px solid ${C.border}`, minHeight: 48, padding: 2, cursor: 'pointer', background: isToday(d) ? C.accent + '04' : 'transparent', transition: 'background .1s', overflow: 'hidden', minWidth: 0 }}
-                      onMouseEnter={e => { if (!slots.length) e.currentTarget.style.background = C.faint }}
+                    <div key={di} onClick={() => openNew(d, slotStart)}
+                      style={{ borderLeft: `1px solid ${C.border}`, minHeight: rowHeight, padding: 2, cursor: 'pointer', background: isToday(d) ? C.accent + '04' : 'transparent', transition: 'background .1s', overflow: 'hidden', minWidth: 0 }}
+                      onMouseEnter={e => { if (!slotSessions.length) e.currentTarget.style.background = C.faint }}
                       onMouseLeave={e => { e.currentTarget.style.background = isToday(d) ? C.accent + '04' : 'transparent' }}>
-                      {slots.map(s => {
+                      {slotSessions.map(s => {
                         const stype = SESSION_TYPES.find(t => t.label === s.session_type) || SESSION_TYPES[0]
                         return (
                         <div key={s.id} onClick={e => { e.stopPropagation(); openEdit(s) }}
                           style={{ background: stype.color, borderRadius: 5, padding: '3px 4px', marginBottom: 2, cursor: 'pointer', overflow: 'hidden', minWidth: 0 }}>
                           <div style={{ fontSize: 10, fontWeight: 800, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.client_name || s.session_type}</div>
-                          <div style={{ fontSize: 8, color: '#fff', opacity: .85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.session_type || 'FIT60'}{s.recurring ? ' 🔁' : ''}</div>
+                          <div style={{ fontSize: 8, color: '#fff', opacity: .85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fmt12(s.time)} · {s.session_type || 'FIT60'}{s.recurring ? ' 🔁' : ''}</div>
                           {s.link && (
                             <a href={s.link.startsWith('http') ? s.link : `tel:${s.link.replace(/\s/g,'')}`}
                               onClick={e => e.stopPropagation()}
@@ -7891,7 +7985,8 @@ function Schedule({ onBack, allClients }) {
                   )
                 })}
               </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       </div>
@@ -7903,10 +7998,19 @@ function Schedule({ onBack, allClients }) {
             <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: 2, color: C.text, marginBottom: 4 }}>
               {booking.session ? 'Edit Session' : 'Book Session'}
             </div>
-            <div style={{ fontSize: 12, color: C.sub, marginBottom: 20 }}>
-              {booking.session
-                ? `${booking.session.date} at ${fmt12(booking.session.time)}`
-                : `${booking.date} at ${fmt12(booking.time)}`}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 5 }}>Date</div>
+                <input type="date" value={booking.session ? booking.session.date : booking.date}
+                  onChange={e => setBooking(b => b.session ? { ...b, session: { ...b.session, date: e.target.value } } : { ...b, date: e.target.value })}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', color: C.text, boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 5 }}>Time</div>
+                <input type="time" step={slotMinutes * 60} value={booking.session ? booking.session.time : booking.time}
+                  onChange={e => setBooking(b => b.session ? { ...b, session: { ...b.session, time: e.target.value } } : { ...b, time: e.target.value })}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', color: C.text, boxSizing: 'border-box' }} />
+              </div>
             </div>
 
             {/* Client search */}
@@ -8024,6 +8128,84 @@ function Schedule({ onBack, allClients }) {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Quick Book modal — pick a day + time, autosaves as you fill it in */}
+      {showQuickBook && quickForm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 340, boxShadow: '0 8px 40px rgba(0,0,0,0.18)', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+              <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: 2, color: C.text }}>⚡ Quick Book</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: quickSaveState === 'saved' ? '#059669' : quickSaveState === 'error' ? C.red : C.sub }}>
+                {quickSaveState === 'saving' && 'Saving…'}
+                {quickSaveState === 'saved' && 'Saved ✓'}
+                {quickSaveState === 'error' && 'Save failed'}
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: C.sub, marginBottom: 20 }}>Pick a day and time — it saves automatically.</div>
+
+            {/* Date + Time */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 5 }}>Date</div>
+                <input type="date" value={quickForm.date}
+                  onChange={e => updateQuickForm({ date: e.target.value })}
+                  style={{ width: '100%', padding: '9px 10px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', color: C.text, boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 5 }}>Time</div>
+                <input type="time" step={slotMinutes * 60} value={quickForm.time}
+                  onChange={e => updateQuickForm({ time: e.target.value })}
+                  style={{ width: '100%', padding: '9px 10px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 12, fontFamily: 'Montserrat,sans-serif', color: C.text, boxSizing: 'border-box' }} />
+              </div>
+            </div>
+
+            {/* Client search */}
+            <div style={{ marginBottom: 16, position: 'relative' }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 5 }}>Client</div>
+              <input
+                value={quickClientSearch}
+                onChange={e => { setQuickClientSearch(e.target.value); updateQuickForm({ client_name: e.target.value, client_id: null }) }}
+                placeholder="Type client name..."
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontWeight: 600, fontFamily: 'Montserrat,sans-serif', color: C.text, boxSizing: 'border-box' }}
+              />
+              {filteredQuickClients.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: `1px solid ${C.border}`, borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.10)', zIndex: 10, marginTop: 2 }}>
+                  {filteredQuickClients.map(c => (
+                    <button key={c.id} onClick={() => {
+                      setQuickClientSearch(c.name)
+                      let email = c.email || ''
+                      if (!email) { try { email = JSON.parse(c.trainerNotes || '{}').email || '' } catch {} }
+                      updateQuickForm({ client_name: c.name, client_id: c.id, client_email: email })
+                    }}
+                      style={{ display: 'block', width: '100%', padding: '9px 14px', background: 'transparent', border: 'none', borderBottom: `1px solid ${C.border}22`, fontSize: 13, fontWeight: 600, color: C.text, cursor: 'pointer', textAlign: 'left', fontFamily: 'Montserrat,sans-serif' }}
+                      onMouseEnter={e => e.currentTarget.style.background = C.faint}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Session Type */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 7 }}>Session Type</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {SESSION_TYPES.map(t => (
+                  <button key={t.label} onClick={() => updateQuickForm({ session_type: t.label, duration: t.duration })}
+                    style={{ padding: '7px 13px', borderRadius: 7, border: `1.5px solid ${quickForm.session_type === t.label ? t.color : C.border}`, background: quickForm.session_type === t.label ? t.color + '18' : '#fff', color: quickForm.session_type === t.label ? t.color : C.sub, fontWeight: 800, fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button type="button" onClick={closeQuickBook} style={{ width: '100%', padding: '10px 0', borderRadius: 8, border: `1.5px solid ${C.border}`, background: '#fff', color: C.sub, fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
+              {quickSaveState === 'saved' ? 'Done' : 'Close'}
+            </button>
           </div>
         </div>
       )}
