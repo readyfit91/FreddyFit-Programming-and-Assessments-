@@ -7694,6 +7694,7 @@ function Schedule({ onBack, allClients }) {
   const [quickClientSearch, setQuickClientSearch] = useState('')
   const [quickSaveState, setQuickSaveState] = useState('idle') // idle | saving | saved | error
   const quickSaveTimer = useRef(null)
+  const quickConfirmSent = useRef(false)
 
   const weekEnd = new Date(weekStart)
   weekEnd.setDate(weekEnd.getDate() + 6)
@@ -7853,6 +7854,7 @@ function Schedule({ onBack, allClients }) {
     })
     setQuickClientSearch('')
     setQuickSaveState('idle')
+    quickConfirmSent.current = false
     if (quickSaveTimer.current) clearTimeout(quickSaveTimer.current)
     setShowQuickBook(true)
   }
@@ -7870,6 +7872,7 @@ function Schedule({ onBack, allClients }) {
         setQuickSaveState('idle')
         return next
       }
+      const wasNew = !next.id
       setQuickSaveState('saving')
       quickSaveTimer.current = setTimeout(async () => {
         try {
@@ -7880,6 +7883,24 @@ function Schedule({ onBack, allClients }) {
             return [...filtered, saved].sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : a.time < b.time ? -1 : 1)
           })
           setQuickSaveState('saved')
+          // Send confirmation email once, at the moment the session is first created
+          const clientEmail = next.client_email?.trim() || ''
+          if (wasNew && clientEmail && !quickConfirmSent.current) {
+            quickConfirmSent.current = true
+            fetch('/api/send-confirmation', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                clientName: next.client_name,
+                clientEmail,
+                date: next.date,
+                time: next.time,
+                sessionType: next.session_type,
+                notes: next.notes,
+                recurring: next.recurring,
+              })
+            }).catch(() => {}) // fire-and-forget, don't block UI
+          }
         } catch (e) {
           setQuickSaveState('error')
         }
@@ -8188,6 +8209,15 @@ function Schedule({ onBack, allClients }) {
                   ))}
                 </div>
               )}
+            </div>
+
+            {/* Client Email */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 5 }}>Client Email <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(for confirmation)</span></div>
+              <input value={quickForm.client_email} onChange={e => updateQuickForm({ client_email: e.target.value })}
+                placeholder="client@email.com"
+                type="email"
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontFamily: 'Montserrat,sans-serif', color: C.text, boxSizing: 'border-box' }} />
             </div>
 
             {/* Session Type */}
