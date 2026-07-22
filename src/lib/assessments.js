@@ -725,6 +725,36 @@ export const ALL_ASSESSMENTS = {
       ]},
     ]
   },
+  strength5rm: {
+    id:"strength5rm", name:"Squat / Bench / Deadlift 5RM Test", icon:"🏋️",
+    color:C.orange, colorDim:C.orange+"12",
+    sections:[
+      { id:"sq", title:"1. Squat 5RM", importantNote:"5-Rep Max (5RM) = the heaviest weight the client can squat for exactly 5 clean reps to depth. Enter gender, age, and bodyweight — the classification blends the age-based and bodyweight-based strength standards by averaging them together.", fields:[
+        { id:"sq_gender", label:"Gender", type:"passfail", options:["Male","Female"] },
+        { id:"sq_age", label:"Age (years)", type:"text", placeholder:"e.g. 35" },
+        { id:"sq_bodyweight", label:"Bodyweight (lbs)", type:"text", placeholder:"e.g. 180" },
+        { id:"sq_5rm", label:"Squat 5RM (lbs)", type:"text", placeholder:"e.g. 225" },
+        { id:"sq_result", label:"Squat — Strength Classification", type:"strengthResult", lift:"squat" },
+        { id:"sq_notes", label:"Squat notes", type:"textarea" },
+      ]},
+      { id:"bp", title:"2. Bench Press 5RM", fields:[
+        { id:"bp_gender", label:"Gender", type:"passfail", options:["Male","Female"] },
+        { id:"bp_age", label:"Age (years)", type:"text", placeholder:"e.g. 35" },
+        { id:"bp_bodyweight", label:"Bodyweight (lbs)", type:"text", placeholder:"e.g. 180" },
+        { id:"bp_5rm", label:"Bench Press 5RM (lbs)", type:"text", placeholder:"e.g. 165" },
+        { id:"bp_result", label:"Bench Press — Strength Classification", type:"strengthResult", lift:"bench" },
+        { id:"bp_notes", label:"Bench press notes", type:"textarea" },
+      ]},
+      { id:"dl", title:"3. Deadlift 5RM", fields:[
+        { id:"dl_gender", label:"Gender", type:"passfail", options:["Male","Female"] },
+        { id:"dl_age", label:"Age (years)", type:"text", placeholder:"e.g. 35" },
+        { id:"dl_bodyweight", label:"Bodyweight (lbs)", type:"text", placeholder:"e.g. 180" },
+        { id:"dl_5rm", label:"Deadlift 5RM (lbs)", type:"text", placeholder:"e.g. 275" },
+        { id:"dl_result", label:"Deadlift — Strength Classification", type:"strengthResult", lift:"deadlift" },
+        { id:"dl_notes", label:"Deadlift notes", type:"textarea" },
+      ]},
+    ]
+  },
 }
 
 export const MAIN_ASSESSMENTS = [
@@ -743,4 +773,5 @@ export const MAIN_ASSESSMENTS = [
   ALL_ASSESSMENTS.speedy7,
   ALL_ASSESSMENTS.bms5,
   ALL_ASSESSMENTS.vo2max,
+  ALL_ASSESSMENTS.strength5rm,
 ]

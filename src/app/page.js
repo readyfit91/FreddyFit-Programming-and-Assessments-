@@ -11,6 +11,7 @@ function localDate(d = new Date()) {
 import { getAllClients, getClientById, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog, getAllLeads, saveLead, deleteLead, getBloodWork, saveBloodWork, deleteBloodWork, getSessions, getRecurringSessions, saveSession, deleteSession } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
 import { FIELD_MODIFIERS } from '../lib/modifiers'
+import { blendedStrengthThresholds, classifyStrengthLift, STRENGTH_LEVELS } from '../lib/strengthStandards'
 import { QRCodeCanvas } from 'qrcode.react'
 
 const makeId = () => Math.random().toString(36).slice(2,10)
@@ -424,6 +425,8 @@ function parseMMSS(str) {
   return parseInt(m[1], 10) * 60 + parseInt(m[2], 10)
 }
 
+const LIFT_PREFIX = { squat: 'sq', bench: 'bp', deadlift: 'dl' }
+
 // ── ASSESSMENT FORM ───────────────────────────────────────────────────────────
 function AssessmentForm({ assessment, client, onComplete, onBack, forceNew = false }) {
   const [answers, setAnswers] = useState({})
@@ -770,6 +773,44 @@ function AssessmentForm({ assessment, client, onComplete, onBack, forceNew = fal
         <div style={{ padding: '14px 18px', background: color + '12', border: `2px solid ${color}44`, borderRadius: 12 }}>
           <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color, textTransform: 'uppercase', marginBottom: 6 }}>Estimated VO2 Max</div>
           <div style={{ fontSize: 16, fontWeight: 800, color: C.text }}>{val}</div>
+        </div>
+      )
+    }
+    if (f.type === 'strengthResult') {
+      const prefix = LIFT_PREFIX[f.lift]
+      const gender = answers[`${prefix}_gender`]
+      const age = parseFloat(answers[`${prefix}_age`])
+      const bw = parseFloat(answers[`${prefix}_bodyweight`])
+      const actual = parseFloat(answers[`${prefix}_5rm`])
+      if (!gender || isNaN(age) || age <= 0 || isNaN(bw) || bw <= 0) {
+        return <div style={{ fontSize: 12, color: C.sub, fontStyle: 'italic' }}>Enter gender, age, and bodyweight above to see strength standards</div>
+      }
+      const t = blendedStrengthThresholds(f.lift, gender, age, bw)
+      if (!t) return null
+      const hasLift = !isNaN(actual) && actual > 0
+      const level = hasLift ? classifyStrengthLift(actual, t.blended) : null
+      const levelColors = { Untrained: C.sub, Beginner: C.red, Novice: C.orange, Intermediate: C.accent, Advanced: C.sky, Elite: C.green }
+      const color = level ? (levelColors[level] || C.accent) : C.accent
+      return (
+        <div>
+          <div style={{ padding: '12px 14px', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: hasLift ? 10 : 0 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.5, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>Blended Standards (avg of age-based & bodyweight-based) — lbs</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {STRENGTH_LEVELS.map((lvl, i) => (
+                <div key={lvl} style={{ flex: '1 1 60px', textAlign: 'center', padding: '6px 4px', borderRadius: 7, background: level === lvl ? color + '22' : 'white', border: `1.5px solid ${level === lvl ? color : C.border}` }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: level === lvl ? color : C.sub, textTransform: 'uppercase' }}>{lvl}</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: level === lvl ? color : C.text }}>{Math.round(t.blended[i])}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 10, color: C.sub, marginTop: 8 }}>Age-based: {t.byAge.map(v => Math.round(v)).join(' / ')} · Bodyweight-based: {t.byBodyweight.map(v => Math.round(v)).join(' / ')}</div>
+          </div>
+          {hasLift && (
+            <div style={{ padding: '14px 18px', background: color + '12', border: `2px solid ${color}44`, borderRadius: 12 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color, textTransform: 'uppercase', marginBottom: 6 }}>Classification</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: C.text }}>{actual} lbs — {level}</div>
+            </div>
+          )}
         </div>
       )
     }
@@ -5691,7 +5732,7 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
       { label: 'Phase 3 Pain Sensitivity (if needed)', items: [ALL_ASSESSMENTS.neckSensitivity, ALL_ASSESSMENTS.shoulderSensitivity] },
     ]},
     { phase: 'Phase 4 — Mobility for Movement', color: C.indigo, items: [ALL_ASSESSMENTS.speedy6, ALL_ASSESSMENTS.speedy7] },
-    { phase: 'Phase 5 — Performing & Ready to Function', color: C.green, items: [ALL_ASSESSMENTS.bms5, ALL_ASSESSMENTS.vo2max] },
+    { phase: 'Phase 5 — Performing & Ready to Function', color: C.green, items: [ALL_ASSESSMENTS.bms5, ALL_ASSESSMENTS.vo2max, ALL_ASSESSMENTS.strength5rm] },
   ]
 
   return (
