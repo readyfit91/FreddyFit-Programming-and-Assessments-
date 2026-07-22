@@ -394,6 +394,36 @@ function RestTimer() {
   )
 }
 
+// ── VO2 MAX CALCULATIONS ───────────────────────────────────────────────────────
+const VO2_MAX_GRID = {
+  Male: { '18–39': [35, 39, 44, 49], '40–49': [31, 35, 40, 45], '50–59': [27, 31, 36, 41], '60+': [24, 27, 32, 36] },
+  Female: { '18–39': [29, 33, 37, 42], '40–49': [27, 30, 34, 39], '50–59': [24, 26, 31, 36], '60+': [21, 24, 28, 32] },
+}
+function classifyVO2Max(vo2, gender, ageRange) {
+  const t = VO2_MAX_GRID[gender]?.[ageRange]
+  if (!t) return ''
+  if (vo2 >= t[3]) return 'Excellent'
+  if (vo2 >= t[2]) return 'Above Average'
+  if (vo2 >= t[1]) return 'Average'
+  if (vo2 >= t[0]) return 'Below Average'
+  return 'Poor'
+}
+function computeCooperVO2(distanceMiles) {
+  const meters = distanceMiles * 1609.34
+  return (meters - 504.9) / 44.73
+}
+function computeRockportVO2(weightLb, age, isMale, timeMin, hr) {
+  return 132.853 - (0.0769 * weightLb) - (0.3877 * age) + (6.315 * (isMale ? 1 : 0)) - (3.2649 * timeMin) - (0.1565 * hr)
+}
+function computeRow2kVO2(seconds, isMale) {
+  return isMale ? (91.3 - 0.0224 * seconds) : (95.5 - 0.0245 * seconds)
+}
+function parseMMSS(str) {
+  const m = /^(\d+):([0-5]?\d)$/.exec((str || '').trim())
+  if (!m) return NaN
+  return parseInt(m[1], 10) * 60 + parseInt(m[2], 10)
+}
+
 // ── ASSESSMENT FORM ───────────────────────────────────────────────────────────
 function AssessmentForm({ assessment, client, onComplete, onBack, forceNew = false }) {
   const [answers, setAnswers] = useState({})
@@ -451,6 +481,58 @@ function AssessmentForm({ assessment, client, onComplete, onBack, forceNew = fal
     }
   }, [assessment.id, answers.bms_gender, answers.bms_age_range, answers.bms_total_score])
 
+  // Auto-calculate VO2 Max estimates for the Cooper, Rockport, and Static Row tests
+  useEffect(() => {
+    if (assessment.id !== 'bms5') return
+
+    // Cooper 12-Minute Run
+    const cGender = answers.vo2_cooper_gender
+    const cAgeRange = answers.vo2_cooper_age_range
+    const cDist = parseFloat(answers.vo2_cooper_distance)
+    if (cGender && !isNaN(cDist) && cDist > 0) {
+      const vo2 = computeCooperVO2(cDist)
+      const level = cAgeRange ? classifyVO2Max(vo2, cGender, cAgeRange) : ''
+      const result = `${vo2.toFixed(1)} ml/kg/min${level ? ' — ' + level : ''}`
+      if (answers.vo2_cooper_result !== result) setAnswers(a => ({ ...a, vo2_cooper_result: result }))
+    } else if (answers.vo2_cooper_result) {
+      setAnswers(a => ({ ...a, vo2_cooper_result: '' }))
+    }
+
+    // Rockport 1-Mile Walk
+    const rGender = answers.vo2_rockport_gender
+    const rAge = parseFloat(answers.vo2_rockport_age)
+    const rWeight = parseFloat(answers.vo2_rockport_weight)
+    const rTime = parseFloat(answers.vo2_rockport_time)
+    const rHr = parseFloat(answers.vo2_rockport_hr)
+    if (rGender && [rAge, rWeight, rTime, rHr].every(n => !isNaN(n) && n > 0)) {
+      const vo2 = computeRockportVO2(rWeight, rAge, rGender === 'Male', rTime, rHr)
+      const ageRange = rAge < 40 ? '18–39' : rAge < 50 ? '40–49' : rAge < 60 ? '50–59' : '60+'
+      const level = classifyVO2Max(vo2, rGender, ageRange)
+      const result = `${vo2.toFixed(1)} ml/kg/min${level ? ' — ' + level : ''}`
+      if (answers.vo2_rockport_result !== result) setAnswers(a => ({ ...a, vo2_rockport_result: result }))
+    } else if (answers.vo2_rockport_result) {
+      setAnswers(a => ({ ...a, vo2_rockport_result: '' }))
+    }
+
+    // Static Row Test — 2,000m Time Trial
+    const wGender = answers.vo2_row_gender
+    const wAgeRange = answers.vo2_row_age_range
+    const wSeconds = parseMMSS(answers.vo2_row_time)
+    if (wGender && !isNaN(wSeconds) && wSeconds > 0) {
+      const vo2 = computeRow2kVO2(wSeconds, wGender === 'Male')
+      const level = wAgeRange ? classifyVO2Max(vo2, wGender, wAgeRange) : ''
+      const result = `${vo2.toFixed(1)} ml/kg/min${level ? ' — ' + level : ''}`
+      if (answers.vo2_row_result !== result) setAnswers(a => ({ ...a, vo2_row_result: result }))
+    } else if (answers.vo2_row_result) {
+      setAnswers(a => ({ ...a, vo2_row_result: '' }))
+    }
+  }, [
+    assessment.id,
+    answers.vo2_cooper_gender, answers.vo2_cooper_age_range, answers.vo2_cooper_distance,
+    answers.vo2_rockport_gender, answers.vo2_rockport_age, answers.vo2_rockport_weight, answers.vo2_rockport_time, answers.vo2_rockport_hr,
+    answers.vo2_row_gender, answers.vo2_row_age_range, answers.vo2_row_time,
+  ])
+
   const saveAssessmentData = async () => {
     setSaving(true)
     try {
@@ -469,7 +551,7 @@ function AssessmentForm({ assessment, client, onComplete, onBack, forceNew = fal
     const val = answers[f.id] || ''
     const base = { width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 13, color: C.text, outline: 'none', background: C.faint }
     if (f.type === 'info') return (
-      <div style={{ padding: '12px 16px', background: C.sky + '10', border: `1px solid ${C.sky}33`, borderRadius: 10, fontSize: 12, color: C.text, lineHeight: 1.7, fontFamily: 'Montserrat,sans-serif' }}>
+      <div style={{ padding: '12px 16px', background: C.sky + '10', border: `1px solid ${C.sky}33`, borderRadius: 10, fontSize: 12, color: C.text, lineHeight: 1.7, fontFamily: 'Montserrat,sans-serif', whiteSpace: 'pre-wrap' }}>
         📋 {f.text}
       </div>
     )
@@ -668,6 +750,18 @@ function AssessmentForm({ assessment, client, onComplete, onBack, forceNew = fal
         <div>
           <input type="range" min={f.min || 0} max={f.max || 10} value={val || f.min || 0} onChange={e => set(f.id, e.target.value)} style={{ width: '100%', accentColor: C.accent }} />
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: C.sub }}><span>{f.min ?? 0}</span><span style={{ fontWeight: 700, color: C.accent }}>{val || f.min || 0}</span><span>{f.max ?? 10}</span></div>
+        </div>
+      )
+    }
+    if (f.type === 'vo2Result') {
+      if (!val) return <div style={{ fontSize: 12, color: C.sub, fontStyle: 'italic' }}>Complete the fields above to calculate</div>
+      const isGood = /Excellent|Above Average/.test(val)
+      const isLow = /Poor|Below Average/.test(val)
+      const color = isGood ? C.green : isLow ? C.orange : C.accent
+      return (
+        <div style={{ padding: '14px 18px', background: color + '12', border: `2px solid ${color}44`, borderRadius: 12 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color, textTransform: 'uppercase', marginBottom: 6 }}>Estimated VO2 Max</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: C.text }}>{val}</div>
         </div>
       )
     }
