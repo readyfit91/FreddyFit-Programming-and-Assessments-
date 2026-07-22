@@ -488,7 +488,7 @@ function AssessmentForm({ assessment, client, onComplete, onBack, forceNew = fal
   // at each Week 0 / Week 12 / Week 24 checkpoint
   useEffect(() => {
     if (assessment.id !== 'vo2max') return
-    const weeks = ['w0', 'w12', 'w24']
+    const weeks = ['w0', 'w12', 'w24', 'w36']
     const updates = {}
 
     // Cooper 12-Minute Run
@@ -778,10 +778,11 @@ function AssessmentForm({ assessment, client, onComplete, onBack, forceNew = fal
     }
     if (f.type === 'strengthResult') {
       const prefix = LIFT_PREFIX[f.lift]
+      const wk = f.week ? `_${f.week}` : ''
       const gender = answers[`${prefix}_gender`]
       const age = parseFloat(answers[`${prefix}_age`])
-      const bw = parseFloat(answers[`${prefix}_bodyweight`])
-      const actual = parseFloat(answers[`${prefix}_5rm`])
+      const bw = parseFloat(answers[`${prefix}_bodyweight${wk}`])
+      const actual = parseFloat(answers[`${prefix}_5rm${wk}`])
       if (!gender || isNaN(age) || age <= 0 || isNaN(bw) || bw <= 0) {
         return <div style={{ fontSize: 12, color: C.sub, fontStyle: 'italic' }}>Enter gender, age, and bodyweight above to see strength standards</div>
       }
