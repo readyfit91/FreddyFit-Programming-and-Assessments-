@@ -669,14 +669,21 @@ export const ALL_ASSESSMENTS = {
         { id:"bms_level", label:"Performance Level", type:"passfail", options:["Poor","Below Average","Average","Above Average","Excellent"] },
         { id:"bms_total_notes", label:"Overall BMS-5 notes & recommendations", type:"textarea" },
       ]},
-      { id:"bms_vo2", title:"6. VO2 Max Cardiovascular Testing", importantNote:"Choose whichever test fits your available equipment/space. Each one independently estimates VO2 Max (ml/kg/min) — the gold-standard measure of cardiorespiratory fitness. Run as many as you'd like; each is scored and classified on its own.", fields:[
+    ]
+  },
+  vo2max: {
+    id:"vo2max", name:"VO2 Max Test", icon:"🫁",
+    color:C.sky, colorDim:C.sky+"12",
+    sections:[
+      { id:"vo2_cooper", title:"1. Cooper 12-Minute Run Test", importantNote:"Choose whichever test fits your available equipment/space. Each one independently estimates VO2 Max (ml/kg/min) — the gold-standard measure of cardiorespiratory fitness. Run as many as you'd like; each is scored and classified on its own.", fields:[
         { id:"vo2_cooper_info", label:"Cooper 12-Minute Run Test", type:"info",
           text:"INSTRUCTIONS:\n1. Find a track or flat, measured course.\n2. Client runs (walking permitted if needed) to cover the greatest distance possible in exactly 12 minutes.\n3. Record the total distance in miles (decimal, e.g. 1.5).\n\nFORMULA: VO2 Max = (Distance in meters − 504.9) ÷ 44.73" },
         { id:"vo2_cooper_gender", label:"Gender", type:"passfail", options:["Male","Female"] },
         { id:"vo2_cooper_age_range", label:"Age Range", type:"passfail", options:["18–39","40–49","50–59","60+"] },
         { id:"vo2_cooper_distance", label:"Distance Covered in 12 Minutes (miles)", type:"text", placeholder:"e.g. 1.5" },
         { id:"vo2_cooper_result", label:"Cooper Test — Estimated VO2 Max", type:"vo2Result", vo2Test:"cooper" },
-
+      ]},
+      { id:"vo2_rockport", title:"2. Rockport 1-Mile Walk Test", fields:[
         { id:"vo2_rockport_info", label:"Rockport 1-Mile Walk Test", type:"info",
           text:"INSTRUCTIONS:\n1. Client walks 1 mile as fast as possible (no running) on a flat, measured course/track.\n2. Record total time in minutes as a decimal (e.g. 13 min 30 sec = 13.5).\n3. Immediately after finishing, take heart rate for 15 seconds and multiply by 4 (or use an HR monitor).\n\nFORMULA: VO2 Max = 132.853 − (0.0769 × Weight lbs) − (0.3877 × Age) + (6.315 × Gender [Male=1, Female=0]) − (3.2649 × Time) − (0.1565 × Heart Rate)" },
         { id:"vo2_rockport_gender", label:"Gender", type:"passfail", options:["Male","Female"] },
@@ -685,14 +692,16 @@ export const ALL_ASSESSMENTS = {
         { id:"vo2_rockport_time", label:"1-Mile Walk Time (minutes, decimal)", type:"text", placeholder:"e.g. 13.5" },
         { id:"vo2_rockport_hr", label:"Heart Rate at Finish (bpm)", type:"text", placeholder:"e.g. 148" },
         { id:"vo2_rockport_result", label:"Rockport Test — Estimated VO2 Max", type:"vo2Result", vo2Test:"rockport" },
-
+      ]},
+      { id:"vo2_row", title:"3. Static Row Test — 2,000m Time Trial", fields:[
         { id:"vo2_row_info", label:"Static Row Test — 2,000m Time Trial", type:"info",
           text:"INSTRUCTIONS:\n1. On a stationary/indoor rowing ergometer, client rows 2,000 meters as fast as possible (all-out time trial).\n2. Record the finishing time in minutes:seconds (e.g. 8:15).\n\nFORMULA (Klusiewicz):\nMen: VO2 Max = 91.3 − (0.0224 × Time in seconds)\nWomen: VO2 Max = 95.5 − (0.0245 × Time in seconds)" },
         { id:"vo2_row_gender", label:"Gender", type:"passfail", options:["Male","Female"] },
         { id:"vo2_row_age_range", label:"Age Range", type:"passfail", options:["18–39","40–49","50–59","60+"] },
         { id:"vo2_row_time", label:"2,000m Row Time (mm:ss)", type:"text", placeholder:"e.g. 8:15" },
         { id:"vo2_row_result", label:"Static Row Test — Estimated VO2 Max", type:"vo2Result", vo2Test:"row2k" },
-
+      ]},
+      { id:"vo2_notes_section", title:"Notes & Classification", fields:[
         { id:"vo2_notes", label:"VO2 Max testing notes", type:"textarea",
           failNotes:"VO2 MAX FITNESS CLASSIFICATION (ml/kg/min) — used for all 3 tests above:\n\nMEN\n           Poor   Below Avg   Average   Above Avg   Excellent\n18–39:      <35      35-38      39-43       44-48        49+\n40–49:      <31      31-34      35-39       40-44        45+\n50–59:      <27      27-30      31-35       36-40        41+\n60+:        <24      24-26      27-31       32-35        36+\n\nWOMEN\n           Poor   Below Avg   Average   Above Avg   Excellent\n18–39:      <29      29-32      33-36       37-41        42+\n40–49:      <27      27-29      30-33       34-38        39+\n50–59:      <24      24-26      27-30       31-35        36+\n60+:        <21      21-23      24-27       28-31        32+" },
       ]},
@@ -715,4 +724,5 @@ export const MAIN_ASSESSMENTS = [
   ALL_ASSESSMENTS.speedy6,
   ALL_ASSESSMENTS.speedy7,
   ALL_ASSESSMENTS.bms5,
+  ALL_ASSESSMENTS.vo2max,
 ]
