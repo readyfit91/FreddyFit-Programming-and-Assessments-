@@ -482,56 +482,64 @@ function AssessmentForm({ assessment, client, onComplete, onBack, forceNew = fal
   }, [assessment.id, answers.bms_gender, answers.bms_age_range, answers.bms_total_score])
 
   // Auto-calculate VO2 Max estimates for the Cooper, Rockport, and Static Row tests
+  // at each Week 0 / Week 12 / Week 24 checkpoint
   useEffect(() => {
     if (assessment.id !== 'vo2max') return
+    const weeks = ['w0', 'w12', 'w24']
+    const updates = {}
 
     // Cooper 12-Minute Run
     const cGender = answers.vo2_cooper_gender
     const cAgeRange = answers.vo2_cooper_age_range
-    const cDist = parseFloat(answers.vo2_cooper_distance)
-    if (cGender && !isNaN(cDist) && cDist > 0) {
-      const vo2 = computeCooperVO2(cDist)
-      const level = cAgeRange ? classifyVO2Max(vo2, cGender, cAgeRange) : ''
-      const result = `${vo2.toFixed(1)} ml/kg/min${level ? ' — ' + level : ''}`
-      if (answers.vo2_cooper_result !== result) setAnswers(a => ({ ...a, vo2_cooper_result: result }))
-    } else if (answers.vo2_cooper_result) {
-      setAnswers(a => ({ ...a, vo2_cooper_result: '' }))
-    }
+    weeks.forEach(wk => {
+      const dist = parseFloat(answers[`vo2_cooper_distance_${wk}`])
+      const resultKey = `vo2_cooper_result_${wk}`
+      let result = ''
+      if (cGender && !isNaN(dist) && dist > 0) {
+        const vo2 = computeCooperVO2(dist)
+        const level = cAgeRange ? classifyVO2Max(vo2, cGender, cAgeRange) : ''
+        result = `${vo2.toFixed(1)} ml/kg/min${level ? ' — ' + level : ''}`
+      }
+      if ((answers[resultKey] || '') !== result) updates[resultKey] = result
+    })
 
     // Rockport 1-Mile Walk
     const rGender = answers.vo2_rockport_gender
-    const rAge = parseFloat(answers.vo2_rockport_age)
-    const rWeight = parseFloat(answers.vo2_rockport_weight)
-    const rTime = parseFloat(answers.vo2_rockport_time)
-    const rHr = parseFloat(answers.vo2_rockport_hr)
-    if (rGender && [rAge, rWeight, rTime, rHr].every(n => !isNaN(n) && n > 0)) {
-      const vo2 = computeRockportVO2(rWeight, rAge, rGender === 'Male', rTime, rHr)
-      const ageRange = rAge < 40 ? '18–39' : rAge < 50 ? '40–49' : rAge < 60 ? '50–59' : '60+'
-      const level = classifyVO2Max(vo2, rGender, ageRange)
-      const result = `${vo2.toFixed(1)} ml/kg/min${level ? ' — ' + level : ''}`
-      if (answers.vo2_rockport_result !== result) setAnswers(a => ({ ...a, vo2_rockport_result: result }))
-    } else if (answers.vo2_rockport_result) {
-      setAnswers(a => ({ ...a, vo2_rockport_result: '' }))
-    }
+    weeks.forEach(wk => {
+      const age = parseFloat(answers[`vo2_rockport_age_${wk}`])
+      const weight = parseFloat(answers[`vo2_rockport_weight_${wk}`])
+      const time = parseFloat(answers[`vo2_rockport_time_${wk}`])
+      const hr = parseFloat(answers[`vo2_rockport_hr_${wk}`])
+      const resultKey = `vo2_rockport_result_${wk}`
+      let result = ''
+      if (rGender && [age, weight, time, hr].every(n => !isNaN(n) && n > 0)) {
+        const vo2 = computeRockportVO2(weight, age, rGender === 'Male', time, hr)
+        const ageRange = age < 40 ? '18–39' : age < 50 ? '40–49' : age < 60 ? '50–59' : '60+'
+        const level = classifyVO2Max(vo2, rGender, ageRange)
+        result = `${vo2.toFixed(1)} ml/kg/min${level ? ' — ' + level : ''}`
+      }
+      if ((answers[resultKey] || '') !== result) updates[resultKey] = result
+    })
 
     // Static Row Test — 2,000m Time Trial
     const wGender = answers.vo2_row_gender
     const wAgeRange = answers.vo2_row_age_range
-    const wSeconds = parseMMSS(answers.vo2_row_time)
-    if (wGender && !isNaN(wSeconds) && wSeconds > 0) {
-      const vo2 = computeRow2kVO2(wSeconds, wGender === 'Male')
-      const level = wAgeRange ? classifyVO2Max(vo2, wGender, wAgeRange) : ''
-      const result = `${vo2.toFixed(1)} ml/kg/min${level ? ' — ' + level : ''}`
-      if (answers.vo2_row_result !== result) setAnswers(a => ({ ...a, vo2_row_result: result }))
-    } else if (answers.vo2_row_result) {
-      setAnswers(a => ({ ...a, vo2_row_result: '' }))
+    weeks.forEach(wk => {
+      const seconds = parseMMSS(answers[`vo2_row_time_${wk}`])
+      const resultKey = `vo2_row_result_${wk}`
+      let result = ''
+      if (wGender && !isNaN(seconds) && seconds > 0) {
+        const vo2 = computeRow2kVO2(seconds, wGender === 'Male')
+        const level = wAgeRange ? classifyVO2Max(vo2, wGender, wAgeRange) : ''
+        result = `${vo2.toFixed(1)} ml/kg/min${level ? ' — ' + level : ''}`
+      }
+      if ((answers[resultKey] || '') !== result) updates[resultKey] = result
+    })
+
+    if (Object.keys(updates).length > 0) {
+      setAnswers(a => ({ ...a, ...updates }))
     }
-  }, [
-    assessment.id,
-    answers.vo2_cooper_gender, answers.vo2_cooper_age_range, answers.vo2_cooper_distance,
-    answers.vo2_rockport_gender, answers.vo2_rockport_age, answers.vo2_rockport_weight, answers.vo2_rockport_time, answers.vo2_rockport_hr,
-    answers.vo2_row_gender, answers.vo2_row_age_range, answers.vo2_row_time,
-  ])
+  }, [assessment.id, answers])
 
   const saveAssessmentData = async () => {
     setSaving(true)
