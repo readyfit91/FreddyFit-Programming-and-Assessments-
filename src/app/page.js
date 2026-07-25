@@ -425,6 +425,21 @@ function parseMMSS(str) {
   return parseInt(m[1], 10) * 60 + parseInt(m[2], 10)
 }
 
+// Static Row Test (2,000m) time-based rating scale — [Outstanding max, Excellent max, Good max, Fair max] in seconds
+const ROW_RATING_BREAKPOINTS = {
+  Male: { '18–39': [420, 465, 525, 600], '40–49': [440, 480, 540, 615], '50–59': [480, 555, 615, 690], '60+': [525, 585, 645, 720] },
+  Female: { '18–39': [480, 525, 585, 660], '40–49': [500, 540, 600, 675], '50–59': [525, 570, 630, 705], '60+': [555, 600, 660, 735] },
+}
+function classifyRowTime(seconds, gender, ageRange) {
+  const bp = ROW_RATING_BREAKPOINTS[gender]?.[ageRange]
+  if (!bp) return ''
+  if (seconds < bp[0]) return 'Outstanding'
+  if (seconds <= bp[1]) return 'Excellent'
+  if (seconds <= bp[2]) return 'Good'
+  if (seconds <= bp[3]) return 'Fair'
+  return 'Poor'
+}
+
 const LIFT_PREFIX = { squat: 'sq', bench: 'bp', deadlift: 'dl' }
 
 // ── ASSESSMENT FORM ───────────────────────────────────────────────────────────
@@ -533,7 +548,7 @@ function AssessmentForm({ assessment, client, onComplete, onBack, forceNew = fal
       let result = ''
       if (wGender && !isNaN(seconds) && seconds > 0) {
         const vo2 = computeRow2kVO2(seconds, wGender === 'Male')
-        const level = wAgeRange ? classifyVO2Max(vo2, wGender, wAgeRange) : ''
+        const level = wAgeRange ? classifyRowTime(seconds, wGender, wAgeRange) : ''
         result = `${vo2.toFixed(1)} ml/kg/min${level ? ' — ' + level : ''}`
       }
       if ((answers[resultKey] || '') !== result) updates[resultKey] = result
@@ -766,9 +781,10 @@ function AssessmentForm({ assessment, client, onComplete, onBack, forceNew = fal
     }
     if (f.type === 'vo2Result') {
       if (!val) return <div style={{ fontSize: 12, color: C.sub, fontStyle: 'italic' }}>Complete the fields above to calculate</div>
-      const isGood = /Excellent|Above Average/.test(val)
-      const isLow = /Poor|Below Average/.test(val)
-      const color = isGood ? C.green : isLow ? C.orange : C.accent
+      const isGood = /Outstanding|Excellent|Above Average/.test(val)
+      const isPoor = /Poor/.test(val)
+      const isFair = /Fair|Below Average/.test(val)
+      const color = isGood ? C.green : isPoor ? C.red : isFair ? C.orange : C.accent
       return (
         <div style={{ padding: '14px 18px', background: color + '12', border: `2px solid ${color}44`, borderRadius: 12 }}>
           <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color, textTransform: 'uppercase', marginBottom: 6 }}>Estimated VO2 Max</div>
