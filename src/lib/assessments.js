@@ -6,6 +6,28 @@ export const C = {
   text:"#1A202C", sub:"#718096", faint:"#EDF2F7", green:"#059669",
 }
 
+// Generates the repeated per-checkpoint field set for the 6-Minute Walk Test
+function mwtCheckpointFields(wk, label) {
+  const id = (suffix) => `mwt_${suffix}_${wk}`
+  return [
+    { id:id('resting_hr'), label:`${label} — Resting Heart Rate (bpm)`, type:"text", placeholder:"e.g. 72" },
+    { id:id('resting_spo2'), label:`${label} — Resting SpO₂ (%)`, type:"text", placeholder:"e.g. 98" },
+    { id:id('treadmill_speed'), label:`${label} — Treadmill Speed (mph)`, type:"text", placeholder:"e.g. 2.5" },
+    { id:id('avg_treadmill_speed'), label:`${label} — Average Treadmill Speed (mph)`, type:"text", placeholder:"e.g. 2.3" },
+    { id:id('distance'), label:`${label} — Total Distance Completed (meters)`, type:"text", placeholder:"e.g. 550" },
+    { id:id('post_hr'), label:`${label} — Post-Test Heart Rate (bpm)`, type:"text", placeholder:"e.g. 128" },
+    { id:id('post_spo2'), label:`${label} — Post-Test SpO₂ (%)`, type:"text", placeholder:"e.g. 94" },
+    { id:id('recovery1_hr'), label:`${label} — 1-Minute Recovery Heart Rate (bpm)`, type:"text", placeholder:"e.g. 110" },
+    { id:id('recovery1_spo2'), label:`${label} — 1-Minute Recovery SpO₂ (%)`, type:"text", placeholder:"e.g. 96" },
+    { id:id('recovery2_hr'), label:`${label} — 2-Minute Recovery Heart Rate (bpm)`, type:"text", placeholder:"e.g. 95" },
+    { id:id('recovery2_spo2'), label:`${label} — 2-Minute Recovery SpO₂ (%)`, type:"text", placeholder:"e.g. 97" },
+    { id:id('rpe'), label:`${label} — Rate of Perceived Exertion (RPE, 10 = max effort)`, type:"scale", min:1, max:10 },
+    { id:id('breathlessness'), label:`${label} — Breathlessness Rating (4–5 = holding conversation, 10 = about to pass out)`, type:"scale", min:0, max:10 },
+    { id:id('pain'), label:`${label} — Pain Rating`, type:"scale", min:0, max:10 },
+    { id:id('result'), label:`${label} — 6-Minute Walk Test Results`, type:"sixMWTResult", week:wk },
+  ]
+}
+
 export const ALL_ASSESSMENTS = {
   hypermobility: {
     id:"hypermobility", name:"Hypermobility Assessment", icon:"🤸",
@@ -728,35 +750,13 @@ export const ALL_ASSESSMENTS = {
         { id:"vo2_row_time_w36", label:"Week 36 — The Peak — 2,000m Row Time (mm:ss)", type:"text", placeholder:"e.g. 8:15" },
         { id:"vo2_row_result_w36", label:"Week 36 — The Peak — Estimated VO2 Max", type:"vo2Result", vo2Test:"row2k" },
       ]},
-      { id:"mwt", title:"4. Six-Minute Walk Test (6MWT)", importantNote:"Client walks as far as possible on a treadmill (or flat measured course) in 6 minutes. Take heart rate and SpO₂ readings at rest, immediately post-test, and at 1 and 2 minutes into recovery.", fields:[
+      { id:"mwt", title:"4. Six-Minute Walk Test (6MWT)", importantNote:"Client walks as far as possible on a treadmill (or flat measured course) in 6 minutes. Take heart rate and SpO₂ readings at rest, immediately post-test, and at 1 and 2 minutes into recovery. Gender and age are set once — retest everything else at each checkpoint (Week 0 The Base, Week 12 The Forge, Week 24 The Engine, Week 36 The Peak) to track progress across the program.", fields:[
         { id:"mwt_gender", label:"Gender", type:"passfail", options:["Male","Female"] },
         { id:"mwt_age", label:"Age (years)", type:"text", placeholder:"e.g. 45" },
-
-        { id:"mwt_pretest_header", label:"Pre-Test Measurements — Heart Rate / Oxygen", type:"info", text:"Take before the test begins, with the client at rest." },
-        { id:"mwt_resting_hr", label:"Resting Heart Rate (bpm)", type:"text", placeholder:"e.g. 72" },
-        { id:"mwt_resting_spo2", label:"Resting SpO₂ (%)", type:"text", placeholder:"e.g. 98" },
-
-        { id:"mwt_treadmill_header", label:"Test Performance — Treadmill Information", type:"info", text:"Record the treadmill speed(s) used and the average across the 6 minutes." },
-        { id:"mwt_treadmill_speed", label:"Treadmill Speed (mph)", type:"text", placeholder:"e.g. 2.5" },
-        { id:"mwt_avg_treadmill_speed", label:"Average Treadmill Speed (mph)", type:"text", placeholder:"e.g. 2.3" },
-
-        { id:"mwt_distance", label:"Total Distance Completed (meters)", type:"text", placeholder:"e.g. 550" },
-
-        { id:"mwt_posttest_header", label:"Post-Test Measurements", type:"info", text:"Take immediately after the 6-minute test ends." },
-        { id:"mwt_post_hr", label:"Post-Test Heart Rate (bpm)", type:"text", placeholder:"e.g. 128" },
-        { id:"mwt_post_spo2", label:"Post-Test SpO₂ (%)", type:"text", placeholder:"e.g. 94" },
-
-        { id:"mwt_recovery_header", label:"Recovery Measurements", type:"info", text:"Take at 1 minute and 2 minutes after the test ends." },
-        { id:"mwt_recovery1_hr", label:"1-Minute Recovery Heart Rate (bpm)", type:"text", placeholder:"e.g. 110" },
-        { id:"mwt_recovery1_spo2", label:"1-Minute Recovery SpO₂ (%)", type:"text", placeholder:"e.g. 96" },
-        { id:"mwt_recovery2_hr", label:"2-Minute Recovery Heart Rate (bpm)", type:"text", placeholder:"e.g. 95" },
-        { id:"mwt_recovery2_spo2", label:"2-Minute Recovery SpO₂ (%)", type:"text", placeholder:"e.g. 97" },
-
-        { id:"mwt_rpe", label:"Rate of Perceived Exertion (RPE)", type:"scale", min:1, max:10 },
-        { id:"mwt_breathlessness", label:"Breathlessness Rating (4–5 = holding conversation, 10 = about to pass out)", type:"scale", min:0, max:10 },
-        { id:"mwt_pain", label:"Pain Rating", type:"scale", min:0, max:10 },
-
-        { id:"mwt_result", label:"6-Minute Walk Test — Final Results", type:"sixMWTResult" },
+        ...mwtCheckpointFields("w0", "Week 0 — The Base"),
+        ...mwtCheckpointFields("w12", "Week 12 — The Forge"),
+        ...mwtCheckpointFields("w24", "Week 24 — The Engine"),
+        ...mwtCheckpointFields("w36", "Week 36 — The Peak"),
         { id:"mwt_notes", label:"6MWT notes", type:"textarea",
           failNotes:"6-MINUTE WALK TEST — FITNESS CLASSIFICATION BY DISTANCE (meters)\n\nMEN\nAge Group    Excellent   Good        Average     Below Avg   Poor\n18–39:       >700 m      650–700 m   550–649 m   450–549 m   <450 m\n40–49:       >680 m      620–680 m   520–619 m   430–519 m   <430 m\n50–59:       >650 m      600–650 m   500–599 m   400–499 m   <400 m\n60–69:       >600 m      550–600 m   450–549 m   350–449 m   <350 m\n70+:         >550 m      500–550 m   400–499 m   300–399 m   <300 m\n\nWOMEN\nAge Group    Excellent   Good        Average     Below Avg   Poor\n18–39:       >650 m      600–650 m   500–599 m   400–499 m   <400 m\n40–49:       >620 m      570–620 m   480–569 m   380–479 m   <380 m\n50–59:       >580 m      530–580 m   430–529 m   350–429 m   <350 m\n60–69:       >550 m      500–550 m   400–499 m   320–399 m   <320 m\n70+:         >500 m      450–500 m   350–449 m   280–349 m   <280 m" },
       ]},

@@ -857,20 +857,21 @@ function AssessmentForm({ assessment, client, onComplete, onBack, forceNew = fal
       )
     }
     if (f.type === 'sixMWTResult') {
+      const wk = f.week ? `_${f.week}` : ''
       const gender = answers.mwt_gender
       const age = parseFloat(answers.mwt_age)
-      const distance = parseFloat(answers.mwt_distance)
-      const avgSpeed = answers.mwt_avg_treadmill_speed
-      const restingHR = parseFloat(answers.mwt_resting_hr)
-      const postHR = parseFloat(answers.mwt_post_hr)
-      const rec1HR = parseFloat(answers.mwt_recovery1_hr)
-      const rec2HR = parseFloat(answers.mwt_recovery2_hr)
-      const restingSpO2 = answers.mwt_resting_spo2
-      const postSpO2 = answers.mwt_post_spo2
-      const rec1SpO2 = answers.mwt_recovery1_spo2
-      const rec2SpO2 = answers.mwt_recovery2_spo2
-      const rpe = answers.mwt_rpe
-      const breathlessness = answers.mwt_breathlessness
+      const distance = parseFloat(answers[`mwt_distance${wk}`])
+      const avgSpeed = answers[`mwt_avg_treadmill_speed${wk}`]
+      const restingHR = parseFloat(answers[`mwt_resting_hr${wk}`])
+      const postHR = parseFloat(answers[`mwt_post_hr${wk}`])
+      const rec1HR = parseFloat(answers[`mwt_recovery1_hr${wk}`])
+      const rec2HR = parseFloat(answers[`mwt_recovery2_hr${wk}`])
+      const restingSpO2 = answers[`mwt_resting_spo2${wk}`]
+      const postSpO2 = answers[`mwt_post_spo2${wk}`]
+      const rec1SpO2 = answers[`mwt_recovery1_spo2${wk}`]
+      const rec2SpO2 = answers[`mwt_recovery2_spo2${wk}`]
+      const rpe = answers[`mwt_rpe${wk}`]
+      const breathlessness = answers[`mwt_breathlessness${wk}`]
 
       const hasDistance = !isNaN(distance) && distance > 0
       const canClassify = gender && !isNaN(age) && age > 0 && hasDistance
