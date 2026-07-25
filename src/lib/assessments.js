@@ -12,7 +12,6 @@ function mwtCheckpointFields(wk, label) {
   return [
     { id:id('resting_hr'), label:`${label} — Resting Heart Rate (bpm)`, type:"text", placeholder:"e.g. 72" },
     { id:id('resting_spo2'), label:`${label} — Resting SpO₂ (%)`, type:"text", placeholder:"e.g. 98" },
-    { id:id('treadmill_speed'), label:`${label} — Treadmill Speed (mph)`, type:"text", placeholder:"e.g. 2.5" },
     { id:id('avg_treadmill_speed'), label:`${label} — Average Treadmill Speed (mph)`, type:"text", placeholder:"e.g. 2.3" },
     { id:id('distance'), label:`${label} — Total Distance Completed (meters)`, type:"text", placeholder:"e.g. 550" },
     { id:id('post_hr'), label:`${label} — Post-Test Heart Rate (bpm)`, type:"text", placeholder:"e.g. 128" },
