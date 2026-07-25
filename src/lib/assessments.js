@@ -728,6 +728,38 @@ export const ALL_ASSESSMENTS = {
         { id:"vo2_row_time_w36", label:"Week 36 — The Peak — 2,000m Row Time (mm:ss)", type:"text", placeholder:"e.g. 8:15" },
         { id:"vo2_row_result_w36", label:"Week 36 — The Peak — Estimated VO2 Max", type:"vo2Result", vo2Test:"row2k" },
       ]},
+      { id:"mwt", title:"4. Six-Minute Walk Test (6MWT)", importantNote:"Client walks as far as possible on a treadmill (or flat measured course) in 6 minutes. Take heart rate and SpO₂ readings at rest, immediately post-test, and at 1 and 2 minutes into recovery.", fields:[
+        { id:"mwt_gender", label:"Gender", type:"passfail", options:["Male","Female"] },
+        { id:"mwt_age", label:"Age (years)", type:"text", placeholder:"e.g. 45" },
+
+        { id:"mwt_pretest_header", label:"Pre-Test Measurements — Heart Rate / Oxygen", type:"info", text:"Take before the test begins, with the client at rest." },
+        { id:"mwt_resting_hr", label:"Resting Heart Rate (bpm)", type:"text", placeholder:"e.g. 72" },
+        { id:"mwt_resting_spo2", label:"Resting SpO₂ (%)", type:"text", placeholder:"e.g. 98" },
+
+        { id:"mwt_treadmill_header", label:"Test Performance — Treadmill Information", type:"info", text:"Record the treadmill speed(s) used and the average across the 6 minutes." },
+        { id:"mwt_treadmill_speed", label:"Treadmill Speed (mph)", type:"text", placeholder:"e.g. 2.5" },
+        { id:"mwt_avg_treadmill_speed", label:"Average Treadmill Speed (mph)", type:"text", placeholder:"e.g. 2.3" },
+
+        { id:"mwt_distance", label:"Total Distance Completed (meters)", type:"text", placeholder:"e.g. 550" },
+
+        { id:"mwt_posttest_header", label:"Post-Test Measurements", type:"info", text:"Take immediately after the 6-minute test ends." },
+        { id:"mwt_post_hr", label:"Post-Test Heart Rate (bpm)", type:"text", placeholder:"e.g. 128" },
+        { id:"mwt_post_spo2", label:"Post-Test SpO₂ (%)", type:"text", placeholder:"e.g. 94" },
+
+        { id:"mwt_recovery_header", label:"Recovery Measurements", type:"info", text:"Take at 1 minute and 2 minutes after the test ends." },
+        { id:"mwt_recovery1_hr", label:"1-Minute Recovery Heart Rate (bpm)", type:"text", placeholder:"e.g. 110" },
+        { id:"mwt_recovery1_spo2", label:"1-Minute Recovery SpO₂ (%)", type:"text", placeholder:"e.g. 96" },
+        { id:"mwt_recovery2_hr", label:"2-Minute Recovery Heart Rate (bpm)", type:"text", placeholder:"e.g. 95" },
+        { id:"mwt_recovery2_spo2", label:"2-Minute Recovery SpO₂ (%)", type:"text", placeholder:"e.g. 97" },
+
+        { id:"mwt_rpe", label:"Rate of Perceived Exertion (RPE)", type:"scale", min:1, max:10 },
+        { id:"mwt_breathlessness", label:"Breathlessness Rating (4–5 = holding conversation, 10 = about to pass out)", type:"scale", min:0, max:10 },
+        { id:"mwt_pain", label:"Pain Rating", type:"scale", min:0, max:10 },
+
+        { id:"mwt_result", label:"6-Minute Walk Test — Final Results", type:"sixMWTResult" },
+        { id:"mwt_notes", label:"6MWT notes", type:"textarea",
+          failNotes:"6-MINUTE WALK TEST — FITNESS CLASSIFICATION BY DISTANCE (meters)\n\nMEN\nAge Group    Excellent   Good        Average     Below Avg   Poor\n18–39:       >700 m      650–700 m   550–649 m   450–549 m   <450 m\n40–49:       >680 m      620–680 m   520–619 m   430–519 m   <430 m\n50–59:       >650 m      600–650 m   500–599 m   400–499 m   <400 m\n60–69:       >600 m      550–600 m   450–549 m   350–449 m   <350 m\n70+:         >550 m      500–550 m   400–499 m   300–399 m   <300 m\n\nWOMEN\nAge Group    Excellent   Good        Average     Below Avg   Poor\n18–39:       >650 m      600–650 m   500–599 m   400–499 m   <400 m\n40–49:       >620 m      570–620 m   480–569 m   380–479 m   <380 m\n50–59:       >580 m      530–580 m   430–529 m   350–429 m   <350 m\n60–69:       >550 m      500–550 m   400–499 m   320–399 m   <320 m\n70+:         >500 m      450–500 m   350–449 m   280–349 m   <280 m" },
+      ]},
       { id:"vo2_notes_section", title:"Notes & Classification", fields:[
         { id:"vo2_notes", label:"VO2 Max testing notes", type:"textarea",
           failNotes:"VO2 MAX FITNESS CLASSIFICATION (ml/kg/min) — used for the Cooper Run & Rockport Walk tests above:\n\nMEN\n           Poor   Below Avg   Average   Above Avg   Excellent\n18–39:      <35      35-38      39-43       44-48        49+\n40–49:      <31      31-34      35-39       40-44        45+\n50–59:      <27      27-30      31-35       36-40        41+\n60+:        <24      24-26      27-31       32-35        36+\n\nWOMEN\n           Poor   Below Avg   Average   Above Avg   Excellent\n18–39:      <29      29-32      33-36       37-41        42+\n40–49:      <27      27-29      30-33       34-38        39+\n50–59:      <24      24-26      27-30       31-35        36+\n60+:        <21      21-23      24-27       28-31        32+\n\nSTATIC ROW TEST (2,000m) RATING SCALE — used for the Row Test above, based directly on finish time:\n\nMEN\n           Outstanding   Excellent      Good        Fair         Poor\n18–39:        <7:00      7:00–7:45    7:46–8:45   8:46–10:00    >10:00\n40–49:        <7:20      7:20–8:00    8:01–9:00   9:01–10:15    >10:15\n50–59:        <8:00      8:00–9:15    9:16–10:15  10:16–11:30   >11:30\n60+:          <8:45      8:45–9:45    9:46–10:45  10:46–12:00   >12:00\n\nWOMEN\n           Outstanding   Excellent      Good        Fair         Poor\n18–39:        <8:00      8:00–8:45    8:46–9:45   9:46–11:00    >11:00\n40–49:        <8:20      8:20–9:00    9:01–10:00  10:01–11:15   >11:15\n50–59:        <8:45      8:45–9:30    9:31–10:30  10:31–11:45   >11:45\n60+:          <9:15      9:15–10:00   10:01–11:00 11:01–12:15   >12:15" },

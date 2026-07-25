@@ -440,6 +440,31 @@ function classifyRowTime(seconds, gender, ageRange) {
   return 'Poor'
 }
 
+// Six-Minute Walk Test (6MWT) — distance classification by age group and gender
+// Each row: [ageMin, ageMax, belowAvgMin, avgMin, goodMin, excellentMin] in meters
+const MWT_DISTANCE_GRID = {
+  Male: [
+    [18, 39, 450, 550, 650, 700], [40, 49, 430, 520, 620, 680], [50, 59, 400, 500, 600, 650],
+    [60, 69, 350, 450, 550, 600], [70, 999, 300, 400, 500, 550],
+  ],
+  Female: [
+    [18, 39, 400, 500, 600, 650], [40, 49, 380, 480, 570, 620], [50, 59, 350, 430, 530, 580],
+    [60, 69, 320, 400, 500, 550], [70, 999, 280, 350, 450, 500],
+  ],
+}
+function classifyMWTDistance(distance, gender, age) {
+  const rows = MWT_DISTANCE_GRID[gender]
+  if (!rows) return ''
+  const row = rows.find(r => age >= r[0] && age <= r[1])
+  if (!row) return ''
+  const [, , belowAvgMin, avgMin, goodMin, excellentMin] = row
+  if (distance > excellentMin) return 'Excellent'
+  if (distance >= goodMin) return 'Good'
+  if (distance >= avgMin) return 'Average'
+  if (distance >= belowAvgMin) return 'Below Average'
+  return 'Poor'
+}
+
 const LIFT_PREFIX = { squat: 'sq', bench: 'bp', deadlift: 'dl' }
 
 // ── ASSESSMENT FORM ───────────────────────────────────────────────────────────
@@ -828,6 +853,74 @@ function AssessmentForm({ assessment, client, onComplete, onBack, forceNew = fal
               <div style={{ fontSize: 16, fontWeight: 800, color: C.text }}>{actual} lbs — {level}</div>
             </div>
           )}
+        </div>
+      )
+    }
+    if (f.type === 'sixMWTResult') {
+      const gender = answers.mwt_gender
+      const age = parseFloat(answers.mwt_age)
+      const distance = parseFloat(answers.mwt_distance)
+      const avgSpeed = answers.mwt_avg_treadmill_speed
+      const restingHR = parseFloat(answers.mwt_resting_hr)
+      const postHR = parseFloat(answers.mwt_post_hr)
+      const rec1HR = parseFloat(answers.mwt_recovery1_hr)
+      const rec2HR = parseFloat(answers.mwt_recovery2_hr)
+      const restingSpO2 = answers.mwt_resting_spo2
+      const postSpO2 = answers.mwt_post_spo2
+      const rec1SpO2 = answers.mwt_recovery1_spo2
+      const rec2SpO2 = answers.mwt_recovery2_spo2
+      const rpe = answers.mwt_rpe
+      const breathlessness = answers.mwt_breathlessness
+
+      const hasDistance = !isNaN(distance) && distance > 0
+      const canClassify = gender && !isNaN(age) && age > 0 && hasDistance
+      const level = canClassify ? classifyMWTDistance(distance, gender, age) : null
+      const levelColors = { Poor: C.red, 'Below Average': C.orange, Average: C.accent, Good: C.sky, Excellent: C.green }
+      const color = level ? (levelColors[level] || C.accent) : C.accent
+      const hrr1 = (!isNaN(postHR) && !isNaN(rec1HR)) ? postHR - rec1HR : null
+      const hrr2 = (!isNaN(postHR) && !isNaN(rec2HR)) ? postHR - rec2HR : null
+
+      const anyData = hasDistance || !isNaN(restingHR) || !isNaN(postHR) || rpe || breathlessness
+      if (!anyData) return <div style={{ fontSize: 12, color: C.sub, fontStyle: 'italic' }}>Complete the fields above to see results</div>
+
+      const statRow = (label, value) => (
+        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: `1px solid ${C.border}44`, fontSize: 12 }}>
+          <span style={{ color: C.sub }}>{label}</span>
+          <span style={{ fontWeight: 700, color: C.text }}>{value ?? '—'}</span>
+        </div>
+      )
+
+      return (
+        <div>
+          <div style={{ padding: '12px 14px', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 10 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.5, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>6-Minute Walk Performance</div>
+            {statRow('Total Distance Completed', hasDistance ? `${distance} m` : null)}
+            {statRow('Average Treadmill Speed', avgSpeed ? `${avgSpeed} mph` : null)}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 2px' }}>
+              <span style={{ fontSize: 12, color: C.sub }}>Fitness Classification</span>
+              {level ? (
+                <span style={{ padding: '3px 10px', borderRadius: 6, background: color + '22', color, fontWeight: 800, fontSize: 12 }}>{level}</span>
+              ) : <span style={{ fontWeight: 700, color: C.text, fontSize: 12 }}>—</span>}
+            </div>
+          </div>
+
+          <div style={{ padding: '12px 14px', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 10 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.5, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>Cardiovascular Response</div>
+            {statRow('Resting Heart Rate', !isNaN(restingHR) ? `${restingHR} bpm` : null)}
+            {statRow('Post-Test Heart Rate', !isNaN(postHR) ? `${postHR} bpm` : null)}
+            {statRow('1-Minute Heart Rate Recovery', hrr1 !== null ? `${hrr1} bpm drop` : null)}
+            {statRow('2-Minute Heart Rate Recovery', hrr2 !== null ? `${hrr2} bpm drop` : null)}
+            {statRow('Resting SpO₂', restingSpO2 ? `${restingSpO2}%` : null)}
+            {statRow('Post-Test SpO₂', postSpO2 ? `${postSpO2}%` : null)}
+            {statRow('1-Minute SpO₂ Recovery', rec1SpO2 ? `${rec1SpO2}%` : null)}
+            {statRow('2-Minute SpO₂ Recovery', rec2SpO2 ? `${rec2SpO2}%` : null)}
+          </div>
+
+          <div style={{ padding: '12px 14px', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.5, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>Effort Response</div>
+            {statRow('RPE (10 = max effort)', rpe ? `${rpe}/10` : null)}
+            {statRow('Breathlessness (4–5 = holding conversation, 10 = about to pass out)', breathlessness ? `${breathlessness}/10` : null)}
+          </div>
         </div>
       )
     }
