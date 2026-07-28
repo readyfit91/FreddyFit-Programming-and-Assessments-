@@ -2586,7 +2586,7 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
               <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: 2, color: C.text, textTransform: 'uppercase', marginBottom: 2 }}>FunctionalFit</div>
               <div style={{ fontSize: 20, fontWeight: 800, color: C.text, marginBottom: 12 }}>$299.00</div>
               <div style={{ display: 'inline-block', padding: 12, background: 'white', borderRadius: 14, border: '3px solid #6C63FF', boxShadow: '0 4px 20px #6C63FF22' }}>
-                <QRCodeCanvas value="https://buy.stripe.com/5kQ14nawL8Ft4l6fnh3Ru05" size={180} level="H" includeMargin={false} />
+                <QRCodeCanvas value="https://buy.stripe.com/9B614n7kz6xl4l66QL3Ru06" size={180} level="H" includeMargin={false} />
               </div>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#6C63FF', marginTop: 10 }}>Scan to Pay</div>
             </div>
