@@ -7336,9 +7336,18 @@ function SubscriptionSignaturePad({ value, onChange }) {
   )
 }
 
-function SubscriptionTracker({ client, onBack }) {
-  const storageKey = `ff_sub_${client.id}`
-  const loadSub = () => { try { return JSON.parse(localStorage.getItem(storageKey) || 'null') } catch { return null } }
+function SubscriptionTracker({ client, onUpdate, onBack }) {
+  const localKey = `ff_sub_${client.id}`
+
+  // Load from localStorage first (offline safety), then fall back to trainerNotes
+  const loadSub = () => {
+    try {
+      const local = localStorage.getItem(localKey)
+      if (local) return JSON.parse(local)
+    } catch {}
+    if (!client.trainerNotes) return null
+    try { return JSON.parse(client.trainerNotes).subscription || null } catch { return null }
+  }
 
   const [sub, setSub] = useState(() => loadSub())
   const [setupPkg, setSetupPkg] = useState(SUB_PACKAGES[0].label)
@@ -7350,8 +7359,61 @@ function SubscriptionTracker({ client, onBack }) {
   const [showCalendar, setShowCalendar] = useState(false)
   const [calYear, setCalYear] = useState(new Date().getFullYear())
   const [calMonth, setCalMonth] = useState(new Date().getMonth())
+  const [pendingSync, setPendingSync] = useState(!!localStorage.getItem(localKey + '_pending'))
+  const [online, setOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
 
-  const saveSub = (updated) => { localStorage.setItem(storageKey, JSON.stringify(updated)); setSub(updated) }
+  // Save locally first, then try Supabase
+  const saveLocal = (updated) => { try { localStorage.setItem(localKey, JSON.stringify(updated)) } catch {} }
+
+  const syncToSupabase = async (updated) => {
+    try {
+      let base = {}
+      try { base = JSON.parse(client.trainerNotes || '{}') } catch {}
+      const updatedNotes = { ...base, subscription: updated }
+      const updatedClient = { ...client, trainerNotes: JSON.stringify(updatedNotes) }
+      await saveClient(updatedClient)
+      onUpdate?.(updatedClient)
+      // Clear pending flag and local cache on successful sync
+      localStorage.removeItem(localKey + '_pending')
+      localStorage.removeItem(localKey)
+      setPendingSync(false)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  const saveSub = async (updated) => {
+    setSub(updated)
+    // Always save locally first — data is never lost
+    saveLocal(updated)
+    // Try to sync to Supabase
+    const ok = await syncToSupabase(updated)
+    if (!ok) {
+      // Mark as pending so we know to retry later
+      localStorage.setItem(localKey + '_pending', '1')
+      setPendingSync(true)
+    }
+  }
+
+  // Auto-sync when coming back online
+  useEffect(() => {
+    const goOnline = () => {
+      setOnline(true)
+      // If there's pending data, try to sync it
+      const pending = localStorage.getItem(localKey + '_pending')
+      if (pending) {
+        const data = (() => { try { return JSON.parse(localStorage.getItem(localKey)) } catch { return null } })()
+        if (data) syncToSupabase(data)
+      }
+    }
+    const goOffline = () => setOnline(false)
+    window.addEventListener('online', goOnline)
+    window.addEventListener('offline', goOffline)
+    // Try syncing on mount if pending
+    goOnline()
+    return () => { window.removeEventListener('online', goOnline); window.removeEventListener('offline', goOffline) }
+  }, [])
 
   const getPeriodDates = (startDate, idx) => {
     const base = new Date(startDate + 'T00:00:00')
@@ -7378,9 +7440,11 @@ function SubscriptionTracker({ client, onBack }) {
     })
   }
 
-  const resetSub = () => {
+  const resetSub = async () => {
     if (!confirm('Reset this subscription? All session data will be cleared.')) return
-    localStorage.removeItem(storageKey); setSub(null)
+    localStorage.removeItem(localKey); localStorage.removeItem(localKey + '_pending')
+    setSub(null); setPendingSync(false)
+    await syncToSupabase(null)
   }
 
   const openSignModal = (periodIdx) => {
@@ -7414,6 +7478,12 @@ function SubscriptionTracker({ client, onBack }) {
       <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 24 }}>← Back to {client.name}</button>
       <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 2, color: C.accent, textTransform: 'uppercase', marginBottom: 4 }}>SUBSCRIPTION TRACKER</div>
       <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 3, color: C.text, marginBottom: 24 }}>{client.name}</div>
+      {(!online || pendingSync) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', marginBottom: 16, borderRadius: 10, fontSize: 12, fontWeight: 700, fontFamily: 'Montserrat,sans-serif', background: !online ? C.orange + '12' : C.sky + '12', border: `1.5px solid ${!online ? C.orange + '44' : C.sky + '44'}`, color: !online ? C.orange : C.sky }}>
+          <span style={{ fontSize: 16 }}>{!online ? '⚡' : '↻'}</span>
+          {!online ? 'You\'re offline — data is saved locally and will sync when you reconnect' : 'Syncing saved data to cloud...'}
+        </div>
+      )}
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '24px 24px' }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 20 }}>Set Up Coaching Subscription</div>
         <div style={{ marginBottom: 16 }}>
@@ -7508,6 +7578,13 @@ function SubscriptionTracker({ client, onBack }) {
           <button onClick={resetSub} style={{ padding: '7px 14px', borderRadius: 8, border: `1.5px solid ${C.red}44`, background: 'transparent', color: C.red, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>↺ Reset</button>
         </div>
       </div>
+
+      {(!online || pendingSync) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', marginBottom: 16, borderRadius: 10, fontSize: 12, fontWeight: 700, fontFamily: 'Montserrat,sans-serif', background: !online ? C.orange + '12' : C.sky + '12', border: `1.5px solid ${!online ? C.orange + '44' : C.sky + '44'}`, color: !online ? C.orange : C.sky }}>
+          <span style={{ fontSize: 16 }}>{!online ? '⚡' : '↻'}</span>
+          {!online ? 'You\'re offline — data is saved locally and will sync when you reconnect' : 'Syncing saved data to cloud...'}
+        </div>
+      )}
 
       {/* Summary cards */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20 }}>
@@ -8879,6 +8956,7 @@ export default function App() {
         {view === 'subscription' && client && (
           <SubscriptionTracker
             client={client}
+            onUpdate={updateClient}
             onBack={() => setView('client')}
           />
         )}
