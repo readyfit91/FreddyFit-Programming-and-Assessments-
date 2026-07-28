@@ -2584,7 +2584,7 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
             {/* QR Code */}
             <div style={{ textAlign: 'center', padding: '24px 16px', background: '#6C63FF08', borderRadius: 14, border: `2px solid #6C63FF33`, marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: 2, color: C.text, textTransform: 'uppercase', marginBottom: 2 }}>FunctionalFit</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: C.text, marginBottom: 12 }}>$299.00</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: C.text, marginBottom: 12 }}>$349.00</div>
               <div style={{ display: 'inline-block', padding: 12, background: 'white', borderRadius: 14, border: '3px solid #6C63FF', boxShadow: '0 4px 20px #6C63FF22' }}>
                 <QRCodeCanvas value="https://buy.stripe.com/9B614n7kz6xl4l66QL3Ru06" size={180} level="H" includeMargin={false} />
               </div>
