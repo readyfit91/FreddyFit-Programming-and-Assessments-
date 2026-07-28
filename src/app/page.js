@@ -7400,17 +7400,15 @@ function SubscriptionTracker({ client, onUpdate, onBack }) {
   useEffect(() => {
     const goOnline = () => {
       setOnline(true)
-      // If there's pending data, try to sync it
-      const pending = localStorage.getItem(localKey + '_pending')
-      if (pending) {
-        const data = (() => { try { return JSON.parse(localStorage.getItem(localKey)) } catch { return null } })()
-        if (data) syncToSupabase(data)
-      }
+      // Any locally cached data (from an offline save, or from before cloud sync
+      // existed) still needs to reach Supabase — sync it opportunistically.
+      const data = (() => { try { return JSON.parse(localStorage.getItem(localKey)) } catch { return null } })()
+      if (data) syncToSupabase(data)
     }
     const goOffline = () => setOnline(false)
     window.addEventListener('online', goOnline)
     window.addEventListener('offline', goOffline)
-    // Try syncing on mount if pending
+    // Try syncing on mount
     goOnline()
     return () => { window.removeEventListener('online', goOnline); window.removeEventListener('offline', goOffline) }
   }, [])
