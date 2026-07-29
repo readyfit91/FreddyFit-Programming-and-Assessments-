@@ -44,6 +44,34 @@ export async function saveClient(client) {
   return saved
 }
 
+// Merges `updatesOrFn` into a client's trainer_notes JSON and saves it. Always re-fetches the
+// client's current trainer_notes from the server first — never trusts a local/cached copy —
+// because the roster list omits trainer_notes (to reduce egress) and other clients' full data
+// may never have loaded locally at all. Without this, "read the local copy, merge, write it
+// back" call sites silently erase whatever wasn't loaded locally (e.g. Program Journal weeks,
+// sign-in sheet data, a linked client's entire notes).
+// `updatesOrFn` is either a plain object to shallow-merge in, or `(freshNotes) => object` when
+// the update needs to be computed from the fresh server-side data (e.g. appending to an array).
+export async function mergeClientNotes(client, updatesOrFn) {
+  let baseNotes = {}
+  try {
+    const fresh = await getClientById(client.id)
+    baseNotes = JSON.parse(fresh?.trainer_notes || '{}')
+  } catch {
+    try { baseNotes = JSON.parse(client.trainerNotes || '{}') } catch {}
+  }
+  const updates = typeof updatesOrFn === 'function' ? updatesOrFn(baseNotes) : updatesOrFn
+  const merged = { ...baseNotes, ...updates }
+  // program_journal is a map of many independent week/phase entries — merge by key instead of
+  // replacing the whole map so weeks not loaded in this particular update are never wiped out.
+  if (updates.program_journal) {
+    merged.program_journal = { ...(baseNotes.program_journal || {}), ...updates.program_journal }
+  }
+  const updatedClient = { ...client, trainerNotes: JSON.stringify(merged) }
+  const saved = await saveClient(updatedClient)
+  return { ...updatedClient, id: saved?.id || client.id, trainerNotes: saved?.trainer_notes ?? updatedClient.trainerNotes }
+}
+
 export async function deleteClient(clientId) {
   const { error } = await supabase
     .from('clients')
