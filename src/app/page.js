@@ -5756,6 +5756,13 @@ function AssessmentHistoryModal({ assessment, client, onClose, onNewAssessment }
   )
 }
 
+const WEIGH_INTERVALS = [
+  { label: '1x/week', days: 7 },
+  { label: '2x/week', days: 4 },
+  { label: 'Every 2 weeks', days: 14 },
+  { label: '1x/month', days: 30 },
+]
+
 function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onSignInSheet, onWeightTracker, onSubscription, onBloodWork, onBack, allClients = [], onSwitchClient }) {
   const assessmentsDone = Object.keys(client.assessments || {})
   const [showIntake, setShowIntake] = useState(false)
@@ -5807,18 +5814,24 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
 
   const nextWeighInDate = (() => {
     if (!lastWeighIn) return null
-    const d = new Date(lastWeighIn)
+    const d = new Date(lastWeighIn + 'T00:00:00')
     d.setDate(d.getDate() + Number(weighInterval))
     return d
   })()
 
-  const weighCountdown = (() => {
+  // Sessions land on different days week to week, so an exact day countdown can make a client
+  // look "late" just because they haven't come in yet this week. Track by week (Sun–Sat bucket)
+  // instead — a client due this week reads "This Week" the whole week, not a shrinking day count.
+  const weekStartOf = (date) => {
+    const d = new Date(date)
+    d.setHours(0, 0, 0, 0)
+    d.setDate(d.getDate() - d.getDay())
+    return d
+  }
+
+  const weighWeekOffset = (() => {
     if (!nextWeighInDate) return null
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const next = new Date(nextWeighInDate)
-    next.setHours(0, 0, 0, 0)
-    return Math.ceil((next - today) / (1000 * 60 * 60 * 24))
+    return Math.round((weekStartOf(nextWeighInDate) - weekStartOf(new Date())) / (7 * 24 * 60 * 60 * 1000))
   })()
 
   const FLOW = [
@@ -5903,11 +5916,11 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <span style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Interval</span>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {[7, 14, 30].map(d => (
-                <button key={d} onClick={() => saveWeighIn(lastWeighIn, d)}
-                  style={{ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${weighInterval === d ? C.teal : C.border}`, background: weighInterval === d ? C.teal + '18' : '#fff', color: weighInterval === d ? C.teal : C.sub, fontWeight: 800, fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
-                  {d}d
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              {WEIGH_INTERVALS.map(iv => (
+                <button key={iv.days} onClick={() => saveWeighIn(lastWeighIn, iv.days)}
+                  style={{ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${weighInterval === iv.days ? C.teal : C.border}`, background: weighInterval === iv.days ? C.teal + '18' : '#fff', color: weighInterval === iv.days ? C.teal : C.sub, fontWeight: 800, fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', whiteSpace: 'nowrap' }}>
+                  {iv.label}
                 </button>
               ))}
             </div>
@@ -5915,14 +5928,14 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
         </div>
         {nextWeighInDate && (
           <div style={{ textAlign: 'center', minWidth: 90 }}>
-            <div style={{ fontSize: weighCountdown === 0 ? 22 : 28, fontWeight: 900, color: weighCountdown < 0 ? C.red : weighCountdown <= 2 ? C.orange : C.teal, fontFamily: 'Montserrat,sans-serif', lineHeight: 1 }}>
-              {weighCountdown === 0 ? 'TODAY' : weighCountdown < 0 ? `${Math.abs(weighCountdown)}d LATE` : `${weighCountdown}d`}
+            <div style={{ fontSize: weighWeekOffset === 0 ? 18 : 22, fontWeight: 900, color: weighWeekOffset < 0 ? C.red : weighWeekOffset === 0 ? C.orange : C.teal, fontFamily: 'Montserrat,sans-serif', lineHeight: 1 }}>
+              {weighWeekOffset === 0 ? 'THIS WEEK' : weighWeekOffset === 1 ? 'NEXT WEEK' : weighWeekOffset > 1 ? `IN ${weighWeekOffset} WKS` : `${Math.abs(weighWeekOffset)} WK${Math.abs(weighWeekOffset) > 1 ? 'S' : ''} LATE`}
             </div>
             <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 }}>
-              {weighCountdown === 0 ? 'Weigh in today!' : weighCountdown < 0 ? 'Overdue' : 'Until Next'}
+              {weighWeekOffset === 0 ? 'Weigh in this week!' : weighWeekOffset < 0 ? 'Overdue' : 'Until Next'}
             </div>
             <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>
-              {nextWeighInDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              Week of {weekStartOf(nextWeighInDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
             </div>
           </div>
         )}
