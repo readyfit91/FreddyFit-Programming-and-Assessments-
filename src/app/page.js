@@ -3491,6 +3491,14 @@ function ProgramUploads({ client, onUpdate }) {
     try {
       const base = parseNotes()
       const merged = { ...base, ...updates }
+      // program_journal is a map of many independent week/phase entries. If this component's
+      // local `journal` state was initialized before the client's full trainer_notes finished
+      // loading (e.g. the background fetch in goToClient hadn't resolved yet), it may be missing
+      // weeks that were saved elsewhere — merge by key instead of replacing the whole map so
+      // those weeks are never wiped out by an unrelated save.
+      if (updates.program_journal) {
+        merged.program_journal = { ...(base.program_journal || {}), ...updates.program_journal }
+      }
       const updatedClient = { ...client, trainerNotes: JSON.stringify(merged) }
       await saveClient(updatedClient)
       onUpdate(updatedClient)
@@ -3520,6 +3528,21 @@ function ProgramUploads({ client, onUpdate }) {
   }, [phaseNotesKey])
 
   useEffect(() => { journalRef.current = journal }, [journal])
+
+  // If the client's full trainer_notes arrives after this component already mounted
+  // (e.g. it was still loading in the background), fill in any journal weeks that
+  // weren't present locally yet — without touching keys already loaded/edited here.
+  useEffect(() => {
+    const fresh = parseNotes().program_journal || {}
+    setJournal(prev => {
+      let changed = false
+      const next = { ...prev }
+      for (const k of Object.keys(fresh)) {
+        if (!(k in prev)) { next[k] = fresh[k]; changed = true }
+      }
+      return changed ? next : prev
+    })
+  }, [client.trainerNotes])
 
   // Persist last-viewed position
   useEffect(() => {
