@@ -8,6 +8,40 @@ function localDate(d = new Date()) {
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 }
+
+// Parses a "YYYY-MM-DD" string as local midnight (avoids the UTC-parse off-by-one-day bug)
+function parseLocalDate(str) {
+  if (!str) return null
+  const [y, m, d] = str.split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
+
+// Sunday of the week containing `date`
+function startOfWeekSunday(date) {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  d.setDate(d.getDate() - d.getDay())
+  return d
+}
+
+const WEIGH_FREQUENCIES = [
+  { value: 'weekly', label: '1x/Week' },
+  { value: 'twice_weekly', label: '2x/Week' },
+  { value: 'biweekly', label: 'Every 2 Wks' },
+  { value: 'monthly', label: '1x/Month' },
+]
+
+// Advances a local-midnight Date by the selected weigh-in frequency
+function addWeighInterval(date, frequency) {
+  const d = new Date(date)
+  switch (frequency) {
+    case 'twice_weekly': d.setDate(d.getDate() + 3); break
+    case 'biweekly': d.setDate(d.getDate() + 14); break
+    case 'monthly': d.setMonth(d.getMonth() + 1); break
+    case 'weekly':
+    default: d.setDate(d.getDate() + 7); break
+  }
+  return d
+}
 import { getAllClients, getClientById, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog, getAllLeads, saveLead, deleteLead, getBloodWork, saveBloodWork, deleteBloodWork, getSessions, getRecurringSessions, saveSession, deleteSession } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
 import { FIELD_MODIFIERS } from '../lib/modifiers'
@@ -5553,11 +5587,12 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
   }
 
   const lastWeighIn = intake?.last_weigh_in || ''
-  const weighInterval = intake?.weigh_interval || 7
+  // Fall back for clients saved under the old fixed-day-interval model
+  const weighFrequency = intake?.weigh_frequency || (intake?.weigh_interval === 14 ? 'biweekly' : intake?.weigh_interval === 30 ? 'monthly' : 'weekly')
 
-  const saveWeighIn = async (date, interval) => {
+  const saveWeighIn = async (date, frequency) => {
     const base = intake || {}
-    const updatedNotes = JSON.stringify({ ...base, last_weigh_in: date, weigh_interval: interval })
+    const updatedNotes = JSON.stringify({ ...base, last_weigh_in: date, weigh_frequency: frequency })
     const updatedClient = { ...client, trainerNotes: updatedNotes }
     await saveClient(updatedClient)
     onUpdate(updatedClient)
@@ -5565,9 +5600,7 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
 
   const nextWeighInDate = (() => {
     if (!lastWeighIn) return null
-    const d = new Date(lastWeighIn)
-    d.setDate(d.getDate() + Number(weighInterval))
-    return d
+    return addWeighInterval(parseLocalDate(lastWeighIn), weighFrequency)
   })()
 
   const weighCountdown = (() => {
@@ -5578,6 +5611,18 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
     next.setHours(0, 0, 0, 0)
     return Math.ceil((next - today) / (1000 * 60 * 60 * 24))
   })()
+
+  // "1 more weigh-in this week" / "N week(s) before next weigh-in", weeks starting Sunday
+  const weighWeekMessage = (() => {
+    if (!nextWeighInDate) return null
+    const weeksUntil = Math.round((startOfWeekSunday(nextWeighInDate) - startOfWeekSunday(new Date())) / (1000 * 60 * 60 * 24 * 7))
+    if (weeksUntil <= 0) return '1 more weigh-in this week'
+    return `${weeksUntil} week${weeksUntil > 1 ? 's' : ''} before next weigh-in`
+  })()
+
+  const weighWeekOfLabel = nextWeighInDate
+    ? `Week of ${startOfWeekSunday(nextWeighInDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+    : null
 
   const FLOW = [
     { phase: 'Phase 1 — Always First', color: C.teal, items: [ALL_ASSESSMENTS.hypermobility] },
@@ -5656,16 +5701,16 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: 1 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <span style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Last Weigh-In</span>
-            <input type="date" value={lastWeighIn} onChange={e => saveWeighIn(e.target.value, weighInterval)}
+            <input type="date" value={lastWeighIn} onChange={e => saveWeighIn(e.target.value, weighFrequency)}
               style={{ fontSize: 12, fontWeight: 700, border: `1.5px solid ${C.border}`, borderRadius: 7, padding: '5px 10px', background: '#fff', color: C.text, fontFamily: 'Montserrat,sans-serif', cursor: 'pointer' }} />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Interval</span>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {[7, 14, 30].map(d => (
-                <button key={d} onClick={() => saveWeighIn(lastWeighIn, d)}
-                  style={{ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${weighInterval === d ? C.teal : C.border}`, background: weighInterval === d ? C.teal + '18' : '#fff', color: weighInterval === d ? C.teal : C.sub, fontWeight: 800, fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
-                  {d}d
+            <span style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Frequency</span>
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              {WEIGH_FREQUENCIES.map(f => (
+                <button key={f.value} onClick={() => saveWeighIn(lastWeighIn, f.value)}
+                  style={{ padding: '5px 10px', borderRadius: 7, border: `1.5px solid ${weighFrequency === f.value ? C.teal : C.border}`, background: weighFrequency === f.value ? C.teal + '18' : '#fff', color: weighFrequency === f.value ? C.teal : C.sub, fontWeight: 800, fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', whiteSpace: 'nowrap' }}>
+                  {f.label}
                 </button>
               ))}
             </div>
@@ -5682,6 +5727,12 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
             <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>
               {nextWeighInDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
             </div>
+            {weighWeekMessage && (
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.teal, marginTop: 4 }}>{weighWeekMessage}</div>
+            )}
+            {weighWeekOfLabel && (
+              <div style={{ fontSize: 9, color: C.sub, marginTop: 1 }}>{weighWeekOfLabel}</div>
+            )}
           </div>
         )}
         {!nextWeighInDate && (
