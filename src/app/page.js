@@ -7387,11 +7387,14 @@ function SubscriptionSignaturePad({ value, onChange }) {
   )
 }
 
-function SubscriptionTracker({ client, onBack }) {
-  const storageKey = `ff_sub_${client.id}`
-  const loadSub = () => { try { return JSON.parse(localStorage.getItem(storageKey) || 'null') } catch { return null } }
+function SubscriptionTracker({ client, onUpdate, onBack }) {
+  // Subscription lives in trainerNotes (Supabase) alongside intake/weigh-in data
+  const intake = (() => {
+    if (!client.trainerNotes) return null
+    try { return JSON.parse(client.trainerNotes) } catch { return null }
+  })()
+  const sub = intake?.subscription || null
 
-  const [sub, setSub] = useState(() => loadSub())
   const [setupPkg, setSetupPkg] = useState(SUB_PACKAGES[0].label)
   const [setupDate, setSetupDate] = useState(localDate())
   const [signModal, setSignModal] = useState(null)
@@ -7402,7 +7405,24 @@ function SubscriptionTracker({ client, onBack }) {
   const [calYear, setCalYear] = useState(new Date().getFullYear())
   const [calMonth, setCalMonth] = useState(new Date().getMonth())
 
-  const saveSub = (updated) => { localStorage.setItem(storageKey, JSON.stringify(updated)); setSub(updated) }
+  const saveSub = async (updated) => {
+    const base = intake || {}
+    const updatedNotes = JSON.stringify({ ...base, subscription: updated })
+    const updatedClient = { ...client, trainerNotes: updatedNotes }
+    await saveClient(updatedClient)
+    onUpdate(updatedClient)
+  }
+
+  // One-time pull-in of any subscription previously saved only to this device's localStorage
+  useEffect(() => {
+    if (sub) return
+    const legacyKey = `ff_sub_${client.id}`
+    let legacy = null
+    try { legacy = JSON.parse(localStorage.getItem(legacyKey) || 'null') } catch {}
+    if (legacy) {
+      saveSub(legacy).then(() => { try { localStorage.removeItem(legacyKey) } catch {} })
+    }
+  }, [client.id])
 
   const getPeriodDates = (startDate, idx) => {
     const base = new Date(startDate + 'T00:00:00')
@@ -7429,9 +7449,13 @@ function SubscriptionTracker({ client, onBack }) {
     })
   }
 
-  const resetSub = () => {
+  const resetSub = async () => {
     if (!confirm('Reset this subscription? All session data will be cleared.')) return
-    localStorage.removeItem(storageKey); setSub(null)
+    const base = intake || {}
+    const { subscription, ...rest } = base
+    const updatedClient = { ...client, trainerNotes: JSON.stringify(rest) }
+    await saveClient(updatedClient)
+    onUpdate(updatedClient)
   }
 
   const openSignModal = (periodIdx) => {
@@ -8930,6 +8954,7 @@ export default function App() {
         {view === 'subscription' && client && (
           <SubscriptionTracker
             client={client}
+            onUpdate={updateClient}
             onBack={() => setView('client')}
           />
         )}
