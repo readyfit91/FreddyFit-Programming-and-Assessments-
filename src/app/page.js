@@ -8,7 +8,7 @@ function localDate(d = new Date()) {
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 }
-import { getAllClients, getClientById, saveClient, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog, getAllLeads, saveLead, deleteLead, getBloodWork, saveBloodWork, deleteBloodWork, getSessions, getRecurringSessions, saveSession, deleteSession } from '../lib/supabase'
+import { getAllClients, getClientById, saveClient, mergeClientNotes, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog, getAllLeads, saveLead, deleteLead, getBloodWork, saveBloodWork, deleteBloodWork, getSessions, getRecurringSessions, saveSession, deleteSession } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
 import { FIELD_MODIFIERS } from '../lib/modifiers'
 import { QRCodeCanvas } from 'qrcode.react'
@@ -2283,13 +2283,17 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
       const intakeJson = JSON.stringify({ ...intakeFields, goal_3_month, goal_6_month, goal_1_year })
       const goal = [goal_3_month, goal_6_month, goal_1_year].filter(Boolean).join(' | ')
 
-      const existingNotes = isEdit ? (() => { try { return JSON.parse(existingClient.trainerNotes || '{}') } catch { return {} } })() : {}
-      const mergedNotes = JSON.stringify({ ...existingNotes, ...JSON.parse(intakeJson) })
-      const clientData = isEdit
-        ? { ...existingClient, name, dob, goal, email: form.email || '', equipment: existingClient.equipment || '', trainerNotes: mergedNotes }
-        : { name, dob, goal, email: form.email || '', equipment: '', trainerNotes: intakeJson, assessments: {} }
-      const saved = await saveClient(clientData)
-      onSave(saved ? { ...clientData, id: saved.id, trainerNotes: saved.trainer_notes || intakeJson } : clientData)
+      if (isEdit) {
+        const updatedClient = await mergeClientNotes(
+          { ...existingClient, name, dob, goal, email: form.email || '', equipment: existingClient.equipment || '' },
+          JSON.parse(intakeJson)
+        )
+        onSave(updatedClient)
+      } else {
+        const clientData = { name, dob, goal, email: form.email || '', equipment: '', trainerNotes: intakeJson, assessments: {} }
+        const saved = await saveClient(clientData)
+        onSave(saved ? { ...clientData, id: saved.id, trainerNotes: saved.trainer_notes || intakeJson } : clientData)
+      }
     } catch (e) {
       alert('Error saving: ' + e.message)
     }
@@ -2935,11 +2939,7 @@ function SignInSheet({ client, onBack, onUpdate }) {
 
   const syncToSupabase = async (pkg, ents, offset) => {
     try {
-      let base = {}
-      try { base = JSON.parse(client.trainerNotes || '{}') } catch {}
-      const updatedNotes = { ...base, sign_in_package: pkg, sign_in_entries: ents, sign_in_offset: offset }
-      const updatedClient = { ...client, trainerNotes: JSON.stringify(updatedNotes) }
-      await saveClient(updatedClient)
+      const updatedClient = await mergeClientNotes(client, { sign_in_package: pkg, sign_in_entries: ents, sign_in_offset: offset })
       onUpdate(updatedClient)
       // Clear pending flag and local cache on successful sync
       localStorage.removeItem(localKey + '_pending')
@@ -3489,18 +3489,7 @@ function ProgramUploads({ client, onUpdate }) {
   const persist = async (updates) => {
     setSaving(true)
     try {
-      const base = parseNotes()
-      const merged = { ...base, ...updates }
-      // program_journal is a map of many independent week/phase entries. If this component's
-      // local `journal` state was initialized before the client's full trainer_notes finished
-      // loading (e.g. the background fetch in goToClient hadn't resolved yet), it may be missing
-      // weeks that were saved elsewhere — merge by key instead of replacing the whole map so
-      // those weeks are never wiped out by an unrelated save.
-      if (updates.program_journal) {
-        merged.program_journal = { ...(base.program_journal || {}), ...updates.program_journal }
-      }
-      const updatedClient = { ...client, trainerNotes: JSON.stringify(merged) }
-      await saveClient(updatedClient)
+      const updatedClient = await mergeClientNotes(client, updates)
       onUpdate(updatedClient)
     } catch (e) { alert('Error saving: ' + e.message) }
     setSaving(false)
@@ -5053,25 +5042,23 @@ function ClientReminders({ client, onUpdate }) {
   })()
   const reminders = (intake.reminders || []).sort((a, b) => new Date(a.date) - new Date(b.date))
 
-  const saveReminders = async (updated) => {
-    const updatedNotes = JSON.stringify({ ...intake, reminders: updated })
-    const updatedClient = { ...client, trainerNotes: updatedNotes }
-    await saveClient(updatedClient)
+  const saveReminders = async (updateFn) => {
+    const updatedClient = await mergeClientNotes(client, base => ({ reminders: updateFn(base.reminders || []) }))
     onUpdate(updatedClient)
   }
 
   const addReminder = async () => {
     if (!newDate || !newNote.trim()) return
-    await saveReminders([...reminders, { id: makeId(), date: newDate, note: newNote.trim(), done: false }])
+    await saveReminders(rs => [...rs, { id: makeId(), date: newDate, note: newNote.trim(), done: false }])
     setNewDate(''); setNewNote(''); setAdding(false)
   }
 
   const toggleDone = async (id) => {
-    await saveReminders(reminders.map(r => r.id === id ? { ...r, done: !r.done } : r))
+    await saveReminders(rs => rs.map(r => r.id === id ? { ...r, done: !r.done } : r))
   }
 
   const removeReminder = async (id) => {
-    await saveReminders(reminders.filter(r => r.id !== id))
+    await saveReminders(rs => rs.filter(r => r.id !== id))
   }
 
   const today = localDate()
@@ -5160,10 +5147,7 @@ function ClientNotes({ client, onUpdate }) {
   const save = async (value) => {
     setSaving(true)
     try {
-      const latest = (() => { try { return JSON.parse(client.trainerNotes || '{}') } catch { return {} } })()
-      const updated = { ...latest, clientNotes: value }
-      const updatedClient = { ...client, trainerNotes: JSON.stringify(updated) }
-      await saveClient(updatedClient)
+      const updatedClient = await mergeClientNotes(client, { clientNotes: value })
       onUpdate(updatedClient)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
@@ -5536,42 +5520,26 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
   const availableToLink = allClients.filter(c => c.id !== client.id && !linkedIds.includes(c.id))
 
   const linkClient = async (targetId) => {
-    const base = intake || {}
-    const myLinked = [...(base.linked_clients || []), targetId]
-    const updatedNotes = JSON.stringify({ ...base, linked_clients: myLinked })
-    const updatedClient = { ...client, trainerNotes: updatedNotes }
-    await saveClient(updatedClient)
+    const updatedClient = await mergeClientNotes(client, base => ({ linked_clients: [...(base.linked_clients || []), targetId] }))
     onUpdate(updatedClient)
 
     // Also link back: add this client's id to target's linked_clients
     const target = allClients.find(c => c.id === targetId)
     if (target) {
-      let targetData = {}
-      try { targetData = JSON.parse(target.trainerNotes || '{}') } catch {}
-      const targetLinked = [...(targetData.linked_clients || []), client.id]
-      const targetNotes = JSON.stringify({ ...targetData, linked_clients: targetLinked })
-      await saveClient({ ...target, trainerNotes: targetNotes })
+      await mergeClientNotes(target, base => ({ linked_clients: [...(base.linked_clients || []), client.id] }))
     }
     setShowLinkMenu(false)
   }
 
   const unlinkClient = async (targetId) => {
     if (!confirm('Unlink this client?')) return
-    const base = intake || {}
-    const myLinked = (base.linked_clients || []).filter(id => id !== targetId)
-    const updatedNotes = JSON.stringify({ ...base, linked_clients: myLinked })
-    const updatedClient = { ...client, trainerNotes: updatedNotes }
-    await saveClient(updatedClient)
+    const updatedClient = await mergeClientNotes(client, base => ({ linked_clients: (base.linked_clients || []).filter(id => id !== targetId) }))
     onUpdate(updatedClient)
 
     // Remove back-link
     const target = allClients.find(c => c.id === targetId)
     if (target) {
-      let targetData = {}
-      try { targetData = JSON.parse(target.trainerNotes || '{}') } catch {}
-      const targetLinked = (targetData.linked_clients || []).filter(id => id !== client.id)
-      const targetNotes = JSON.stringify({ ...targetData, linked_clients: targetLinked })
-      await saveClient({ ...target, trainerNotes: targetNotes })
+      await mergeClientNotes(target, base => ({ linked_clients: (base.linked_clients || []).filter(id => id !== client.id) }))
     }
   }
 
@@ -5579,10 +5547,7 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
   const weighInterval = intake?.weigh_interval || 7
 
   const saveWeighIn = async (date, interval) => {
-    const base = intake || {}
-    const updatedNotes = JSON.stringify({ ...base, last_weigh_in: date, weigh_interval: interval })
-    const updatedClient = { ...client, trainerNotes: updatedNotes }
-    await saveClient(updatedClient)
+    const updatedClient = await mergeClientNotes(client, { last_weigh_in: date, weigh_interval: interval })
     onUpdate(updatedClient)
   }
 
@@ -7393,11 +7358,7 @@ function SubscriptionTracker({ client, onUpdate, onBack }) {
 
   const syncToSupabase = async (updated) => {
     try {
-      let base = {}
-      try { base = JSON.parse(client.trainerNotes || '{}') } catch {}
-      const updatedNotes = { ...base, subscription: updated }
-      const updatedClient = { ...client, trainerNotes: JSON.stringify(updatedNotes) }
-      await saveClient(updatedClient)
+      const updatedClient = await mergeClientNotes(client, { subscription: updated })
       onUpdate && onUpdate(updatedClient)
       // Clear pending flag and local cache on successful sync
       localStorage.removeItem(storageKey + '_pending')
