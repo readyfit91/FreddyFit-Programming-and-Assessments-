@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
+import { sendSms } from '../../../lib/twilio'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
@@ -186,6 +187,17 @@ export async function POST(request) {
       })
     } catch (emailErr) {
       console.error('Email failed:', emailErr)
+    }
+
+    if (process.env.OWNER_PHONE_NUMBER) {
+      try {
+        await sendSms({
+          to: process.env.OWNER_PHONE_NUMBER,
+          body: `FreddyFit: New ${body._form === 'consultation' ? 'consultation' : 'lead'} — ${leadName}${body.phone ? ' (' + body.phone + ')' : ''}. Goal: ${goal || 'N/A'}`
+        })
+      } catch (smsErr) {
+        console.error('New lead SMS alert failed:', smsErr)
+      }
     }
 
     return Response.json({ success: true }, { headers: CORS })
