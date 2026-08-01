@@ -5860,20 +5860,27 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
 function ClientRoster({ onSelectClient, onNewClient, onOpenSchedule }) {
   const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(null)
   const [search, setSearch] = useState('')
   const [todaySessions, setTodaySessions] = useState([])
   const [upcomingSessions, setUpcomingSessions] = useState([])
 
   const load = useCallback(async () => {
     setLoading(true)
-    const all = await getAllClients()
-    // Load assessments for each client
-    const withAssessments = await Promise.all(all.map(async c => {
-      const assessments = await getAssessmentsForClient(c.id).catch(() => ({}))
-      return { ...c, trainerNotes: c.trainer_notes, assessments }
-    }))
-    setClients(withAssessments)
-    setLoading(false)
+    setLoadError(null)
+    try {
+      const all = await getAllClients()
+      // Load assessments for each client
+      const withAssessments = await Promise.all(all.map(async c => {
+        const assessments = await getAssessmentsForClient(c.id).catch(() => ({}))
+        return { ...c, trainerNotes: c.trainer_notes, assessments }
+      }))
+      setClients(withAssessments)
+    } catch (err) {
+      setLoadError(err.message || 'Failed to load clients')
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -6060,7 +6067,12 @@ function ClientRoster({ onSelectClient, onNewClient, onOpenSchedule }) {
         )
       })()}
 
-      {loading ? <Spinner /> : filtered.length === 0 ? (
+      {loading ? <Spinner /> : loadError ? (
+        <div style={{ textAlign: 'center', padding: 60, color: C.red, fontSize: 14 }}>
+          <div style={{ marginBottom: 12 }}>Couldn't load clients: {loadError}</div>
+          <button onClick={load} style={{ padding: '8px 16px', borderRadius: 8, border: `1px solid ${C.red}`, background: 'transparent', color: C.red, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Retry</button>
+        </div>
+      ) : filtered.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 60, color: C.sub, fontSize: 14 }}>{clients.length === 0 ? 'No clients yet. Add your first client above.' : 'No clients match your search.'}</div>
       ) : filtered.map(c => {
         const count = Object.keys(c.assessments || {}).length
