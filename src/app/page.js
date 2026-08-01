@@ -2285,12 +2285,12 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
 
       if (isEdit) {
         const updatedClient = await mergeClientNotes(
-          { ...existingClient, name, dob, goal, email: form.email || '', equipment: existingClient.equipment || '' },
+          { ...existingClient, name, dob, goal, email: form.email || '', phone: form.phone || '', equipment: existingClient.equipment || '' },
           JSON.parse(intakeJson)
         )
         onSave(updatedClient)
       } else {
-        const clientData = { name, dob, goal, email: form.email || '', equipment: '', trainerNotes: intakeJson, assessments: {} }
+        const clientData = { name, dob, goal, email: form.email || '', phone: form.phone || '', equipment: '', trainerNotes: intakeJson, assessments: {} }
         const saved = await saveClient(clientData)
         onSave(saved ? { ...clientData, id: saved.id, trainerNotes: saved.trainer_notes || intakeJson } : clientData)
       }
@@ -6402,6 +6402,120 @@ Output only the message/script. No intro, no explanation, just the content ready
   )
 }
 
+// ── SMS MODAL ────────────────────────────────────────────────────────────────
+function SmsModal({ lead, onClose }) {
+  const [messages, setMessages] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [draft, setDraft] = useState('')
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState('')
+  const scrollRef = useRef(null)
+
+  const load = useCallback(async () => {
+    if (!lead.phone) return
+    try {
+      const res = await fetch(`/api/sms/send?phone=${encodeURIComponent(lead.phone)}`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      setMessages(data.messages || [])
+    } catch (e) {
+      setError(e.message)
+    }
+    setLoading(false)
+  }, [lead.phone])
+
+  useEffect(() => {
+    load()
+    const interval = setInterval(load, 6000)
+    return () => clearInterval(interval)
+  }, [load])
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+  }, [messages])
+
+  const send = async () => {
+    const body = draft.trim()
+    if (!body || sending) return
+    setSending(true)
+    setError('')
+    try {
+      const res = await fetch('/api/sms/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: lead.phone, body, leadId: lead.id })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      setDraft('')
+      await load()
+    } catch (e) {
+      setError(e.message)
+    }
+    setSending(false)
+  }
+
+  if (!lead.phone) {
+    return (
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+        <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, padding: 24, maxWidth: 340, fontFamily: 'Montserrat,sans-serif', textAlign: 'center' }}>
+          <div style={{ fontSize: 13, color: C.sub, marginBottom: 14 }}>{lead.name} has no phone number on file.</div>
+          <button onClick={onClose} style={{ padding: '9px 16px', borderRadius: 8, border: 'none', background: C.accent, color: '#fff', fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>Close</button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '20px 20px 0 0', width: '100%', maxWidth: 480, height: '80vh', display: 'flex', flexDirection: 'column', fontFamily: 'Montserrat,sans-serif' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 20px 14px', borderBottom: `1px solid ${C.border}` }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>💬 {lead.name}</div>
+            <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>{lead.phone}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: C.sub }}>×</button>
+        </div>
+
+        <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {loading ? <Spinner /> : messages.length === 0 ? (
+            <div style={{ textAlign: 'center', color: C.sub, fontSize: 12, padding: 24 }}>No messages yet — send the first one below.</div>
+          ) : messages.map(m => (
+            <div key={m.id} style={{ alignSelf: m.direction === 'outbound' ? 'flex-end' : 'flex-start', maxWidth: '78%' }}>
+              <div style={{
+                background: m.direction === 'outbound' ? C.accent : C.faint,
+                color: m.direction === 'outbound' ? '#fff' : C.text,
+                border: m.direction === 'outbound' ? 'none' : `1px solid ${C.border}`,
+                borderRadius: 14,
+                padding: '9px 13px',
+                fontSize: 13,
+                lineHeight: 1.5,
+                whiteSpace: 'pre-wrap',
+              }}>{m.body}</div>
+              <div style={{ fontSize: 9, color: C.sub, marginTop: 3, textAlign: m.direction === 'outbound' ? 'right' : 'left' }}>
+                {m.created_at ? new Date(m.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {error && <div style={{ padding: '0 20px 8px', fontSize: 11, color: C.red }}>{error}</div>}
+
+        <div style={{ display: 'flex', gap: 8, padding: '12px 16px 20px', borderTop: `1px solid ${C.border}` }}>
+          <textarea value={draft} onChange={e => setDraft(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+            placeholder="Type a message…" rows={1}
+            style={{ flex: 1, resize: 'none', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 14px', fontFamily: 'Montserrat,sans-serif', fontSize: 13, outline: 'none' }} />
+          <button onClick={send} disabled={sending || !draft.trim()}
+            style={{ padding: '0 18px', borderRadius: 10, border: 'none', background: sending || !draft.trim() ? C.border : C.accent, color: '#fff', fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 13, cursor: sending || !draft.trim() ? 'not-allowed' : 'pointer' }}>
+            {sending ? '…' : 'Send'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function CrmLeads({ onBack, onNavigateToRoster }) {
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
@@ -6411,6 +6525,7 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({ name:'', phone:'', email:'', source:'', goal:'', intake_notes:'', consultation_notes:'', booked_consultation: false, committed_package: false })
   const [aiCoachLead, setAiCoachLead] = useState(null)
+  const [smsLead, setSmsLead] = useState(null)
   const [converting, setConverting] = useState(false)
   const [advancing, setAdvancing] = useState(null)
   const [showCold, setShowCold] = useState(false)
@@ -6522,6 +6637,8 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
     }
     const result = await saveClient({
       name: lead.name,
+      email: lead.email || '',
+      phone: lead.phone || '',
       goal: lead.goal || '',
       dob: '',
       equipment: '',
@@ -6699,6 +6816,7 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
     <div style={{ maxWidth: 700, margin: '0 auto', padding: '0 24px 40px' }}>
       <LogoHeader />
       {aiCoachLead && <AiCoachModal lead={aiCoachLead} onClose={() => setAiCoachLead(null)} />}
+      {smsLead && <SmsModal lead={smsLead} onClose={() => setSmsLead(null)} />}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div>
@@ -6810,6 +6928,12 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
                       style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.accent}44`, background: C.accent + '18', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
                       ✨ Write {step.channel}
                     </button>
+                    {lead.phone && (
+                      <button onClick={() => setSmsLead(lead)}
+                        style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.accent}44`, background: C.accent + '18', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
+                        💬 Text
+                      </button>
+                    )}
                     <button onClick={() => markStepDone(lead)} disabled={busy}
                       style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1 }}>
                       {busy ? '…' : '✅ Mark Done'}
@@ -6899,6 +7023,12 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
                   <span>Added {dateAdded}</span>
                   {parsed.booked_consultation && <span style={{ color: C.green, fontWeight: 700 }}>📅 Booked</span>}
                   {parsed.committed_package && <span style={{ color: C.green, fontWeight: 700 }}>💪 Committed</span>}
+                  {lead.phone && (
+                    <button onClick={() => setSmsLead(lead)}
+                      style={{ padding: '3px 9px', borderRadius: 20, border: `1.5px solid ${C.accent}44`, background: C.accent + '12', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer' }}>
+                      💬 Text
+                    </button>
+                  )}
                 </div>
 
                 {/* Inline due-today actions */}
@@ -6965,6 +7095,7 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
   const [aiCoachLead, setAiCoachLead] = useState(null)
+  const [smsLead, setSmsLead] = useState(null)
   const [busy, setBusy] = useState(null)
   const [outcomeLeadId, setOutcomeLeadId] = useState(null) // which lead is in "what happened?" flow
   const [copiedDay0, setCopiedDay0] = useState(null)
@@ -7075,6 +7206,7 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
   return (
     <>
       {aiCoachLead && <AiCoachModal lead={aiCoachLead} onClose={() => setAiCoachLead(null)} />}
+      {smsLead && <SmsModal lead={smsLead} onClose={() => setSmsLead(null)} />}
       <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 900 }} onClick={onClose} />
       <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: Math.min(420, (typeof window !== 'undefined' ? window.innerWidth : 420) - 16), background: '#fff', zIndex: 901, boxShadow: '-4px 0 24px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column', fontFamily: 'Montserrat,sans-serif' }}>
         <div style={{ padding: '20px 20px 16px', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
@@ -7178,6 +7310,12 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
                       ✨ {step.step === 1 && step.day === 0 ? 'Personalize with AI Instead' : `Generate ${step.channel} Message`}
                     </button>
 
+                    {lead.phone && (
+                      <button onClick={() => setSmsLead(lead)} style={{ width: '100%', marginBottom: 10, padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.accent}44`, background: C.accent + '12', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer', textAlign: 'left' }}>
+                        💬 Text {lead.name.split(' ')[0]} Now
+                      </button>
+                    )}
+
                     {/* Did you reach out? / outcome flow */}
                     {outcomeLeadId !== lead.id ? (
                       <>
@@ -7252,6 +7390,9 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
                         </div>
                         <div style={{ display: 'flex', gap: 6 }}>
                           <button onClick={() => setAiCoachLead(lead)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${C.accent}44`, background: C.accent + '12', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer' }}>✨ Prep Message</button>
+                          {lead.phone && (
+                            <button onClick={() => setSmsLead(lead)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${C.accent}44`, background: C.accent + '12', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer' }}>💬 Text</button>
+                          )}
                           <button onClick={() => markDone(lead)} disabled={busy === lead.id} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${C.green}`, background: C.green + '12', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer' }}>✅ Mark Done Early</button>
                         </div>
                       </div>
@@ -7734,7 +7875,7 @@ function Schedule({ onBack, allClients }) {
   })
   const [sessions, setSessions] = useState([])
   const [booking, setBooking] = useState(null) // { date, time } or { session } for editing
-  const [form, setForm] = useState({ client_name: '', client_id: null, client_email: '', session_type: 'FIT60', duration: 60, notes: '', link: '' })
+  const [form, setForm] = useState({ client_name: '', client_id: null, client_email: '', client_phone: '', session_type: 'FIT60', duration: 60, notes: '', link: '' })
   const [recurring, setRecurring] = useState(false)
   const [clientSearch, setClientSearch] = useState('')
   const [saving, setSaving] = useState(false)
@@ -7789,7 +7930,7 @@ function Schedule({ onBack, allClients }) {
 
   const openNew = (date, hour) => {
     const time = `${String(hour).padStart(2, '0')}:00`
-    setForm({ client_name: '', client_id: null, client_email: '', session_type: 'FIT60', duration: 60, notes: '', link: '' })
+    setForm({ client_name: '', client_id: null, client_email: '', client_phone: '', session_type: 'FIT60', duration: 60, notes: '', link: '' })
     setRecurring(false)
     setClientSearch('')
     setBooking({ date: fmt(date), time })
@@ -7800,7 +7941,7 @@ function Schedule({ onBack, allClients }) {
     const target = session._virtualOf
       ? sessions.find(s => s.id === session._virtualOf) || session
       : session
-    setForm({ client_name: target.client_name, client_id: target.client_id, client_email: target.client_email || '', session_type: target.session_type || 'FIT60', duration: target.duration, notes: target.notes || '', link: target.link || '' })
+    setForm({ client_name: target.client_name, client_id: target.client_id, client_email: target.client_email || '', client_phone: target.client_phone || '', session_type: target.session_type || 'FIT60', duration: target.duration, notes: target.notes || '', link: target.link || '' })
     setRecurring(target.recurring || false)
     setClientSearch(target.client_name)
     setBooking({ session: target })
@@ -7820,15 +7961,17 @@ function Schedule({ onBack, allClients }) {
         const filtered = prev.filter(s => s.id !== saved.id)
         return [...filtered, saved].sort((a, b) => a.time.localeCompare(b.time))
       })
-      // Send confirmation email if client has an email
+      // Send confirmation email/SMS if client has an email and/or phone on file
       const clientEmail = form.client_email?.trim() || ''
-      if (clientEmail && !booking.session) {
+      const clientPhone = form.client_phone?.trim() || ''
+      if ((clientEmail || clientPhone) && !booking.session) {
         fetch('/api/send-confirmation', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             clientName: form.client_name,
             clientEmail,
+            clientPhone,
             date: payload.date,
             time: payload.time,
             sessionType: form.session_type,
@@ -7987,7 +8130,9 @@ function Schedule({ onBack, allClients }) {
                       setClientSearch(c.name)
                       let email = c.email || ''
                       if (!email) { try { email = JSON.parse(c.trainerNotes || '{}').email || '' } catch {} }
-                      setForm(f => ({ ...f, client_name: c.name, client_id: c.id, client_email: email }))
+                      let phone = c.phone || ''
+                      if (!phone) { try { phone = JSON.parse(c.trainerNotes || '{}').phone || '' } catch {} }
+                      setForm(f => ({ ...f, client_name: c.name, client_id: c.id, client_email: email, client_phone: phone }))
                     }}
                       style={{ display: 'block', width: '100%', padding: '9px 14px', background: 'transparent', border: 'none', borderBottom: `1px solid ${C.border}22`, fontSize: 13, fontWeight: 600, color: C.text, cursor: 'pointer', textAlign: 'left', fontFamily: 'Montserrat,sans-serif' }}
                       onMouseEnter={e => e.currentTarget.style.background = C.faint}
@@ -8005,6 +8150,15 @@ function Schedule({ onBack, allClients }) {
               <input value={form.client_email} onChange={e => setForm(f => ({ ...f, client_email: e.target.value }))}
                 placeholder="client@email.com"
                 type="email"
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontFamily: 'Montserrat,sans-serif', color: C.text, boxSizing: 'border-box' }} />
+            </div>
+
+            {/* Client Phone */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 5 }}>Client Phone <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(for SMS confirmation)</span></div>
+              <input value={form.client_phone} onChange={e => setForm(f => ({ ...f, client_phone: e.target.value }))}
+                placeholder="(314) 555-0100"
+                type="tel"
                 style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${C.border}`, fontSize: 13, fontFamily: 'Montserrat,sans-serif', color: C.text, boxSizing: 'border-box' }} />
             </div>
 

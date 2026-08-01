@@ -23,7 +23,7 @@ export async function GET(request) {
     // List view: exclude trainer_notes to reduce egress
     const { data, error } = await supabase
       .from('clients')
-      .select('id,name,email,goal,dob,equipment,updated_at')
+      .select('id,name,email,phone,goal,dob,equipment,updated_at')
       .order('updated_at', { ascending: false })
     if (error) throw error
     return Response.json({ clients: data || [] })
@@ -40,6 +40,7 @@ export async function POST(request) {
     const payload = {
       name: client.name,
       email: client.email || '',
+      phone: client.phone || '',
       goal: client.goal || '',
       dob: client.dob || '',
       equipment: client.equipment || '',

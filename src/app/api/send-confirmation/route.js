@@ -1,4 +1,5 @@
 import { Resend } from 'resend'
+import { sendSms } from '../../../lib/twilio'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
@@ -48,8 +49,26 @@ function sessionIcon(type) {
 
 export async function POST(request) {
   try {
-    const { clientName, clientEmail, date, time, sessionType, notes, recurring } = await request.json()
-    if (!clientEmail) return Response.json({ error: 'No client email provided' }, { status: 400 })
+    const { clientName, clientEmail, clientPhone, date, time, sessionType, notes, recurring } = await request.json()
+    if (!clientEmail && !clientPhone) return Response.json({ error: 'No client email or phone provided' }, { status: 400 })
+
+    let smsResult = null
+    if (clientPhone) {
+      try {
+        await sendSms({
+          to: clientPhone,
+          body: `FreddyFit: Hi ${clientName}, your ${sessionType} session is confirmed for ${formatDate(date)} at ${formatTime(time)}. Questions? Call/text 314-584-9389.`
+        })
+        smsResult = { success: true }
+      } catch (smsErr) {
+        console.error('SMS confirmation failed:', smsErr)
+        smsResult = { error: smsErr.message }
+      }
+    }
+
+    if (!clientEmail) {
+      return Response.json({ success: !!smsResult?.success, sms: smsResult })
+    }
 
     const html = `
 <!DOCTYPE html>
@@ -221,8 +240,8 @@ export async function POST(request) {
       html,
     })
 
-    if (error) return Response.json({ error: error.message }, { status: 500 })
-    return Response.json({ success: true, id: data.id })
+    if (error) return Response.json({ error: error.message, sms: smsResult }, { status: 500 })
+    return Response.json({ success: true, id: data.id, sms: smsResult })
   } catch (err) {
     console.error('send-confirmation error:', err)
     return Response.json({ error: err.message }, { status: 500 })
