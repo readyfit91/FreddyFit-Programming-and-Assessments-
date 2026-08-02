@@ -27,12 +27,28 @@ export function isTwilioConfigured() {
   return !!(accountSid && authToken && fromNumber)
 }
 
+// Click-to-call rings OWNER_PHONE_NUMBER first, so calling also needs that set.
+export function isCallingConfigured() {
+  return isTwilioConfigured() && !!process.env.OWNER_PHONE_NUMBER
+}
+
 export async function sendSms({ to, body }) {
   if (!fromNumber) throw new Error('Twilio not configured (missing TWILIO_PHONE_NUMBER)')
   const toNumber = normalizePhone(to)
   if (!toNumber) throw new Error('Invalid or missing phone number')
   const message = await getClient().messages.create({ to: toNumber, from: fromNumber, body })
   return message
+}
+
+// Places a click-to-call bridge: rings the owner's phone, and once answered, `twimlUrl`
+// (an /api/calls/connect URL) tells Twilio how to dial the actual target number.
+export async function makeCall({ twimlUrl }) {
+  const ownerNumber = process.env.OWNER_PHONE_NUMBER || ''
+  if (!ownerNumber) throw new Error('Calling not configured (missing OWNER_PHONE_NUMBER)')
+  if (!fromNumber) throw new Error('Twilio not configured (missing TWILIO_PHONE_NUMBER)')
+  const toOwner = normalizePhone(ownerNumber)
+  const call = await getClient().calls.create({ to: toOwner, from: fromNumber, url: twimlUrl, method: 'POST' })
+  return call
 }
 
 export function validateTwilioSignature(signature, url, params) {

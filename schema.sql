@@ -107,3 +107,26 @@ alter table if exists clients add column if not exists phone text;
 
 -- Lets a booked session carry the client's phone for that specific booking.
 alter table if exists sessions add column if not exists client_phone text;
+
+-- Lets an SMS thread link to an existing client (not just a lead) — enables two-way
+-- texting with clients, not just leads still in the pipeline.
+alter table if exists sms_messages add column if not exists client_id text references clients(id) on delete set null;
+create index if not exists sms_messages_client_id_idx on sms_messages (client_id);
+
+-- ── CALLS (Twilio click-to-call) ────────────────────────────────────────────
+-- Click-to-call rings the owner's phone first (OWNER_PHONE_NUMBER), then bridges to the
+-- lead/client's number once answered. This table just logs that a call was placed.
+
+create table if not exists calls (
+  id uuid primary key default gen_random_uuid(),
+  lead_id uuid references leads(id) on delete set null,
+  client_id text references clients(id) on delete set null,
+  to_number text not null,
+  from_number text,
+  status text,
+  twilio_sid text,
+  created_at timestamptz not null default now()
+);
+
+alter table calls enable row level security;
+create policy "allow all" on calls for all using (true) with check (true);

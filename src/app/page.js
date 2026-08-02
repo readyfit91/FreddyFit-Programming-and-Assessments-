@@ -27,6 +27,98 @@ async function callClaude(messages, maxTokens = 1000) {
   return data.text
 }
 
+// ── SMS THREADS (reply notifications + unread indicator) ──────────────────────
+// Mirrors src/lib/twilio.js normalizePhone — kept as a tiny standalone copy so the
+// client bundle doesn't have to pull in the Twilio SDK just to format a phone number.
+function normalizePhoneClient(raw) {
+  if (!raw) return ''
+  const trimmed = String(raw).trim()
+  const digits = trimmed.replace(/[^\d+]/g, '')
+  if (digits.startsWith('+')) return digits
+  if (digits.length === 10) return `+1${digits}`
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`
+  return digits ? `+${digits}` : ''
+}
+
+function smsSeenKey(phone) { return `ff_sms_seen_${phone}` }
+function getSmsSeenAt(phone) {
+  try { return localStorage.getItem(smsSeenKey(phone)) || '' } catch { return '' }
+}
+function markSmsSeen(phone) {
+  const norm = normalizePhoneClient(phone)
+  if (!norm) return
+  try { localStorage.setItem(smsSeenKey(norm), new Date().toISOString()) } catch {}
+}
+
+// Polls latest-message-per-phone so lead/client lists can show a "new reply" dot without
+// loading every full thread.
+function useSmsThreads() {
+  const [threads, setThreads] = useState({})
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const res = await fetch('/api/sms/threads')
+        const data = await res.json()
+        if (cancelled) return
+        const map = {}
+        for (const t of data.threads || []) map[t.phone] = t
+        setThreads(map)
+      } catch {}
+    }
+    load()
+    const interval = setInterval(load, 20000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [])
+  return threads
+}
+
+function isSmsUnread(threads, phone) {
+  const norm = normalizePhoneClient(phone)
+  const t = threads[norm]
+  if (!t || !t.lastInboundAt) return false
+  const seen = getSmsSeenAt(norm)
+  return !seen || new Date(t.lastInboundAt) > new Date(seen)
+}
+
+function UnreadDot() {
+  return <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: C.red, marginLeft: 5, verticalAlign: 'middle' }} />
+}
+
+// Click-to-call: rings the owner's own phone first, then bridges to `phone` once answered.
+function CallButton({ phone, name, leadId, clientId, small, style }) {
+  const [calling, setCalling] = useState(false)
+
+  const call = async (e) => {
+    e.stopPropagation()
+    if (calling) return
+    setCalling(true)
+    try {
+      const res = await fetch('/api/calls/click-to-call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: phone, name, leadId, clientId })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      alert(`📞 Calling your phone now — answer to connect to ${name || phone}.`)
+    } catch (err) {
+      alert('Call failed: ' + err.message)
+    }
+    setCalling(false)
+  }
+
+  const base = small
+    ? { padding: '3px 9px', borderRadius: 20, border: `1.5px solid ${C.green}44`, background: C.green + '12', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: calling ? 'not-allowed' : 'pointer' }
+    : { padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.green}44`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: calling ? 'not-allowed' : 'pointer' }
+
+  return (
+    <button onClick={call} disabled={calling} style={{ ...base, ...style }}>
+      {calling ? '📞 …' : '📞 Call'}
+    </button>
+  )
+}
+
 // ── SHARED UI ─────────────────────────────────────────────────────────────────
 function LogoHeader() {
   return (
@@ -5864,6 +5956,8 @@ function ClientRoster({ onSelectClient, onNewClient, onOpenSchedule }) {
   const [search, setSearch] = useState('')
   const [todaySessions, setTodaySessions] = useState([])
   const [upcomingSessions, setUpcomingSessions] = useState([])
+  const [smsClient, setSmsClient] = useState(null)
+  const smsThreads = useSmsThreads()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -5927,6 +6021,7 @@ function ClientRoster({ onSelectClient, onNewClient, onOpenSchedule }) {
   return (
     <div style={{ maxWidth: 700, margin: '0 auto', padding: '0 24px 40px' }}>
       <LogoHeader />
+      {smsClient && <SmsModal entity={smsClient} kind="client" onClose={() => setSmsClient(null)} />}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
         <div>
           <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 4, color: C.text }}>CLIENT ROSTER</div>
@@ -6107,6 +6202,16 @@ function ClientRoster({ onSelectClient, onNewClient, onOpenSchedule }) {
               {intake?.pre_existing_conditions && intake.pre_existing_conditions !== 'No' && <span style={{ fontSize: 9, background: C.orange + '10', color: C.orange, borderRadius: 8, padding: '2px 8px', fontWeight: 700 }}>⚕️ Conditions</span>}
               {nextReminder && <span style={{ fontSize: 9, background: nextReminder.date < today ? C.red + '10' : C.faint, color: nextReminder.date < today ? C.red : C.sub, borderRadius: 8, padding: '2px 8px', fontWeight: 700 }}>📌 {nextReminder.note.slice(0, 25)}{nextReminder.note.length > 25 ? '...' : ''}</span>}
             </div>
+            {/* Text / Call */}
+            {c.phone && (
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }} onClick={e => e.stopPropagation()}>
+                <button onClick={() => setSmsClient(c)}
+                  style={{ padding: '5px 11px', borderRadius: 20, border: `1.5px solid ${C.accent}44`, background: C.accent + '12', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer' }}>
+                  💬 Text{isSmsUnread(smsThreads, c.phone) && <UnreadDot />}
+                </button>
+                <CallButton phone={c.phone} name={c.name} clientId={c.id} small />
+              </div>
+            )}
           </div>
         )
       })}
@@ -6415,7 +6520,7 @@ Output only the message/script. No intro, no explanation, just the content ready
 }
 
 // ── SMS MODAL ────────────────────────────────────────────────────────────────
-function SmsModal({ lead, onClose }) {
+function SmsModal({ entity, kind = 'lead', onClose }) {
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(true)
   const [draft, setDraft] = useState('')
@@ -6424,17 +6529,18 @@ function SmsModal({ lead, onClose }) {
   const scrollRef = useRef(null)
 
   const load = useCallback(async () => {
-    if (!lead.phone) return
+    if (!entity.phone) return
     try {
-      const res = await fetch(`/api/sms/send?phone=${encodeURIComponent(lead.phone)}`)
+      const res = await fetch(`/api/sms/send?phone=${encodeURIComponent(entity.phone)}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
       setMessages(data.messages || [])
+      markSmsSeen(entity.phone)
     } catch (e) {
       setError(e.message)
     }
     setLoading(false)
-  }, [lead.phone])
+  }, [entity.phone])
 
   useEffect(() => {
     load()
@@ -6455,7 +6561,7 @@ function SmsModal({ lead, onClose }) {
       const res = await fetch('/api/sms/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: lead.phone, body, leadId: lead.id })
+        body: JSON.stringify({ to: entity.phone, body, leadId: kind === 'lead' ? entity.id : null, clientId: kind === 'client' ? entity.id : null })
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
@@ -6467,11 +6573,11 @@ function SmsModal({ lead, onClose }) {
     setSending(false)
   }
 
-  if (!lead.phone) {
+  if (!entity.phone) {
     return (
       <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
         <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, padding: 24, maxWidth: 340, fontFamily: 'Montserrat,sans-serif', textAlign: 'center' }}>
-          <div style={{ fontSize: 13, color: C.sub, marginBottom: 14 }}>{lead.name} has no phone number on file.</div>
+          <div style={{ fontSize: 13, color: C.sub, marginBottom: 14 }}>{entity.name} has no phone number on file.</div>
           <button onClick={onClose} style={{ padding: '9px 16px', borderRadius: 8, border: 'none', background: C.accent, color: '#fff', fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>Close</button>
         </div>
       </div>
@@ -6483,10 +6589,13 @@ function SmsModal({ lead, onClose }) {
       <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '20px 20px 0 0', width: '100%', maxWidth: 480, height: '80vh', display: 'flex', flexDirection: 'column', fontFamily: 'Montserrat,sans-serif' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 20px 14px', borderBottom: `1px solid ${C.border}` }}>
           <div>
-            <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>💬 {lead.name}</div>
-            <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>{lead.phone}</div>
+            <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>💬 {entity.name}</div>
+            <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>{entity.phone}</div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: C.sub }}>×</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <CallButton phone={entity.phone} name={entity.name} leadId={kind === 'lead' ? entity.id : null} clientId={kind === 'client' ? entity.id : null} small />
+            <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: C.sub }}>×</button>
+          </div>
         </div>
 
         <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -6543,6 +6652,7 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
   const [showCold, setShowCold] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState(null)
   const [testStatus, setTestStatus] = useState(null) // null | 'sending' | 'ok' | { error }
+  const smsThreads = useSmsThreads()
 
   const today = localDate()
 
@@ -6828,7 +6938,7 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
     <div style={{ maxWidth: 700, margin: '0 auto', padding: '0 24px 40px' }}>
       <LogoHeader />
       {aiCoachLead && <AiCoachModal lead={aiCoachLead} onClose={() => setAiCoachLead(null)} />}
-      {smsLead && <SmsModal lead={smsLead} onClose={() => setSmsLead(null)} />}
+      {smsLead && <SmsModal entity={smsLead} kind="lead" onClose={() => setSmsLead(null)} />}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div>
@@ -6943,9 +7053,10 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
                     {lead.phone && (
                       <button onClick={() => setSmsLead(lead)}
                         style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.accent}44`, background: C.accent + '18', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
-                        💬 Text
+                        💬 Text{isSmsUnread(smsThreads, lead.phone) && <UnreadDot />}
                       </button>
                     )}
+                    {lead.phone && <CallButton phone={lead.phone} name={lead.name} leadId={lead.id} />}
                     <button onClick={() => markStepDone(lead)} disabled={busy}
                       style={{ padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.green}`, background: C.green + '18', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1 }}>
                       {busy ? '…' : '✅ Mark Done'}
@@ -7038,9 +7149,10 @@ function CrmLeads({ onBack, onNavigateToRoster }) {
                   {lead.phone && (
                     <button onClick={() => setSmsLead(lead)}
                       style={{ padding: '3px 9px', borderRadius: 20, border: `1.5px solid ${C.accent}44`, background: C.accent + '12', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer' }}>
-                      💬 Text
+                      💬 Text{isSmsUnread(smsThreads, lead.phone) && <UnreadDot />}
                     </button>
                   )}
+                  {lead.phone && <CallButton phone={lead.phone} name={lead.name} leadId={lead.id} small />}
                 </div>
 
                 {/* Inline due-today actions */}
@@ -7218,7 +7330,7 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
   return (
     <>
       {aiCoachLead && <AiCoachModal lead={aiCoachLead} onClose={() => setAiCoachLead(null)} />}
-      {smsLead && <SmsModal lead={smsLead} onClose={() => setSmsLead(null)} />}
+      {smsLead && <SmsModal entity={smsLead} kind="lead" onClose={() => setSmsLead(null)} />}
       <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 900 }} onClick={onClose} />
       <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: Math.min(420, (typeof window !== 'undefined' ? window.innerWidth : 420) - 16), background: '#fff', zIndex: 901, boxShadow: '-4px 0 24px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column', fontFamily: 'Montserrat,sans-serif' }}>
         <div style={{ padding: '20px 20px 16px', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
@@ -7323,9 +7435,12 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
                     </button>
 
                     {lead.phone && (
-                      <button onClick={() => setSmsLead(lead)} style={{ width: '100%', marginBottom: 10, padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.accent}44`, background: C.accent + '12', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer', textAlign: 'left' }}>
-                        💬 Text {lead.name.split(' ')[0]} Now
-                      </button>
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                        <button onClick={() => setSmsLead(lead)} style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${C.accent}44`, background: C.accent + '12', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 11, cursor: 'pointer', textAlign: 'left' }}>
+                          💬 Text {lead.name.split(' ')[0]} Now{isSmsUnread(smsThreads, lead.phone) && <UnreadDot />}
+                        </button>
+                        <CallButton phone={lead.phone} name={lead.name} leadId={lead.id} style={{ flex: '0 0 auto' }} />
+                      </div>
                     )}
 
                     {/* Did you reach out? / outcome flow */}
@@ -7403,8 +7518,9 @@ function CrmBossPanel({ onClose, onGoToCrm }) {
                         <div style={{ display: 'flex', gap: 6 }}>
                           <button onClick={() => setAiCoachLead(lead)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${C.accent}44`, background: C.accent + '12', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer' }}>✨ Prep Message</button>
                           {lead.phone && (
-                            <button onClick={() => setSmsLead(lead)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${C.accent}44`, background: C.accent + '12', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer' }}>💬 Text</button>
+                            <button onClick={() => setSmsLead(lead)} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${C.accent}44`, background: C.accent + '12', color: C.accent, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer' }}>💬 Text{isSmsUnread(smsThreads, lead.phone) && <UnreadDot />}</button>
                           )}
+                          {lead.phone && <CallButton phone={lead.phone} name={lead.name} leadId={lead.id} small style={{ flex: 1 }} />}
                           <button onClick={() => markDone(lead)} disabled={busy === lead.id} style={{ flex: 1, padding: '7px', borderRadius: 8, border: `1px solid ${C.green}`, background: C.green + '12', color: C.green, fontFamily: 'Montserrat,sans-serif', fontWeight: 700, fontSize: 10, cursor: 'pointer' }}>✅ Mark Done Early</button>
                         </div>
                       </div>

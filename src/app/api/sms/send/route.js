@@ -33,7 +33,7 @@ export async function GET(request) {
 // POST /api/sms/send — send an outbound SMS and log it
 export async function POST(request) {
   try {
-    const { to, body, leadId } = await request.json()
+    const { to, body, leadId, clientId } = await request.json()
     if (!to || !body || !body.trim()) {
       return Response.json({ error: 'Missing to/body' }, { status: 400 })
     }
@@ -46,6 +46,7 @@ export async function POST(request) {
       const supabase = getClient()
       const { data, error } = await supabase.from('sms_messages').insert({
         lead_id: leadId || null,
+        client_id: clientId || null,
         direction: 'outbound',
         from_number: message.from || '',
         to_number: toNumber,
