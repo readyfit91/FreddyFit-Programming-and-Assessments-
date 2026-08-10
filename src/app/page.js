@@ -2527,10 +2527,26 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
                   {TIME_OPTIONS.map(time => {
                     const selected = times.includes(time)
                     return (
-                      <button key={time} onClick={() => {
-                        const newTimes = selected ? times.filter(t => t !== time) : [...times, time]
-                        updateSchedule(day, 'times', newTimes)
-                      }} style={{ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${selected ? statusColor : C.border}`, background: selected ? statusColor + '15' : 'transparent', color: selected ? statusColor : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 600, fontSize: 11, cursor: 'pointer' }}>{selected ? '✓ ' : ''}{time}</button>
+                      <div key={time} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <button onClick={() => {
+                          const newTimes = selected ? times.filter(t => t !== time) : [...times, time]
+                          updateSchedule(day, 'times', newTimes)
+                          if (selected) {
+                            const newNotes = { ...(dayData.timeNotes || {}) }
+                            delete newNotes[time]
+                            updateSchedule(day, 'timeNotes', newNotes)
+                          }
+                        }} style={{ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${selected ? statusColor : C.border}`, background: selected ? statusColor + '15' : 'transparent', color: selected ? statusColor : C.sub, fontFamily: 'Montserrat,sans-serif', fontWeight: 600, fontSize: 11, cursor: 'pointer' }}>{selected ? '✓ ' : ''}{time}</button>
+                        {selected && (
+                          <input
+                            type="text"
+                            value={(dayData.timeNotes && dayData.timeNotes[time]) || ''}
+                            onChange={e => updateSchedule(day, 'timeNotes', { ...(dayData.timeNotes || {}), [time]: e.target.value })}
+                            placeholder={`e.g. Available 9-1 pm`}
+                            style={{ width: 150, padding: '5px 8px', borderRadius: 6, border: `1.5px solid ${C.border}`, background: C.card || 'white', color: C.text, fontFamily: 'Montserrat,sans-serif', fontSize: 10.5 }}
+                          />
+                        )}
+                      </div>
                     )
                   })}
                 </div>
@@ -2588,9 +2604,9 @@ function ClientIntakeForm({ existingClient, onSave, onBack }) {
             {/* QR Code */}
             <div style={{ textAlign: 'center', padding: '24px 16px', background: '#6C63FF08', borderRadius: 14, border: `2px solid #6C63FF33`, marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: 2, color: C.text, textTransform: 'uppercase', marginBottom: 2 }}>FunctionalFit</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: C.text, marginBottom: 12 }}>$349.00</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: C.text, marginBottom: 12 }}>$399.00</div>
               <div style={{ display: 'inline-block', padding: 12, background: 'white', borderRadius: 14, border: '3px solid #6C63FF', boxShadow: '0 4px 20px #6C63FF22' }}>
-                <QRCodeCanvas value="https://buy.stripe.com/9B614n7kz6xl4l66QL3Ru06" size={180} level="H" includeMargin={false} />
+                <QRCodeCanvas value="https://buy.stripe.com/6oU14n8oDg7V4l6cb53Ru07" size={180} level="H" includeMargin={false} />
               </div>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#6C63FF', marginTop: 10 }}>Scan to Pay</div>
             </div>
