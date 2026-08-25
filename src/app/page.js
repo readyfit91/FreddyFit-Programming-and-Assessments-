@@ -5504,6 +5504,10 @@ function AssessmentHistoryModal({ assessment, client, onClose, onNewAssessment }
 
 function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onSignInSheet, onWeightTracker, onSubscription, onBloodWork, onBack, allClients = [], onSwitchClient }) {
   const assessmentsDone = Object.keys(client.assessments || {})
+  // Roster items omit trainer_notes to reduce egress — it's fetched in the background after
+  // opening a client. Gate notes-dependent actions (Sign-In Sheet, Program, etc.) on it being
+  // loaded so they never mount against a stale/empty client and overwrite real saved data.
+  const notesLoaded = client.trainerNotes !== undefined
   const [showIntake, setShowIntake] = useState(false)
   const [showLinkMenu, setShowLinkMenu] = useState(false)
   const [historyAssessment, setHistoryAssessment] = useState(null)
@@ -5627,15 +5631,16 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
           {client.goal && <div style={{ fontSize: 13, color: C.sub, marginTop: 4 }}>Goal: {client.goal}</div>}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <Btn onClick={() => onBloodWork(client)} small color={C.red}>🩸 Blood Work</Btn>
-          <Btn onClick={() => onWeightTracker(client)} small color={C.teal}>⚖️ Weight</Btn>
-          <Btn onClick={() => onSubscription(client)} small color={C.indigo}>📅 Subscription</Btn>
-          <Btn onClick={() => onSignInSheet(client)} small color={C.green}>📋 Sign-In Sheet</Btn>
-          <Btn onClick={() => onProtocolAdvisor(client)} small color={C.orange}>🩺 Protocols</Btn>
-          <Btn onClick={() => onGenerateWorkout(client)} small>💪 Workout</Btn>
-          <Btn onClick={() => onBuildProgram(client)} small>📋 Program</Btn>
-          <Btn onClick={() => onEditClient(client)} outline small color={C.sub}>✏️ Edit</Btn>
+          <Btn onClick={() => onBloodWork(client)} disabled={!notesLoaded} small color={C.red}>🩸 Blood Work</Btn>
+          <Btn onClick={() => onWeightTracker(client)} disabled={!notesLoaded} small color={C.teal}>⚖️ Weight</Btn>
+          <Btn onClick={() => onSubscription(client)} disabled={!notesLoaded} small color={C.indigo}>📅 Subscription</Btn>
+          <Btn onClick={() => onSignInSheet(client)} disabled={!notesLoaded} small color={C.green}>📋 Sign-In Sheet</Btn>
+          <Btn onClick={() => onProtocolAdvisor(client)} disabled={!notesLoaded} small color={C.orange}>🩺 Protocols</Btn>
+          <Btn onClick={() => onGenerateWorkout(client)} disabled={!notesLoaded} small>💪 Workout</Btn>
+          <Btn onClick={() => onBuildProgram(client)} disabled={!notesLoaded} small>📋 Program</Btn>
+          <Btn onClick={() => onEditClient(client)} disabled={!notesLoaded} outline small color={C.sub}>✏️ Edit</Btn>
         </div>
+        {!notesLoaded && <div style={{ fontSize: 11, color: C.sub, marginTop: 6 }}>Loading client data…</div>}
       </div>
 
       {/* Weigh-In Countdown */}
