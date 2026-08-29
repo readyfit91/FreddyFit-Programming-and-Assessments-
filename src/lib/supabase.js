@@ -72,6 +72,28 @@ export async function mergeClientNotes(client, updatesOrFn) {
   return { ...updatedClient, id: saved?.id || client.id, trainerNotes: saved?.trainer_notes ?? updatedClient.trainerNotes }
 }
 
+// Uploads a program file (PDF/image) to Supabase Storage instead of embedding it as base64 in
+// trainer_notes — a base64 file plus the client's full JSON notes can exceed the ~4.5MB request
+// body limit on serverless functions, causing "Failed to save client (413)". Returns just a
+// public URL + storage path, which stay small no matter how large the underlying file is.
+export async function uploadProgramFile(clientId, file) {
+  if (!supabase) throw new Error('Database not configured')
+  const ext = file.name.split('.').pop()
+  const path = `${clientId}/${Date.now()}-${crypto.randomUUID()}.${ext}`
+  const { error } = await supabase.storage.from('program-files').upload(path, file, {
+    contentType: file.type,
+    upsert: false
+  })
+  if (error) throw error
+  const { data } = supabase.storage.from('program-files').getPublicUrl(path)
+  return { url: data.publicUrl, path, name: file.name, type: file.type }
+}
+
+export async function deleteProgramFile(path) {
+  if (!supabase || !path) return
+  await supabase.storage.from('program-files').remove([path])
+}
+
 export async function deleteClient(clientId) {
   const { error } = await supabase
     .from('clients')
