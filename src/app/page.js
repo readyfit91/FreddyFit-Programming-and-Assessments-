@@ -11,6 +11,7 @@ function localDate(d = new Date()) {
 import { getAllClients, getClientById, saveClient, mergeClientNotes, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog, getAllLeads, saveLead, deleteLead, getBloodWork, saveBloodWork, deleteBloodWork, getSessions, getRecurringSessions, saveSession, deleteSession, uploadProgramFile, deleteProgramFile } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
 import { FIELD_MODIFIERS } from '../lib/modifiers'
+import { blendedStrengthThresholds, classifyStrengthLift, STRENGTH_LEVELS } from '../lib/strengthStandards'
 import { QRCodeCanvas } from 'qrcode.react'
 
 const makeId = () => Math.random().toString(36).slice(2,10)
@@ -394,6 +395,78 @@ function RestTimer() {
   )
 }
 
+// ── VO2 MAX CALCULATIONS ───────────────────────────────────────────────────────
+const VO2_MAX_GRID = {
+  Male: { '18–39': [35, 39, 44, 49], '40–49': [31, 35, 40, 45], '50–59': [27, 31, 36, 41], '60+': [24, 27, 32, 36] },
+  Female: { '18–39': [29, 33, 37, 42], '40–49': [27, 30, 34, 39], '50–59': [24, 26, 31, 36], '60+': [21, 24, 28, 32] },
+}
+function classifyVO2Max(vo2, gender, ageRange) {
+  const t = VO2_MAX_GRID[gender]?.[ageRange]
+  if (!t) return ''
+  if (vo2 >= t[3]) return 'Excellent'
+  if (vo2 >= t[2]) return 'Above Average'
+  if (vo2 >= t[1]) return 'Average'
+  if (vo2 >= t[0]) return 'Below Average'
+  return 'Poor'
+}
+function computeCooperVO2(distanceMiles) {
+  const meters = distanceMiles * 1609.34
+  return (meters - 504.9) / 44.73
+}
+function computeRockportVO2(weightLb, age, isMale, timeMin, hr) {
+  return 132.853 - (0.0769 * weightLb) - (0.3877 * age) + (6.315 * (isMale ? 1 : 0)) - (3.2649 * timeMin) - (0.1565 * hr)
+}
+function computeRow2kVO2(seconds, isMale) {
+  return isMale ? (91.3 - 0.0224 * seconds) : (95.5 - 0.0245 * seconds)
+}
+function parseMMSS(str) {
+  const m = /^(\d+):([0-5]?\d)$/.exec((str || '').trim())
+  if (!m) return NaN
+  return parseInt(m[1], 10) * 60 + parseInt(m[2], 10)
+}
+
+// Static Row Test (2,000m) time-based rating scale — [Outstanding max, Excellent max, Good max, Fair max] in seconds
+const ROW_RATING_BREAKPOINTS = {
+  Male: { '18–39': [420, 465, 525, 600], '40–49': [440, 480, 540, 615], '50–59': [480, 555, 615, 690], '60+': [525, 585, 645, 720] },
+  Female: { '18–39': [480, 525, 585, 660], '40–49': [500, 540, 600, 675], '50–59': [525, 570, 630, 705], '60+': [555, 600, 660, 735] },
+}
+function classifyRowTime(seconds, gender, ageRange) {
+  const bp = ROW_RATING_BREAKPOINTS[gender]?.[ageRange]
+  if (!bp) return ''
+  if (seconds < bp[0]) return 'Outstanding'
+  if (seconds <= bp[1]) return 'Excellent'
+  if (seconds <= bp[2]) return 'Good'
+  if (seconds <= bp[3]) return 'Fair'
+  return 'Poor'
+}
+
+// Six-Minute Walk Test (6MWT) — distance classification by age group and gender
+// Each row: [ageMin, ageMax, belowAvgMin, avgMin, goodMin, excellentMin] in meters
+const MWT_DISTANCE_GRID = {
+  Male: [
+    [18, 39, 450, 550, 650, 700], [40, 49, 430, 520, 620, 680], [50, 59, 400, 500, 600, 650],
+    [60, 69, 350, 450, 550, 600], [70, 999, 300, 400, 500, 550],
+  ],
+  Female: [
+    [18, 39, 400, 500, 600, 650], [40, 49, 380, 480, 570, 620], [50, 59, 350, 430, 530, 580],
+    [60, 69, 320, 400, 500, 550], [70, 999, 280, 350, 450, 500],
+  ],
+}
+function classifyMWTDistance(distance, gender, age) {
+  const rows = MWT_DISTANCE_GRID[gender]
+  if (!rows) return ''
+  const row = rows.find(r => age >= r[0] && age <= r[1])
+  if (!row) return ''
+  const [, , belowAvgMin, avgMin, goodMin, excellentMin] = row
+  if (distance > excellentMin) return 'Excellent'
+  if (distance >= goodMin) return 'Good'
+  if (distance >= avgMin) return 'Average'
+  if (distance >= belowAvgMin) return 'Below Average'
+  return 'Poor'
+}
+
+const LIFT_PREFIX = { squat: 'sq', bench: 'bp', deadlift: 'dl' }
+
 // ── ASSESSMENT FORM ───────────────────────────────────────────────────────────
 function AssessmentForm({ assessment, client, onComplete, onBack, forceNew = false }) {
   const [answers, setAnswers] = useState({})
@@ -451,6 +524,66 @@ function AssessmentForm({ assessment, client, onComplete, onBack, forceNew = fal
     }
   }, [assessment.id, answers.bms_gender, answers.bms_age_range, answers.bms_total_score])
 
+  // Auto-calculate VO2 Max estimates for the Cooper, Rockport, and Static Row tests
+  // at each Week 0 / Week 12 / Week 24 checkpoint
+  useEffect(() => {
+    if (assessment.id !== 'vo2max') return
+    const weeks = ['w0', 'w12', 'w24', 'w36']
+    const updates = {}
+
+    // Cooper 12-Minute Run
+    const cGender = answers.vo2_cooper_gender
+    const cAgeRange = answers.vo2_cooper_age_range
+    weeks.forEach(wk => {
+      const dist = parseFloat(answers[`vo2_cooper_distance_${wk}`])
+      const resultKey = `vo2_cooper_result_${wk}`
+      let result = ''
+      if (cGender && !isNaN(dist) && dist > 0) {
+        const vo2 = computeCooperVO2(dist)
+        const level = cAgeRange ? classifyVO2Max(vo2, cGender, cAgeRange) : ''
+        result = `${vo2.toFixed(1)} ml/kg/min${level ? ' — ' + level : ''}`
+      }
+      if ((answers[resultKey] || '') !== result) updates[resultKey] = result
+    })
+
+    // Rockport 1-Mile Walk
+    const rGender = answers.vo2_rockport_gender
+    weeks.forEach(wk => {
+      const age = parseFloat(answers[`vo2_rockport_age_${wk}`])
+      const weight = parseFloat(answers[`vo2_rockport_weight_${wk}`])
+      const time = parseFloat(answers[`vo2_rockport_time_${wk}`])
+      const hr = parseFloat(answers[`vo2_rockport_hr_${wk}`])
+      const resultKey = `vo2_rockport_result_${wk}`
+      let result = ''
+      if (rGender && [age, weight, time, hr].every(n => !isNaN(n) && n > 0)) {
+        const vo2 = computeRockportVO2(weight, age, rGender === 'Male', time, hr)
+        const ageRange = age < 40 ? '18–39' : age < 50 ? '40–49' : age < 60 ? '50–59' : '60+'
+        const level = classifyVO2Max(vo2, rGender, ageRange)
+        result = `${vo2.toFixed(1)} ml/kg/min${level ? ' — ' + level : ''}`
+      }
+      if ((answers[resultKey] || '') !== result) updates[resultKey] = result
+    })
+
+    // Static Row Test — 2,000m Time Trial
+    const wGender = answers.vo2_row_gender
+    const wAgeRange = answers.vo2_row_age_range
+    weeks.forEach(wk => {
+      const seconds = parseMMSS(answers[`vo2_row_time_${wk}`])
+      const resultKey = `vo2_row_result_${wk}`
+      let result = ''
+      if (wGender && !isNaN(seconds) && seconds > 0) {
+        const vo2 = computeRow2kVO2(seconds, wGender === 'Male')
+        const level = wAgeRange ? classifyRowTime(seconds, wGender, wAgeRange) : ''
+        result = `${vo2.toFixed(1)} ml/kg/min${level ? ' — ' + level : ''}`
+      }
+      if ((answers[resultKey] || '') !== result) updates[resultKey] = result
+    })
+
+    if (Object.keys(updates).length > 0) {
+      setAnswers(a => ({ ...a, ...updates }))
+    }
+  }, [assessment.id, answers])
+
   const saveAssessmentData = async () => {
     setSaving(true)
     try {
@@ -469,7 +602,7 @@ function AssessmentForm({ assessment, client, onComplete, onBack, forceNew = fal
     const val = answers[f.id] || ''
     const base = { width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontFamily: 'Montserrat,sans-serif', fontSize: 13, color: C.text, outline: 'none', background: C.faint }
     if (f.type === 'info') return (
-      <div style={{ padding: '12px 16px', background: C.sky + '10', border: `1px solid ${C.sky}33`, borderRadius: 10, fontSize: 12, color: C.text, lineHeight: 1.7, fontFamily: 'Montserrat,sans-serif' }}>
+      <div style={{ padding: '12px 16px', background: C.sky + '10', border: `1px solid ${C.sky}33`, borderRadius: 10, fontSize: 12, color: C.text, lineHeight: 1.7, fontFamily: 'Montserrat,sans-serif', whiteSpace: 'pre-wrap' }}>
         📋 {f.text}
       </div>
     )
@@ -668,6 +801,127 @@ function AssessmentForm({ assessment, client, onComplete, onBack, forceNew = fal
         <div>
           <input type="range" min={f.min || 0} max={f.max || 10} value={val || f.min || 0} onChange={e => set(f.id, e.target.value)} style={{ width: '100%', accentColor: C.accent }} />
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: C.sub }}><span>{f.min ?? 0}</span><span style={{ fontWeight: 700, color: C.accent }}>{val || f.min || 0}</span><span>{f.max ?? 10}</span></div>
+        </div>
+      )
+    }
+    if (f.type === 'vo2Result') {
+      if (!val) return <div style={{ fontSize: 12, color: C.sub, fontStyle: 'italic' }}>Complete the fields above to calculate</div>
+      const isGood = /Outstanding|Excellent|Above Average/.test(val)
+      const isPoor = /Poor/.test(val)
+      const isFair = /Fair|Below Average/.test(val)
+      const color = isGood ? C.green : isPoor ? C.red : isFair ? C.orange : C.accent
+      return (
+        <div style={{ padding: '14px 18px', background: color + '12', border: `2px solid ${color}44`, borderRadius: 12 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color, textTransform: 'uppercase', marginBottom: 6 }}>Estimated VO2 Max</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: C.text }}>{val}</div>
+        </div>
+      )
+    }
+    if (f.type === 'strengthResult') {
+      const prefix = LIFT_PREFIX[f.lift]
+      const wk = f.week ? `_${f.week}` : ''
+      const gender = answers[`${prefix}_gender`]
+      const age = parseFloat(answers[`${prefix}_age`])
+      const bw = parseFloat(answers[`${prefix}_bodyweight${wk}`])
+      const actual = parseFloat(answers[`${prefix}_5rm${wk}`])
+      if (!gender || isNaN(age) || age <= 0 || isNaN(bw) || bw <= 0) {
+        return <div style={{ fontSize: 12, color: C.sub, fontStyle: 'italic' }}>Enter gender, age, and bodyweight above to see strength standards</div>
+      }
+      const t = blendedStrengthThresholds(f.lift, gender, age, bw)
+      if (!t) return null
+      const hasLift = !isNaN(actual) && actual > 0
+      const level = hasLift ? classifyStrengthLift(actual, t.blended) : null
+      const levelColors = { Untrained: C.sub, Beginner: C.red, Novice: C.orange, Intermediate: C.accent, Advanced: C.sky, Elite: C.green }
+      const color = level ? (levelColors[level] || C.accent) : C.accent
+      return (
+        <div>
+          <div style={{ padding: '12px 14px', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: hasLift ? 10 : 0 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.5, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>Blended Standards (avg of age-based & bodyweight-based) — lbs</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {STRENGTH_LEVELS.map((lvl, i) => (
+                <div key={lvl} style={{ flex: '1 1 60px', textAlign: 'center', padding: '6px 4px', borderRadius: 7, background: level === lvl ? color + '22' : 'white', border: `1.5px solid ${level === lvl ? color : C.border}` }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: level === lvl ? color : C.sub, textTransform: 'uppercase' }}>{lvl}</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: level === lvl ? color : C.text }}>{Math.round(t.blended[i])}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 10, color: C.sub, marginTop: 8 }}>Age-based: {t.byAge.map(v => Math.round(v)).join(' / ')} · Bodyweight-based: {t.byBodyweight.map(v => Math.round(v)).join(' / ')}</div>
+          </div>
+          {hasLift && (
+            <div style={{ padding: '14px 18px', background: color + '12', border: `2px solid ${color}44`, borderRadius: 12 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color, textTransform: 'uppercase', marginBottom: 6 }}>Classification</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: C.text }}>{actual} lbs — {level}</div>
+            </div>
+          )}
+        </div>
+      )
+    }
+    if (f.type === 'sixMWTResult') {
+      const wk = f.week ? `_${f.week}` : ''
+      const gender = answers.mwt_gender
+      const age = parseFloat(answers.mwt_age)
+      const distance = parseFloat(answers[`mwt_distance${wk}`])
+      const avgSpeed = answers[`mwt_avg_treadmill_speed${wk}`]
+      const restingHR = parseFloat(answers[`mwt_resting_hr${wk}`])
+      const postHR = parseFloat(answers[`mwt_post_hr${wk}`])
+      const rec1HR = parseFloat(answers[`mwt_recovery1_hr${wk}`])
+      const rec2HR = parseFloat(answers[`mwt_recovery2_hr${wk}`])
+      const restingSpO2 = answers[`mwt_resting_spo2${wk}`]
+      const postSpO2 = answers[`mwt_post_spo2${wk}`]
+      const rec1SpO2 = answers[`mwt_recovery1_spo2${wk}`]
+      const rec2SpO2 = answers[`mwt_recovery2_spo2${wk}`]
+      const rpe = answers[`mwt_rpe${wk}`]
+      const breathlessness = answers[`mwt_breathlessness${wk}`]
+
+      const hasDistance = !isNaN(distance) && distance > 0
+      const canClassify = gender && !isNaN(age) && age > 0 && hasDistance
+      const level = canClassify ? classifyMWTDistance(distance, gender, age) : null
+      const levelColors = { Poor: C.red, 'Below Average': C.orange, Average: C.accent, Good: C.sky, Excellent: C.green }
+      const color = level ? (levelColors[level] || C.accent) : C.accent
+      const hrr1 = (!isNaN(postHR) && !isNaN(rec1HR)) ? postHR - rec1HR : null
+      const hrr2 = (!isNaN(postHR) && !isNaN(rec2HR)) ? postHR - rec2HR : null
+
+      const anyData = hasDistance || !isNaN(restingHR) || !isNaN(postHR) || rpe || breathlessness
+      if (!anyData) return <div style={{ fontSize: 12, color: C.sub, fontStyle: 'italic' }}>Complete the fields above to see results</div>
+
+      const statRow = (label, value) => (
+        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: `1px solid ${C.border}44`, fontSize: 12 }}>
+          <span style={{ color: C.sub }}>{label}</span>
+          <span style={{ fontWeight: 700, color: C.text }}>{value ?? '—'}</span>
+        </div>
+      )
+
+      return (
+        <div>
+          <div style={{ padding: '12px 14px', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 10 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.5, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>6-Minute Walk Performance</div>
+            {statRow('Total Distance Completed', hasDistance ? `${distance} m` : null)}
+            {statRow('Average Treadmill Speed', avgSpeed ? `${avgSpeed} mph` : null)}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 2px' }}>
+              <span style={{ fontSize: 12, color: C.sub }}>Fitness Classification</span>
+              {level ? (
+                <span style={{ padding: '3px 10px', borderRadius: 6, background: color + '22', color, fontWeight: 800, fontSize: 12 }}>{level}</span>
+              ) : <span style={{ fontWeight: 700, color: C.text, fontSize: 12 }}>—</span>}
+            </div>
+          </div>
+
+          <div style={{ padding: '12px 14px', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 10 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.5, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>Cardiovascular Response</div>
+            {statRow('Resting Heart Rate', !isNaN(restingHR) ? `${restingHR} bpm` : null)}
+            {statRow('Post-Test Heart Rate', !isNaN(postHR) ? `${postHR} bpm` : null)}
+            {statRow('1-Minute Heart Rate Recovery', hrr1 !== null ? `${hrr1} bpm drop` : null)}
+            {statRow('2-Minute Heart Rate Recovery', hrr2 !== null ? `${hrr2} bpm drop` : null)}
+            {statRow('Resting SpO₂', restingSpO2 ? `${restingSpO2}%` : null)}
+            {statRow('Post-Test SpO₂', postSpO2 ? `${postSpO2}%` : null)}
+            {statRow('1-Minute SpO₂ Recovery', rec1SpO2 ? `${rec1SpO2}%` : null)}
+            {statRow('2-Minute SpO₂ Recovery', rec2SpO2 ? `${rec2SpO2}%` : null)}
+          </div>
+
+          <div style={{ padding: '12px 14px', background: C.faint, border: `1px solid ${C.border}`, borderRadius: 10 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1.5, color: C.sub, textTransform: 'uppercase', marginBottom: 8 }}>Effort Response</div>
+            {statRow('RPE (10 = max effort)', rpe ? `${rpe}/10` : null)}
+            {statRow('Breathlessness (4–5 = holding conversation, 10 = about to pass out)', breathlessness ? `${breathlessness}/10` : null)}
+          </div>
         </div>
       )
     }
@@ -5522,6 +5776,13 @@ function AssessmentHistoryModal({ assessment, client, onClose, onNewAssessment }
   )
 }
 
+const WEIGH_INTERVALS = [
+  { label: '1x/week', days: 7 },
+  { label: '2x/week', days: 4 },
+  { label: 'Every 2 weeks', days: 14 },
+  { label: '1x/month', days: 30 },
+]
+
 function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGenerateWorkout, onProtocolAdvisor, onEditClient, onSignInSheet, onWeightTracker, onSubscription, onBloodWork, onBack, allClients = [], onSwitchClient }) {
   const assessmentsDone = Object.keys(client.assessments || {})
   const [showIntake, setShowIntake] = useState(false)
@@ -5573,18 +5834,24 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
 
   const nextWeighInDate = (() => {
     if (!lastWeighIn) return null
-    const d = new Date(lastWeighIn)
+    const d = new Date(lastWeighIn + 'T00:00:00')
     d.setDate(d.getDate() + Number(weighInterval))
     return d
   })()
 
-  const weighCountdown = (() => {
+  // Sessions land on different days week to week, so an exact day countdown can make a client
+  // look "late" just because they haven't come in yet this week. Track by week (Sun–Sat bucket)
+  // instead — a client due this week reads "This Week" the whole week, not a shrinking day count.
+  const weekStartOf = (date) => {
+    const d = new Date(date)
+    d.setHours(0, 0, 0, 0)
+    d.setDate(d.getDate() - d.getDay())
+    return d
+  }
+
+  const weighWeekOffset = (() => {
     if (!nextWeighInDate) return null
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const next = new Date(nextWeighInDate)
-    next.setHours(0, 0, 0, 0)
-    return Math.ceil((next - today) / (1000 * 60 * 60 * 24))
+    return Math.round((weekStartOf(nextWeighInDate) - weekStartOf(new Date())) / (7 * 24 * 60 * 60 * 1000))
   })()
 
   const FLOW = [
@@ -5597,7 +5864,7 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
       { label: 'Phase 3 Pain Sensitivity (if needed)', items: [ALL_ASSESSMENTS.neckSensitivity, ALL_ASSESSMENTS.shoulderSensitivity] },
     ]},
     { phase: 'Phase 4 — Mobility for Movement', color: C.indigo, items: [ALL_ASSESSMENTS.speedy6, ALL_ASSESSMENTS.speedy7] },
-    { phase: 'Phase 5 — Performing & Ready to Function', color: C.green, items: [ALL_ASSESSMENTS.bms5] },
+    { phase: 'Phase 5 — Performing & Ready to Function', color: C.green, items: [ALL_ASSESSMENTS.bms5, ALL_ASSESSMENTS.vo2max, ALL_ASSESSMENTS.strength5rm] },
   ]
 
   return (
@@ -5669,11 +5936,11 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <span style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase' }}>Interval</span>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {[7, 14, 30].map(d => (
-                <button key={d} onClick={() => saveWeighIn(lastWeighIn, d)}
-                  style={{ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${weighInterval === d ? C.teal : C.border}`, background: weighInterval === d ? C.teal + '18' : '#fff', color: weighInterval === d ? C.teal : C.sub, fontWeight: 800, fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
-                  {d}d
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              {WEIGH_INTERVALS.map(iv => (
+                <button key={iv.days} onClick={() => saveWeighIn(lastWeighIn, iv.days)}
+                  style={{ padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${weighInterval === iv.days ? C.teal : C.border}`, background: weighInterval === iv.days ? C.teal + '18' : '#fff', color: weighInterval === iv.days ? C.teal : C.sub, fontWeight: 800, fontSize: 11, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif', whiteSpace: 'nowrap' }}>
+                  {iv.label}
                 </button>
               ))}
             </div>
@@ -5681,14 +5948,14 @@ function ClientProfile({ client, onUpdate, onRunAssessment, onBuildProgram, onGe
         </div>
         {nextWeighInDate && (
           <div style={{ textAlign: 'center', minWidth: 90 }}>
-            <div style={{ fontSize: weighCountdown === 0 ? 22 : 28, fontWeight: 900, color: weighCountdown < 0 ? C.red : weighCountdown <= 2 ? C.orange : C.teal, fontFamily: 'Montserrat,sans-serif', lineHeight: 1 }}>
-              {weighCountdown === 0 ? 'TODAY' : weighCountdown < 0 ? `${Math.abs(weighCountdown)}d LATE` : `${weighCountdown}d`}
+            <div style={{ fontSize: weighWeekOffset === 0 ? 18 : 22, fontWeight: 900, color: weighWeekOffset < 0 ? C.red : weighWeekOffset === 0 ? C.orange : C.teal, fontFamily: 'Montserrat,sans-serif', lineHeight: 1 }}>
+              {weighWeekOffset === 0 ? 'THIS WEEK' : weighWeekOffset === 1 ? 'NEXT WEEK' : weighWeekOffset > 1 ? `IN ${weighWeekOffset} WKS` : `${Math.abs(weighWeekOffset)} WK${Math.abs(weighWeekOffset) > 1 ? 'S' : ''} LATE`}
             </div>
             <div style={{ fontSize: 9, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 }}>
-              {weighCountdown === 0 ? 'Weigh in today!' : weighCountdown < 0 ? 'Overdue' : 'Until Next'}
+              {weighWeekOffset === 0 ? 'Weigh in this week!' : weighWeekOffset < 0 ? 'Overdue' : 'Until Next'}
             </div>
             <div style={{ fontSize: 10, color: C.sub, marginTop: 2 }}>
-              {nextWeighInDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              Week of {weekStartOf(nextWeighInDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
             </div>
           </div>
         )}
