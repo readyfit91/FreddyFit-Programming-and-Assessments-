@@ -72,6 +72,59 @@ export async function mergeClientNotes(client, updatesOrFn) {
   return { ...updatedClient, id: saved?.id || client.id, trainerNotes: saved?.trainer_notes ?? updatedClient.trainerNotes }
 }
 
+// Deletes a top-level key from a client's trainer_notes entirely (unlike mergeClientNotes, which
+// only ever adds/merges keys in). Used to migrate a key out of trainer_notes once its data has
+// been moved somewhere else, so it stops being resent on every future client save.
+export async function removeClientNotesKey(client, key) {
+  let baseNotes = {}
+  try {
+    const fresh = await getClientById(client.id)
+    baseNotes = JSON.parse(fresh?.trainer_notes || '{}')
+  } catch {
+    try { baseNotes = JSON.parse(client.trainerNotes || '{}') } catch {}
+  }
+  if (!(key in baseNotes)) return null
+  delete baseNotes[key]
+  const updatedClient = { ...client, trainerNotes: JSON.stringify(baseNotes) }
+  const saved = await saveClient(updatedClient)
+  return { ...updatedClient, id: saved?.id || client.id, trainerNotes: saved?.trainer_notes ?? updatedClient.trainerNotes }
+}
+
+// ── PROGRAM JOURNAL ──────────────────────────────────────────────────────────
+// Each week's data, each phase's notes, and each phase's week order used to live as keys inside
+// the client's single trainer_notes JSON blob, and every edit re-sent that *entire* blob —
+// including every week ever logged — as part of the client save. For clients with years of
+// history that payload could exceed the ~4.5MB serverless request body limit on its own, with no
+// file involved, causing "Failed to save client (413)". Storing each entry as its own row means
+// a save only ever needs to send the one entry that changed, no matter how much history exists.
+
+export async function getProgramJournalForClient(clientId) {
+  const { data, error } = await supabase
+    .from('program_journal_entries')
+    .select('journal_key, data')
+    .eq('client_id', clientId)
+  if (error) throw error
+  const journal = {}
+  for (const row of data || []) journal[row.journal_key] = row.data
+  return journal
+}
+
+export async function saveProgramJournalEntry(clientId, journalKey, data) {
+  const { error } = await supabase
+    .from('program_journal_entries')
+    .upsert({ client_id: clientId, journal_key: journalKey, data, updated_at: new Date().toISOString() }, { onConflict: 'client_id,journal_key' })
+  if (error) throw error
+}
+
+export async function deleteProgramJournalEntry(clientId, journalKey) {
+  const { error } = await supabase
+    .from('program_journal_entries')
+    .delete()
+    .eq('client_id', clientId)
+    .eq('journal_key', journalKey)
+  if (error) throw error
+}
+
 // Uploads a program file (PDF/image) to Supabase Storage instead of embedding it as base64 in
 // trainer_notes — a base64 file plus the client's full JSON notes can exceed the ~4.5MB request
 // body limit on serverless functions, causing "Failed to save client (413)". Returns just a

@@ -8,7 +8,7 @@ function localDate(d = new Date()) {
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 }
-import { getAllClients, getClientById, saveClient, mergeClientNotes, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog, getAllLeads, saveLead, deleteLead, getBloodWork, saveBloodWork, deleteBloodWork, getSessions, getRecurringSessions, saveSession, deleteSession, uploadProgramFile, deleteProgramFile } from '../lib/supabase'
+import { getAllClients, getClientById, saveClient, mergeClientNotes, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog, getAllLeads, saveLead, deleteLead, getBloodWork, saveBloodWork, deleteBloodWork, getSessions, getRecurringSessions, saveSession, deleteSession, uploadProgramFile, deleteProgramFile, getProgramJournalForClient, saveProgramJournalEntry, deleteProgramJournalEntry, removeClientNotesKey } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
 import { FIELD_MODIFIERS } from '../lib/modifiers'
 import { QRCodeCanvas } from 'qrcode.react'
@@ -3518,31 +3518,65 @@ function ProgramUploads({ client, onUpdate }) {
 
   useEffect(() => { journalRef.current = journal }, [journal])
 
-  // If the client's full trainer_notes arrives after this component already mounted
-  // (e.g. it was still loading in the background), fill in any journal weeks that
-  // weren't present locally yet — without touching keys already loaded/edited here.
+  // Loads the journal from its own table (program_journal_entries) rather than trainer_notes.
+  // Clients saved before this migration still have their journal embedded in trainer_notes
+  // (seeded into local state above) — the first time such a client's journal loads here, copy
+  // each entry into its own row, then strip it out of trainer_notes so it never gets resent as
+  // part of a client save again. Runs again if trainer_notes arrives late (still loading in the
+  // background on mount), matching the previous fill-in behavior; migration itself is idempotent.
   useEffect(() => {
-    const fresh = parseNotes().program_journal || {}
-    setJournal(prev => {
-      let changed = false
-      const next = { ...prev }
-      for (const k of Object.keys(fresh)) {
-        if (!(k in prev)) { next[k] = fresh[k]; changed = true }
-      }
-      return changed ? next : prev
-    })
-  }, [client.trainerNotes])
+    let cancelled = false
+    ;(async () => {
+      try {
+        const rows = await getProgramJournalForClient(client.id)
+        if (cancelled) return
+        const legacy = parseNotes().program_journal || {}
+        const legacyKeys = Object.keys(legacy)
+        if (Object.keys(rows).length === 0 && legacyKeys.length) {
+          for (const key of legacyKeys) {
+            await saveProgramJournalEntry(client.id, key, legacy[key])
+          }
+          const updatedClient = await removeClientNotesKey(client, 'program_journal')
+          if (!cancelled && updatedClient) onUpdate(updatedClient)
+        } else {
+          setJournal(prev => {
+            let changed = false
+            const next = { ...prev }
+            for (const k of Object.keys(rows)) {
+              if (!(k in prev)) { next[k] = rows[k]; changed = true }
+            }
+            return changed ? next : prev
+          })
+        }
+      } catch {}
+    })()
+    return () => { cancelled = true }
+  }, [client.id, client.trainerNotes])
 
   // Persist last-viewed position
   useEffect(() => {
     try { localStorage.setItem(posKey, JSON.stringify({ year: selYear, phase: selPhase, week: selWeek })) } catch {}
   }, [selYear, selPhase, selWeek])
 
-  const triggerAutoSave = () => {
+  // Persists only the specific journal entry that changed, not the whole journal — tracks
+  // dirty keys since debounced edits to different entries (e.g. week data, then phase notes)
+  // can pile up before the timer fires.
+  const dirtyJournalKeys = useRef(new Set())
+  const persistJournalEntry = async (key, data) => {
+    setSaving(true)
+    try { await saveProgramJournalEntry(client.id, key, data) } catch (e) { alert('Error saving: ' + e.message) }
+    setSaving(false)
+  }
+  const triggerAutoSave = (key) => {
+    dirtyJournalKeys.current.add(key)
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
     setAutoSaving(true)
     autoSaveTimer.current = setTimeout(async () => {
-      try { await persist({ program_journal: journalRef.current }) } catch {}
+      const keys = Array.from(dirtyJournalKeys.current)
+      dirtyJournalKeys.current.clear()
+      try {
+        for (const k of keys) await saveProgramJournalEntry(client.id, k, journalRef.current[k])
+      } catch {}
       setAutoSaving(false)
     }, 1500)
   }
@@ -3555,20 +3589,19 @@ function ProgramUploads({ client, onUpdate }) {
       setUnsavedDays(prev => new Set(prev).add(changedDayIdx))
       setSavedDays(prev => { const n = new Set(prev); n.delete(changedDayIdx); return n })
     }
-    triggerAutoSave()
+    triggerAutoSave(journalKey)
   }
 
-  // Persist entire week to database
+  // Persist just this week's entry to database
   const updateWeekData = (newDays) => {
-    const updated = { ...journal, [journalKey]: { ...weekData, days: newDays } }
-    setJournal(updated)
-    persist({ program_journal: updated })
+    const updated = { ...weekData, days: newDays }
+    setJournal(prev => ({ ...prev, [journalKey]: updated }))
+    persistJournalEntry(journalKey, updated)
   }
 
-  // Save a specific day (persists the whole week since that's the storage unit)
+  // Save a specific day (persists the whole week entry since that's the storage unit)
   const saveDay = (dayIdx) => {
-    const updated = { ...journal, [journalKey]: weekData }
-    persist({ program_journal: updated })
+    persistJournalEntry(journalKey, weekData)
     setUnsavedDays(prev => { const n = new Set(prev); n.delete(dayIdx); return n })
     setSavedDays(prev => new Set(prev).add(dayIdx))
     setTimeout(() => setSavedDays(prev => { const n = new Set(prev); n.delete(dayIdx); return n }), 2000)
@@ -3659,30 +3692,28 @@ function ProgramUploads({ client, onUpdate }) {
 
   const updateWeekNotesLocal = (value) => {
     const updatedWeek = { ...weekData, weekNotes: value }
-    const updated = { ...journal, [journalKey]: updatedWeek }
-    setJournal(updated)
+    setJournal(prev => ({ ...prev, [journalKey]: updatedWeek }))
     setWeekNotesUnsaved(true)
     setWeekNotesSaved(false)
-    triggerAutoSave()
+    triggerAutoSave(journalKey)
   }
 
   const saveWeekNotes = () => {
-    persist({ program_journal: journalRef.current })
+    persistJournalEntry(journalKey, journalRef.current[journalKey])
     setWeekNotesUnsaved(false)
     setWeekNotesSaved(true)
     setTimeout(() => setWeekNotesSaved(false), 2000)
   }
 
   const updatePhaseNotesLocal = (value) => {
-    const updated = { ...journal, [phaseNotesKey]: value }
-    setJournal(updated)
+    setJournal(prev => ({ ...prev, [phaseNotesKey]: value }))
     setPhaseNotesUnsaved(true)
     setPhaseNotesSaved(false)
-    triggerAutoSave()
+    triggerAutoSave(phaseNotesKey)
   }
 
   const savePhaseNotes = () => {
-    persist({ program_journal: journalRef.current })
+    persistJournalEntry(phaseNotesKey, journalRef.current[phaseNotesKey])
     setPhaseNotesUnsaved(false)
     setPhaseNotesSaved(true)
     setTimeout(() => setPhaseNotesSaved(false), 2000)
@@ -3766,23 +3797,34 @@ function ProgramUploads({ client, onUpdate }) {
   const [editingWeekName, setEditingWeekName] = useState('')
 
   // Rename a week in the order
-  const renameWeek = (idx, newName) => {
+  const renameWeek = async (idx, newName) => {
     if (!newName.trim()) return
     const oldName = weekOrder[idx]
-    const newOrder = weekOrder.map((w, i) => i === idx ? newName.trim() : w)
-    // Update journal: rename old key to new key
-    const updated = { ...journal }
+    const trimmed = newName.trim()
+    const newOrder = weekOrder.map((w, i) => i === idx ? trimmed : w)
     const oldKey = `y${selYear}_${selPhase}_${oldName}`
-    const newKey = `y${selYear}_${selPhase}_${newName.trim()}`
-    if (updated[oldKey] && oldName !== newName.trim()) {
-      updated[newKey] = updated[oldKey]
-      delete updated[oldKey]
-    }
-    updated[weekOrderKey] = newOrder
-    setJournal(updated)
-    if (selWeek === oldName) setSelWeek(newName.trim())
-    persist({ program_journal: updated })
+    const newKey = `y${selYear}_${selPhase}_${trimmed}`
+    const renamed = oldName !== trimmed && journal[oldKey]
+    const movedData = journal[oldKey]
+    setJournal(prev => {
+      const next = { ...prev, [weekOrderKey]: newOrder }
+      if (renamed) {
+        next[newKey] = prev[oldKey]
+        delete next[oldKey]
+      }
+      return next
+    })
+    if (selWeek === oldName) setSelWeek(trimmed)
     setEditingWeekIdx(-1)
+    setSaving(true)
+    try {
+      if (renamed) {
+        await saveProgramJournalEntry(client.id, newKey, movedData)
+        await deleteProgramJournalEntry(client.id, oldKey)
+      }
+      await saveProgramJournalEntry(client.id, weekOrderKey, newOrder)
+    } catch (e) { alert('Error saving: ' + e.message) }
+    setSaving(false)
   }
 
   // Format a single week's data as text
