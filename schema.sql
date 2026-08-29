@@ -127,3 +127,22 @@ create policy "allow all write program-files" on storage.objects
 drop policy if exists "allow all delete program-files" on storage.objects;
 create policy "allow all delete program-files" on storage.objects
   for delete using (bucket_id = 'program-files');
+
+-- ── PROGRAM JOURNAL (per-entry table) ───────────────────────────────────────
+-- Program journal data (weeks, phase notes, week order) used to live embedded inside
+-- trainer_notes and get resent in full on every single edit. For clients with years of
+-- logged history, that alone (no file needed) could exceed the ~4.5MB request body limit and
+-- fail with "Failed to save client (413)". Each entry now gets its own row, so a save only
+-- ever needs to send the one entry that changed. Run this section in the Supabase SQL editor.
+
+create table if not exists program_journal_entries (
+  client_id text not null references clients(id) on delete cascade,
+  journal_key text not null,
+  data jsonb not null default '{}',
+  updated_at timestamptz not null default now(),
+  primary key (client_id, journal_key)
+);
+
+alter table program_journal_entries enable row level security;
+drop policy if exists "allow all" on program_journal_entries;
+create policy "allow all" on program_journal_entries for all using (true) with check (true);
