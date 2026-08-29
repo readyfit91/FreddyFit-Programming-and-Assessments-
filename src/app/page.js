@@ -8,7 +8,7 @@ function localDate(d = new Date()) {
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 }
-import { getAllClients, getClientById, saveClient, mergeClientNotes, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog, getAllLeads, saveLead, deleteLead, getBloodWork, saveBloodWork, deleteBloodWork, getSessions, getRecurringSessions, saveSession, deleteSession } from '../lib/supabase'
+import { getAllClients, getClientById, saveClient, mergeClientNotes, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog, getAllLeads, saveLead, deleteLead, getBloodWork, saveBloodWork, deleteBloodWork, getSessions, getRecurringSessions, saveSession, deleteSession, uploadProgramFile, deleteProgramFile } from '../lib/supabase'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
 import { FIELD_MODIFIERS } from '../lib/modifiers'
 import { QRCodeCanvas } from 'qrcode.react'
@@ -3701,26 +3701,35 @@ function ProgramUploads({ client, onUpdate }) {
     setUnsavedDays(new Set())
   }
 
-  const handleUpload = (e) => {
+  const [uploadingProgram, setUploadingProgram] = useState(false)
+
+  const handleUpload = async (e) => {
     const file = e.target.files[0]
+    e.target.value = ''
     if (!file) return
-    if (file.size > 2 * 1024 * 1024) { alert('File too large — max 2 MB.'); return }
-    const reader = new FileReader()
-    reader.onload = () => {
-      const pf = { data: reader.result, name: file.name, uploadedAt: new Date().toISOString() }
+    if (file.size > 20 * 1024 * 1024) { alert('File too large — max 20 MB.'); return }
+    setUploadingProgram(true)
+    try {
+      const uploaded = await uploadProgramFile(client.id, file)
+      const pf = { ...uploaded, uploadedAt: new Date().toISOString() }
+      const oldPath = programFile?.path
       setProgramFile(pf)
       setShowProgram(true)
-      persist({ program_file: pf })
+      await persist({ program_file: pf })
+      if (oldPath) await deleteProgramFile(oldPath)
+    } catch (err) {
+      alert('Error uploading file: ' + err.message)
     }
-    reader.readAsDataURL(file)
-    e.target.value = ''
+    setUploadingProgram(false)
   }
 
   const removeProgram = () => {
     if (!confirm('Remove the uploaded program?')) return
+    const oldPath = programFile?.path
     setProgramFile(null)
     setShowProgram(false)
     persist({ program_file: null })
+    if (oldPath) deleteProgramFile(oldPath)
   }
 
   // Check if a week has data
@@ -3848,9 +3857,9 @@ function ProgramUploads({ client, onUpdate }) {
               {showProgram ? 'Hide Program' : 'View Program'}
             </button>
           )}
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.sub, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>
-            {programFile ? 'Replace' : 'Upload'} Program
-            <input type="file" accept="image/*,.pdf" onChange={handleUpload} style={{ display: 'none' }} />
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.sub, fontSize: 11, fontWeight: 700, cursor: uploadingProgram ? 'default' : 'pointer', fontFamily: 'Montserrat,sans-serif', opacity: uploadingProgram ? 0.6 : 1 }}>
+            {uploadingProgram ? 'Uploading...' : `${programFile ? 'Replace' : 'Upload'} Program`}
+            <input type="file" accept="image/*,.pdf" onChange={handleUpload} disabled={uploadingProgram} style={{ display: 'none' }} />
           </label>
         </div>
       </div>
@@ -3859,12 +3868,23 @@ function ProgramUploads({ client, onUpdate }) {
       {showProgram && programFile && (
         <div style={{ marginBottom: 16 }}>
           <div style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
-            {programFile.data?.startsWith('data:image') && (
-              <img src={programFile.data} alt={programFile.name} style={{ width: '100%', maxHeight: 500, objectFit: 'contain', display: 'block' }} />
-            )}
-            {programFile.data?.startsWith('data:application/pdf') && (
-              <PdfViewer dataUrl={programFile.data} name={programFile.name} />
-            )}
+            {(() => {
+              // programFile.url + type is the current (storage-backed) shape; programFile.data
+              // is a legacy base64 data: URL from clients saved before uploads moved to Storage.
+              const src = programFile.url || programFile.data
+              const isImage = programFile.type ? programFile.type.startsWith('image') : programFile.data?.startsWith('data:image')
+              const isPdf = programFile.type ? programFile.type === 'application/pdf' : programFile.data?.startsWith('data:application/pdf')
+              return (
+                <>
+                  {isImage && (
+                    <img src={src} alt={programFile.name} style={{ width: '100%', maxHeight: 500, objectFit: 'contain', display: 'block' }} />
+                  )}
+                  {isPdf && (
+                    <PdfViewer dataUrl={src} name={programFile.name} />
+                  )}
+                </>
+              )
+            })()}
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
             <div style={{ fontSize: 10, color: C.sub }}>{programFile.name}</div>

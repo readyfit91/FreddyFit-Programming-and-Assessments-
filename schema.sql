@@ -107,3 +107,23 @@ alter table if exists clients add column if not exists phone text;
 
 -- Lets a booked session carry the client's phone for that specific booking.
 alter table if exists sessions add column if not exists client_phone text;
+
+-- ── PROGRAM FILE UPLOADS (Storage) ──────────────────────────────────────────
+-- Uploaded program PDFs/images used to be embedded as base64 directly in trainer_notes,
+-- which could push a client save past the ~4.5MB serverless request body limit and fail
+-- with "Failed to save client (413)". They're now uploaded to Storage instead, and only a
+-- small URL is stored in trainer_notes. Run this section in the Supabase SQL editor.
+
+insert into storage.buckets (id, name, public)
+values ('program-files', 'program-files', true)
+on conflict (id) do nothing;
+
+drop policy if exists "allow all read program-files" on storage.objects;
+create policy "allow all read program-files" on storage.objects
+  for select using (bucket_id = 'program-files');
+drop policy if exists "allow all write program-files" on storage.objects;
+create policy "allow all write program-files" on storage.objects
+  for insert with check (bucket_id = 'program-files');
+drop policy if exists "allow all delete program-files" on storage.objects;
+create policy "allow all delete program-files" on storage.objects
+  for delete using (bucket_id = 'program-files');
