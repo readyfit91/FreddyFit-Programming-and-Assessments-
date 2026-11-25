@@ -9,6 +9,7 @@ function localDate(d = new Date()) {
   return `${y}-${m}-${day}`
 }
 import { getAllClients, getClientById, saveClient, mergeClientNotes, deleteClient, getAssessmentsForClient, saveAssessment, getProgramForClient, saveProgram, saveWorkout, getWorkoutsForClient, getWeightLogsForClient, saveWeightLog, deleteWeightLog, getAllLeads, saveLead, deleteLead, getBloodWork, saveBloodWork, deleteBloodWork, getSessions, getRecurringSessions, saveSession, deleteSession, uploadProgramFile, deleteProgramFile } from '../lib/supabase'
+import { exportSignature, shrinkSignInEntries, shrinkSubscription } from '../lib/signatures'
 import { ALL_ASSESSMENTS, MAIN_ASSESSMENTS, C } from '../lib/assessments'
 import { FIELD_MODIFIERS } from '../lib/modifiers'
 import { QRCodeCanvas } from 'qrcode.react'
@@ -1973,6 +1974,12 @@ const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'S
 const TIME_OPTIONS = ['Morning', 'Afternoon', 'Evening']
 const DAY_STATUS_OPTIONS = ['Available', 'Preferred', 'Unavailable']
 
+// localStorage.setItem throws when the quota is full (iPad Safari is strict). Never let that
+// abort a save; report whether the write actually happened instead.
+function safeLocalSet(key, value) {
+  try { localStorage.setItem(key, value); return true } catch { return false }
+}
+
 function SignaturePad({ value, onChange }) {
   const canvasRef = useRef(null)
   const isDrawing = useRef(false)
@@ -2047,7 +2054,7 @@ function SignaturePad({ value, onChange }) {
   const endDraw = () => {
     if (!isDrawing.current) return
     isDrawing.current = false
-    onChange(canvasRef.current.toDataURL())
+    onChange(exportSignature(canvasRef.current))
   }
 
   const clear = () => {
@@ -2150,7 +2157,7 @@ function InitialPad({ value, onChange }) {
   const endDraw = () => {
     if (!isDrawing.current) return
     isDrawing.current = false
-    onChange(canvasRef.current.toDataURL())
+    onChange(exportSignature(canvasRef.current))
   }
 
   const clear = () => {
@@ -2924,7 +2931,7 @@ function SignInSheet({ client, onBack, onUpdate }) {
   const [tempOffset, setTempOffset] = useState(String(initialData.sign_in_offset || 0))
   const [selected, setSelected] = useState(new Set()) // indices of selected entries
   const [deleteConfirm, setDeleteConfirm] = useState(0) // 0=none, 1=first, 2=second, 3=third (executes)
-  const [pendingSync, setPendingSync] = useState(!!localStorage.getItem(localKey + '_pending'))
+  const [pendingSync, setPendingSync] = useState(() => { try { return !!localStorage.getItem(localKey + '_pending') } catch { return false } })
   const [online, setOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
 
   const totalSessions = PACKAGE_OPTIONS.find(p => p.label === packageType)?.sessions || 0
@@ -2932,9 +2939,11 @@ function SignInSheet({ client, onBack, onUpdate }) {
   const sessionsRemaining = Math.max(0, totalSessions - sessionsUsed)
 
   // Save locally first, then try Supabase
+  const [syncError, setSyncError] = useState('')
+
   const saveLocal = (pkg, ents, offset) => {
     const data = { sign_in_package: pkg, sign_in_entries: ents, sign_in_offset: offset }
-    try { localStorage.setItem(localKey, JSON.stringify(data)) } catch {}
+    return safeLocalSet(localKey, JSON.stringify(data))
   }
 
   const syncToSupabase = async (pkg, ents, offset) => {
@@ -2942,38 +2951,44 @@ function SignInSheet({ client, onBack, onUpdate }) {
       const updatedClient = await mergeClientNotes(client, { sign_in_package: pkg, sign_in_entries: ents, sign_in_offset: offset })
       onUpdate(updatedClient)
       // Clear pending flag and local cache on successful sync
-      localStorage.removeItem(localKey + '_pending')
-      localStorage.removeItem(localKey)
+      try { localStorage.removeItem(localKey + '_pending'); localStorage.removeItem(localKey) } catch {}
       setPendingSync(false)
+      setSyncError('')
       return true
-    } catch {
+    } catch (err) {
+      setSyncError(err?.message || 'Could not reach the server')
       return false
     }
   }
 
-  const saveData = async (pkg, ents, offset) => {
+  const saveData = async (pkg, rawEnts, offset) => {
     setSaving(true)
+    // Shrink signatures (new ones and any old oversized ones) so the saved data stays small
+    const ents = await shrinkSignInEntries(rawEnts)
+    setEntries(ents)
     // Always save locally first — data is never lost
     saveLocal(pkg, ents, offset)
     // Try to sync to Supabase
     const ok = await syncToSupabase(pkg, ents, offset)
     if (!ok) {
       // Mark as pending so we know to retry later
-      localStorage.setItem(localKey + '_pending', '1')
+      safeLocalSet(localKey + '_pending', '1')
       setPendingSync(true)
     }
     setSaving(false)
   }
+
+  const retrySync = () => saveData(packageType, entries, sessionOffset)
 
   // Auto-sync when coming back online
   useEffect(() => {
     const goOnline = () => {
       setOnline(true)
       // If there's pending data, try to sync it
-      const pending = localStorage.getItem(localKey + '_pending')
+      const pending = (() => { try { return localStorage.getItem(localKey + '_pending') } catch { return null } })()
       if (pending) {
         const data = (() => { try { return JSON.parse(localStorage.getItem(localKey)) } catch { return null } })()
-        if (data) syncToSupabase(data.sign_in_package, data.sign_in_entries, data.sign_in_offset)
+        if (data) saveData(data.sign_in_package, data.sign_in_entries, data.sign_in_offset)
       }
     }
     const goOffline = () => setOnline(false)
@@ -3064,8 +3079,11 @@ function SignInSheet({ client, onBack, onUpdate }) {
           <span style={{ fontSize: 16 }}>{!online ? '⚡' : '↻'}</span>
           {!online
             ? 'You\'re offline — signatures are saved locally and will sync when you reconnect'
-            : 'Syncing saved data to cloud...'
+            : saving ? 'Syncing saved data to cloud...' : `Not saved to the cloud yet${syncError ? ` (${syncError})` : ''}`
           }
+          {online && !saving && (
+            <button onClick={retrySync} style={{ marginLeft: 'auto', background: C.sky, color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Retry</button>
+          )}
         </div>
       )}
 
@@ -3323,7 +3341,7 @@ function SignInPad({ onSign, saving }) {
 
   const handleSubmit = () => {
     if (!hasDrawn.current) return
-    const sig = canvasRef.current.toDataURL()
+    const sig = exportSignature(canvasRef.current)
     onSign(sig)
     setTimeout(() => {
       hasDrawn.current = false
@@ -7468,7 +7486,7 @@ function SubscriptionSignaturePad({ value, onChange }) {
   }
   const startDraw = (e) => { e.preventDefault(); isDrawing.current = true; const ctx = canvasRef.current.getContext('2d'); ctx.setLineDash([]); ctx.strokeStyle = '#1a1a2e'; ctx.lineWidth = 2.5; const p = getPos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y) }
   const draw = (e) => { if (!isDrawing.current) return; e.preventDefault(); const ctx = canvasRef.current.getContext('2d'); const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke() }
-  const endDraw = () => { if (!isDrawing.current) return; isDrawing.current = false; onChange(canvasRef.current.toDataURL()) }
+  const endDraw = () => { if (!isDrawing.current) return; isDrawing.current = false; onChange(exportSignature(canvasRef.current)) }
   const clear = () => {
     const canvas = canvasRef.current; const ctx = canvas.getContext('2d'); const rect = canvas.getBoundingClientRect()
     ctx.clearRect(0, 0, rect.width * 2, rect.height * 2); onChange('')
@@ -7507,7 +7525,9 @@ function SubscriptionTracker({ client, onUpdate, onBack }) {
   const [showCalendar, setShowCalendar] = useState(false)
   const [calYear, setCalYear] = useState(new Date().getFullYear())
   const [calMonth, setCalMonth] = useState(new Date().getMonth())
-  const [pendingSync, setPendingSync] = useState(!!localStorage.getItem(storageKey + '_pending'))
+  const [pendingSync, setPendingSync] = useState(() => { try { return !!localStorage.getItem(storageKey + '_pending') } catch { return false } })
+  const [subSaving, setSubSaving] = useState(false)
+  const [syncError, setSyncError] = useState('')
   const [online, setOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
 
   const saveLocal = (updated) => {
@@ -7522,35 +7542,42 @@ function SubscriptionTracker({ client, onUpdate, onBack }) {
       const updatedClient = await mergeClientNotes(client, { subscription: updated })
       onUpdate && onUpdate(updatedClient)
       // Clear pending flag and local cache on successful sync
-      localStorage.removeItem(storageKey + '_pending')
-      localStorage.removeItem(storageKey)
+      try { localStorage.removeItem(storageKey + '_pending'); localStorage.removeItem(storageKey) } catch {}
       setPendingSync(false)
+      setSyncError('')
       return true
-    } catch {
+    } catch (err) {
+      setSyncError(err?.message || 'Could not reach the server')
       return false
     }
   }
 
   // Always update locally first (never lose data), then push to Supabase
-  const saveSub = (updated) => {
+  const saveSub = async (rawUpdated) => {
+    setSub(rawUpdated)
+    setSubSaving(true)
+    // Shrink signatures (new ones and any old oversized ones) so the saved data stays small
+    const updated = await shrinkSubscription(rawUpdated)
     setSub(updated)
     saveLocal(updated)
-    syncToSupabase(updated).then(ok => {
-      if (!ok) {
-        try { localStorage.setItem(storageKey + '_pending', '1') } catch {}
-        setPendingSync(true)
-      }
-    })
+    const ok = await syncToSupabase(updated)
+    if (!ok) {
+      safeLocalSet(storageKey + '_pending', '1')
+      setPendingSync(true)
+    }
+    setSubSaving(false)
   }
+
+  const retrySync = () => saveSub(sub)
 
   // Auto-sync when coming back online
   useEffect(() => {
     const goOnline = () => {
       setOnline(true)
-      const pending = localStorage.getItem(storageKey + '_pending')
+      const pending = (() => { try { return localStorage.getItem(storageKey + '_pending') } catch { return null } })()
       if (pending) {
         const data = loadSub()
-        syncToSupabase(data)
+        saveSub(data)
       }
     }
     const goOffline = () => setOnline(false)
@@ -7626,7 +7653,10 @@ function SubscriptionTracker({ client, onUpdate, onBack }) {
       {(!online || pendingSync) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', marginBottom: 16, borderRadius: 10, fontSize: 12, fontWeight: 700, fontFamily: 'Montserrat,sans-serif', background: !online ? C.orange + '12' : C.sky + '12', border: `1.5px solid ${!online ? C.orange + '44' : C.sky + '44'}`, color: !online ? C.orange : C.sky }}>
           <span style={{ fontSize: 16 }}>{!online ? '⚡' : '↻'}</span>
-          {!online ? 'You\'re offline — subscription data is saved locally and will sync when you reconnect' : 'Syncing saved data to cloud...'}
+          {!online ? 'You\'re offline — subscription data is saved locally and will sync when you reconnect' : subSaving ? 'Syncing saved data to cloud...' : `Not saved to the cloud yet${syncError ? ` (${syncError})` : ''}`}
+          {online && !subSaving && (
+            <button onClick={retrySync} style={{ marginLeft: 'auto', background: C.sky, color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Retry</button>
+          )}
         </div>
       )}
 
@@ -7714,7 +7744,10 @@ function SubscriptionTracker({ client, onUpdate, onBack }) {
       {(!online || pendingSync) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', marginBottom: 16, borderRadius: 10, fontSize: 12, fontWeight: 700, fontFamily: 'Montserrat,sans-serif', background: !online ? C.orange + '12' : C.sky + '12', border: `1.5px solid ${!online ? C.orange + '44' : C.sky + '44'}`, color: !online ? C.orange : C.sky }}>
           <span style={{ fontSize: 16 }}>{!online ? '⚡' : '↻'}</span>
-          {!online ? 'You\'re offline — subscription data is saved locally and will sync when you reconnect' : 'Syncing saved data to cloud...'}
+          {!online ? 'You\'re offline — subscription data is saved locally and will sync when you reconnect' : subSaving ? 'Syncing saved data to cloud...' : `Not saved to the cloud yet${syncError ? ` (${syncError})` : ''}`}
+          {online && !subSaving && (
+            <button onClick={retrySync} style={{ marginLeft: 'auto', background: C.sky, color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Retry</button>
+          )}
         </div>
       )}
 

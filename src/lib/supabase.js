@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { shrinkNotesSignatures } from './signatures'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
@@ -67,7 +68,9 @@ export async function mergeClientNotes(client, updatesOrFn) {
   if (updates.program_journal) {
     merged.program_journal = { ...(baseNotes.program_journal || {}), ...updates.program_journal }
   }
-  const updatedClient = { ...client, trainerNotes: JSON.stringify(merged) }
+  // Keep signature images small so the saved notes never exceed the request size limit
+  const compact = await shrinkNotesSignatures(merged)
+  const updatedClient = { ...client, trainerNotes: JSON.stringify(compact) }
   const saved = await saveClient(updatedClient)
   return { ...updatedClient, id: saved?.id || client.id, trainerNotes: saved?.trainer_notes ?? updatedClient.trainerNotes }
 }
