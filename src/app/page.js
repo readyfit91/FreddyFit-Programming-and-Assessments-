@@ -1974,6 +1974,59 @@ const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'S
 const TIME_OPTIONS = ['Morning', 'Afternoon', 'Evening']
 const DAY_STATUS_OPTIONS = ['Available', 'Preferred', 'Unavailable']
 
+// ── MULTI-DEVICE MERGE ──────────────────────────────────────────────────────
+// The iPad and the computer both write sign-in / subscription data. Saving one device's copy
+// wholesale used to overwrite signatures added on the other device, and a stale copy cached on
+// the iPad was shown instead of the cloud data. Adds and retries now MERGE with the latest cloud
+// copy (union of sessions) so no device can wipe out another device's signatures.
+function signInEntryTime(e) {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec((e?.date || '').trim())
+  if (!m) return 0
+  let h = 0, min = 0
+  const t = /^(\d{1,2}):(\d{2})\s*([AP]M)?$/i.exec((e?.time || '').trim())
+  if (t) {
+    h = parseInt(t[1]) % 12 + ((t[3] || '').toUpperCase() === 'PM' ? 12 : 0)
+    if (!t[3]) h = parseInt(t[1])
+    min = parseInt(t[2])
+  }
+  return new Date(+m[3], +m[1] - 1, +m[2], h, min).getTime()
+}
+
+function mergeSignInEntries(serverEnts, localEnts, offset) {
+  const byKey = new Map()
+  for (const e of [...(serverEnts || []), ...(localEnts || [])]) {
+    if (!e) continue
+    const key = `${e.date}|${e.time}`
+    const prev = byKey.get(key)
+    // Prefer the copy that actually has a signature
+    if (!prev || (!prev.signature && e.signature)) byKey.set(key, e)
+  }
+  return [...byKey.values()]
+    .sort((a, b) => signInEntryTime(a) - signInEntryTime(b))
+    .map((e, i) => ({ ...e, session: i + (offset || 0) + 1 }))
+}
+
+function mergeSubscriptions(serverSub, localSub) {
+  if (!serverSub) return localSub
+  if (!localSub) return serverSub
+  // A different package/start date means the subscription was re-created — keep the newer local one
+  if (serverSub.startDate !== localSub.startDate || serverSub.package !== localSub.package) return localSub
+  const keyOf = (ss) => ss?.id || `${ss?.date}|${ss?.notes || ''}`
+  const periods = localSub.periods.map((lp, i) => {
+    const sp = serverSub.periods?.[i] || { sessions: [] }
+    const byKey = new Map()
+    for (const ss of [...(sp.sessions || []), ...(lp.sessions || [])]) {
+      if (!ss) continue
+      const k = keyOf(ss)
+      const prev = byKey.get(k)
+      if (!prev || (!prev.sig && ss.sig)) byKey.set(k, ss)
+    }
+    const sessions = [...byKey.values()].sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+    return { ...lp, sessions }
+  })
+  return { ...localSub, periods }
+}
+
 // localStorage.setItem throws when the quota is full (iPad Safari is strict). Never let that
 // abort a save; report whether the write actually happened instead.
 function safeLocalSet(key, value) {
@@ -2946,10 +2999,25 @@ function SignInSheet({ client, onBack, onUpdate }) {
     return safeLocalSet(localKey, JSON.stringify(data))
   }
 
-  const syncToSupabase = async (pkg, ents, offset) => {
+  const [loadingLatest, setLoadingLatest] = useState(true)
+
+  const applyNotes = (notes) => {
+    setPackageType(notes.sign_in_package || '')
+    setPackageLocked(!!notes.sign_in_package)
+    setEntries(notes.sign_in_entries || [])
+    setSessionOffset(notes.sign_in_offset || 0)
+    setTempOffset(String(notes.sign_in_offset || 0))
+  }
+
+  // replace=true only for deliberate edits of what is on screen (delete, renumber). Everything
+  // else is merged with the latest cloud copy so signatures from other devices are never lost.
+  const syncToSupabase = async (pkg, ents, offset, replace = false) => {
     try {
-      const updatedClient = await mergeClientNotes(client, { sign_in_package: pkg, sign_in_entries: ents, sign_in_offset: offset })
+      const updatedClient = await mergeClientNotes(client, base => replace
+        ? { sign_in_package: pkg, sign_in_entries: ents, sign_in_offset: offset }
+        : { sign_in_package: pkg || base.sign_in_package || '', sign_in_entries: mergeSignInEntries(base.sign_in_entries, ents, offset), sign_in_offset: offset })
       onUpdate(updatedClient)
+      try { applyNotes(JSON.parse(updatedClient.trainerNotes || '{}')) } catch {}
       // Clear pending flag and local cache on successful sync
       try { localStorage.removeItem(localKey + '_pending'); localStorage.removeItem(localKey) } catch {}
       setPendingSync(false)
@@ -2961,7 +3029,7 @@ function SignInSheet({ client, onBack, onUpdate }) {
     }
   }
 
-  const saveData = async (pkg, rawEnts, offset) => {
+  const saveData = async (pkg, rawEnts, offset, replace = false) => {
     setSaving(true)
     // Shrink signatures (new ones and any old oversized ones) so the saved data stays small
     const ents = await shrinkSignInEntries(rawEnts)
@@ -2969,7 +3037,7 @@ function SignInSheet({ client, onBack, onUpdate }) {
     // Always save locally first — data is never lost
     saveLocal(pkg, ents, offset)
     // Try to sync to Supabase
-    const ok = await syncToSupabase(pkg, ents, offset)
+    const ok = await syncToSupabase(pkg, ents, offset, replace)
     if (!ok) {
       // Mark as pending so we know to retry later
       safeLocalSet(localKey + '_pending', '1')
@@ -2994,8 +3062,22 @@ function SignInSheet({ client, onBack, onUpdate }) {
     const goOffline = () => setOnline(false)
     window.addEventListener('online', goOnline)
     window.addEventListener('offline', goOffline)
-    // Try syncing on mount if pending
-    goOnline()
+    // On open: always load the latest cloud copy (never trust an old copy cached on this device),
+    // then merge in anything this device still has waiting to upload.
+    ;(async () => {
+      let pendingLocal = null
+      try {
+        if (localStorage.getItem(localKey + '_pending')) pendingLocal = JSON.parse(localStorage.getItem(localKey) || 'null')
+      } catch {}
+      try {
+        const fresh = await getClientById(client.id)
+        const notes = (() => { try { return JSON.parse(fresh?.trainer_notes || '{}') } catch { return {} } })()
+        applyNotes(notes)
+        if (!pendingLocal) { try { localStorage.removeItem(localKey) } catch {} }
+      } catch {}
+      setLoadingLatest(false)
+      if (pendingLocal) saveData(pendingLocal.sign_in_package, pendingLocal.sign_in_entries, pendingLocal.sign_in_offset)
+    })()
     return () => { window.removeEventListener('online', goOnline); window.removeEventListener('offline', goOffline) }
   }, [])
 
@@ -3021,7 +3103,7 @@ function SignInSheet({ client, onBack, onUpdate }) {
     const newEntries = entries.filter((_, i) => i !== idx).map((e, i) => ({ ...e, session: i + sessionOffset + 1 }))
     setEntries(newEntries)
     setSelected(new Set())
-    saveData(packageType, newEntries, sessionOffset)
+    saveData(packageType, newEntries, sessionOffset, true)
   }
 
   const toggleSelect = (idx) => {
@@ -3052,7 +3134,7 @@ function SignInSheet({ client, onBack, onUpdate }) {
     setEntries(newEntries)
     setSelected(new Set())
     setDeleteConfirm(0)
-    saveData(packageType, newEntries, sessionOffset)
+    saveData(packageType, newEntries, sessionOffset, true)
   }
 
   const handleOffsetSave = () => {
@@ -3062,7 +3144,7 @@ function SignInSheet({ client, onBack, onUpdate }) {
     // Renumber existing entries to account for new offset
     const renumbered = entries.map((e, i) => ({ ...e, session: i + val + 1 }))
     setEntries(renumbered)
-    saveData(packageType, renumbered, val)
+    saveData(packageType, renumbered, val, true)
   }
 
   return (
@@ -3072,6 +3154,10 @@ function SignInSheet({ client, onBack, onUpdate }) {
 
       <div style={{ fontWeight: 800, fontSize: 26, letterSpacing: 3, color: C.text, marginBottom: 4 }}>Sign-In Sheet</div>
       <div style={{ fontSize: 14, color: C.sub, marginBottom: pendingSync || !online ? 12 : 24 }}>{client.name}</div>
+
+      {loadingLatest && (
+        <div style={{ padding: '10px 16px', marginBottom: 16, borderRadius: 10, fontSize: 12, fontWeight: 700, background: C.sky + '12', border: `1.5px solid ${C.sky}44`, color: C.sky }}>↻ Loading latest signatures…</div>
+      )}
 
       {/* Offline / Pending Sync Indicator */}
       {(!online || pendingSync) && (
@@ -7537,10 +7623,17 @@ function SubscriptionTracker({ client, onUpdate, onBack }) {
     } catch {}
   }
 
-  const syncToSupabase = async (updated) => {
+  const [loadingLatest, setLoadingLatest] = useState(true)
+
+  // replace=true only for deliberate edits (reset, removing a session). Everything else is merged
+  // with the latest cloud copy so sessions signed on another device are never overwritten.
+  const syncToSupabase = async (updated, replace = false) => {
     try {
-      const updatedClient = await mergeClientNotes(client, { subscription: updated })
+      const updatedClient = await mergeClientNotes(client, base => ({
+        subscription: replace ? updated : mergeSubscriptions(base.subscription || null, updated)
+      }))
       onUpdate && onUpdate(updatedClient)
+      try { setSub(JSON.parse(updatedClient.trainerNotes || '{}').subscription || null) } catch {}
       // Clear pending flag and local cache on successful sync
       try { localStorage.removeItem(storageKey + '_pending'); localStorage.removeItem(storageKey) } catch {}
       setPendingSync(false)
@@ -7553,14 +7646,14 @@ function SubscriptionTracker({ client, onUpdate, onBack }) {
   }
 
   // Always update locally first (never lose data), then push to Supabase
-  const saveSub = async (rawUpdated) => {
+  const saveSub = async (rawUpdated, replace = false) => {
     setSub(rawUpdated)
     setSubSaving(true)
     // Shrink signatures (new ones and any old oversized ones) so the saved data stays small
     const updated = await shrinkSubscription(rawUpdated)
     setSub(updated)
     saveLocal(updated)
-    const ok = await syncToSupabase(updated)
+    const ok = await syncToSupabase(updated, replace)
     if (!ok) {
       safeLocalSet(storageKey + '_pending', '1')
       setPendingSync(true)
@@ -7583,8 +7676,24 @@ function SubscriptionTracker({ client, onUpdate, onBack }) {
     const goOffline = () => setOnline(false)
     window.addEventListener('online', goOnline)
     window.addEventListener('offline', goOffline)
-    // Try syncing on mount if pending
-    goOnline()
+    // On open: always load the latest cloud copy (never trust an old copy cached on this device),
+    // then merge in anything this device still has waiting to upload.
+    ;(async () => {
+      let pendingLocal = null
+      let hasPending = false
+      try {
+        hasPending = !!localStorage.getItem(storageKey + '_pending')
+        if (hasPending) pendingLocal = JSON.parse(localStorage.getItem(storageKey) || 'null')
+      } catch {}
+      try {
+        const fresh = await getClientById(client.id)
+        const notes = (() => { try { return JSON.parse(fresh?.trainer_notes || '{}') } catch { return {} } })()
+        setSub(notes.subscription || null)
+        if (!hasPending) { try { localStorage.removeItem(storageKey) } catch {} }
+      } catch {}
+      setLoadingLatest(false)
+      if (hasPending && pendingLocal) saveSub(pendingLocal)
+    })()
     return () => { window.removeEventListener('online', goOnline); window.removeEventListener('offline', goOffline) }
   }, [])
 
@@ -7615,7 +7724,7 @@ function SubscriptionTracker({ client, onUpdate, onBack }) {
 
   const resetSub = () => {
     if (!confirm('Reset this subscription? All session data will be cleared.')) return
-    saveSub(null)
+    saveSub(null, true)
   }
 
   const openSignModal = (periodIdx) => {
@@ -7632,7 +7741,7 @@ function SubscriptionTracker({ client, onUpdate, onBack }) {
   const removeSession = (periodIdx, sessionIdx) => {
     if (!confirm('Remove this session?')) return
     const updated = { ...sub, periods: sub.periods.map((p, i) => i === periodIdx ? { ...p, sessions: p.sessions.filter((_, j) => j !== sessionIdx) } : p) }
-    saveSub(updated)
+    saveSub(updated, true)
   }
 
   const togglePlan = (periodIdx, key) => {
@@ -7641,6 +7750,14 @@ function SubscriptionTracker({ client, onUpdate, onBack }) {
   }
 
   const totalSessions = sub ? sub.periods.reduce((acc, p) => acc + p.sessions.length, 0) : 0
+
+  // Don't show the setup screen (or stale data) until the latest cloud copy has loaded
+  if (loadingLatest && !sub) return (
+    <div style={{ maxWidth: 560, margin: '0 auto', padding: '0 24px 32px', fontFamily: 'Montserrat,sans-serif' }}>
+      <LogoHeader />
+      <div style={{ padding: '40px 0', textAlign: 'center', fontSize: 13, fontWeight: 700, color: C.sub }}>↻ Loading latest subscription…</div>
+    </div>
+  )
 
   // Setup screen
   if (!sub) return (
@@ -7740,6 +7857,10 @@ function SubscriptionTracker({ client, onUpdate, onBack }) {
     <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 24px 32px', fontFamily: 'Montserrat,sans-serif' }}>
       <LogoHeader />
       <button onClick={onBack} style={{ background: 'none', border: `1px solid ${C.border}`, color: C.sub, borderRadius: 7, padding: '6px 14px', fontSize: 12, cursor: 'pointer', marginBottom: 24 }}>← Back to {client.name}</button>
+
+      {loadingLatest && (
+        <div style={{ padding: '10px 16px', marginBottom: 16, borderRadius: 10, fontSize: 12, fontWeight: 700, background: C.sky + '12', border: `1.5px solid ${C.sky}44`, color: C.sky }}>↻ Loading latest signatures…</div>
+      )}
 
       {(!online || pendingSync) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', marginBottom: 16, borderRadius: 10, fontSize: 12, fontWeight: 700, fontFamily: 'Montserrat,sans-serif', background: !online ? C.orange + '12' : C.sky + '12', border: `1.5px solid ${!online ? C.orange + '44' : C.sky + '44'}`, color: !online ? C.orange : C.sky }}>
