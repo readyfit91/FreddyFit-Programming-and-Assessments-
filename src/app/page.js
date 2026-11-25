@@ -2033,8 +2033,26 @@ function safeLocalSet(key, value) {
   try { localStorage.setItem(key, value); return true } catch { return false }
 }
 
+// On iPad Safari, React's touch handlers are "passive", so they can't stop the browser from
+// treating a finger drag as text selection / scrolling / long-press. Block those natively on the
+// canvas (this also stops iOS from firing duplicate mouse events after each touch).
+function useCanvasTouchGuard(canvasRef) {
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const prevent = (e) => e.preventDefault()
+    const opts = { passive: false }
+    const evs = ['touchstart', 'touchmove', 'touchend', 'contextmenu', 'selectstart', 'dblclick', 'gesturestart']
+    evs.forEach(ev => canvas.addEventListener(ev, prevent, opts))
+    return () => evs.forEach(ev => canvas.removeEventListener(ev, prevent, opts))
+  }, [])
+}
+
+const noSelectStyle = { userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none', WebkitTapHighlightColor: 'transparent' }
+
 function SignaturePad({ value, onChange }) {
   const canvasRef = useRef(null)
+  useCanvasTouchGuard(canvasRef)
   const isDrawing = useRef(false)
   const hasDrawn = useRef(!!value)
 
@@ -2100,8 +2118,11 @@ function SignaturePad({ value, onChange }) {
     e.preventDefault()
     const ctx = canvasRef.current.getContext('2d')
     const pos = getPos(e)
+    // Stroke just the newest segment, then start a fresh path from here (keeps drawing smooth)
     ctx.lineTo(pos.x, pos.y)
     ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(pos.x, pos.y)
   }
 
   const endDraw = () => {
@@ -2144,7 +2165,7 @@ function SignaturePad({ value, onChange }) {
       )}
       <canvas
         ref={canvasRef}
-        style={{ width: '100%', height: 160, border: `2px solid ${value ? C.green + '66' : C.border}`, borderRadius: 12, background: '#fafbfc', touchAction: 'none', cursor: 'crosshair', position: 'relative', zIndex: 2 }}
+        style={{ width: '100%', height: 160, border: `2px solid ${value ? C.green + '66' : C.border}`, borderRadius: 12, background: '#fafbfc', touchAction: 'none', cursor: 'crosshair', position: 'relative', zIndex: 2, ...noSelectStyle }}
         onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
         onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}
       />
@@ -2158,6 +2179,7 @@ function SignaturePad({ value, onChange }) {
 
 function InitialPad({ value, onChange }) {
   const canvasRef = useRef(null)
+  useCanvasTouchGuard(canvasRef)
   const isDrawing = useRef(false)
 
   useEffect(() => {
@@ -2203,8 +2225,11 @@ function InitialPad({ value, onChange }) {
     e.preventDefault()
     const ctx = canvasRef.current.getContext('2d')
     const pos = getPos(e)
+    // Stroke just the newest segment, then start a fresh path from here (keeps drawing smooth)
     ctx.lineTo(pos.x, pos.y)
     ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(pos.x, pos.y)
   }
 
   const endDraw = () => {
@@ -2230,7 +2255,7 @@ function InitialPad({ value, onChange }) {
         )}
         <canvas
           ref={canvasRef}
-          style={{ width: 80, height: 50, border: `2px solid ${value ? C.green : C.border}`, borderRadius: 8, background: value ? C.green + '08' : '#fafbfc', touchAction: 'none', cursor: 'crosshair', position: 'relative', zIndex: 2 }}
+          style={{ width: 80, height: 50, border: `2px solid ${value ? C.green : C.border}`, borderRadius: 8, background: value ? C.green + '08' : '#fafbfc', touchAction: 'none', cursor: 'crosshair', position: 'relative', zIndex: 2, ...noSelectStyle }}
           onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
           onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}
         />
@@ -7551,6 +7576,8 @@ const SUB_PACKAGES = [
 function SubscriptionSignaturePad({ value, onChange }) {
   const canvasRef = useRef(null)
   const isDrawing = useRef(false)
+  const lastPoint = useRef(null)
+  useCanvasTouchGuard(canvasRef)
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -7570,9 +7597,18 @@ function SubscriptionSignaturePad({ value, onChange }) {
     const touch = e.touches ? e.touches[0] : e
     return { x: touch.clientX - rect.left, y: touch.clientY - rect.top }
   }
-  const startDraw = (e) => { e.preventDefault(); isDrawing.current = true; const ctx = canvasRef.current.getContext('2d'); ctx.setLineDash([]); ctx.strokeStyle = '#1a1a2e'; ctx.lineWidth = 2.5; const p = getPos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y) }
-  const draw = (e) => { if (!isDrawing.current) return; e.preventDefault(); const ctx = canvasRef.current.getContext('2d'); const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke() }
-  const endDraw = () => { if (!isDrawing.current) return; isDrawing.current = false; onChange(exportSignature(canvasRef.current)) }
+  // Draw each finger movement as a short segment (re-stroking one ever-growing path made the
+  // line lag and stutter on iPad).
+  const startDraw = (e) => { isDrawing.current = true; lastPoint.current = getPos(e) }
+  const draw = (e) => {
+    if (!isDrawing.current || !lastPoint.current) return
+    const ctx = canvasRef.current.getContext('2d')
+    const p = getPos(e)
+    ctx.setLineDash([]); ctx.strokeStyle = '#1a1a2e'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+    ctx.beginPath(); ctx.moveTo(lastPoint.current.x, lastPoint.current.y); ctx.lineTo(p.x, p.y); ctx.stroke()
+    lastPoint.current = p
+  }
+  const endDraw = () => { if (!isDrawing.current) return; isDrawing.current = false; lastPoint.current = null; onChange(exportSignature(canvasRef.current)) }
   const clear = () => {
     const canvas = canvasRef.current; const ctx = canvas.getContext('2d'); const rect = canvas.getBoundingClientRect()
     ctx.clearRect(0, 0, rect.width * 2, rect.height * 2); onChange('')
@@ -7581,7 +7617,7 @@ function SubscriptionSignaturePad({ value, onChange }) {
   }
   return (
     <div>
-      <canvas ref={canvasRef} style={{ width: '100%', height: 100, border: `1.5px solid ${C.border}`, borderRadius: 10, background: '#FAFAFA', touchAction: 'none', cursor: 'crosshair', display: 'block' }}
+      <canvas ref={canvasRef} style={{ width: '100%', height: 100, border: `1.5px solid ${C.border}`, borderRadius: 10, background: '#FAFAFA', touchAction: 'none', cursor: 'crosshair', display: 'block', ...noSelectStyle }}
         onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
         onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw} />
       <button type="button" onClick={clear} style={{ marginTop: 6, fontSize: 10, color: C.sub, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Montserrat,sans-serif' }}>Clear</button>
