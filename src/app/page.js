@@ -7845,14 +7845,17 @@ function SubscriptionTracker({ client, onUpdate, onBack }) {
                 ))}
               </div>
 
-              {/* Recent sessions list */}
+              {/* All session dates in this period */}
               {period.sessions.length > 0 && (
                 <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginBottom: 12 }}>
-                  {period.sessions.slice(-3).map((s, i) => (
-                    <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 11, color: C.sub }}>
-                      <span style={{ color }}>{new Date(s.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                      {s.notes && <span>— {s.notes.slice(0, 40)}</span>}
-                      {s.sig && <span style={{ fontSize: 9, color: C.green }}>✓ Signed</span>}
+                  <div style={{ fontSize: 10, fontWeight: 700, color: C.sub, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>Dates</div>
+                  {[...period.sessions].sort((a, b) => (a.date || '').localeCompare(b.date || '')).map((s, i) => (
+                    <div key={s.id || i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 11, color: C.sub }}>
+                      <span style={{ color, fontWeight: 700, minWidth: 82 }}>{new Date(s.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                      {s.notes && <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>— {s.notes}</span>}
+                      {s.sig
+                        ? <img src={s.sig} alt="signature" style={{ height: 22, maxWidth: 70, marginLeft: 'auto', borderRadius: 4, border: `1px solid ${C.border}`, background: '#fff' }} />
+                        : <span style={{ fontSize: 9, color: C.sub, marginLeft: 'auto' }}>No signature</span>}
                     </div>
                   ))}
                 </div>
@@ -7866,6 +7869,30 @@ function SubscriptionTracker({ client, onUpdate, onBack }) {
           )
         })}
       </div>
+
+      {/* Full signed-session history across all periods */}
+      {totalSessions > 0 && (() => {
+        const periodColors = ['#EF4444', '#F97316', '#EAB308', '#22C55E', '#8B5CF6', '#EC4899']
+        const all = sub.periods
+          .flatMap((p, pIdx) => p.sessions.map(s => ({ ...s, pIdx })))
+          .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+        return (
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: '20px 20px', marginTop: 20 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: C.sub, textTransform: 'uppercase', marginBottom: 12 }}>All Session Dates ({all.length})</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '110px 60px 1fr 90px', gap: 8, padding: '6px 0', borderBottom: `1px solid ${C.border}`, fontSize: 10, fontWeight: 700, color: C.sub, textTransform: 'uppercase', letterSpacing: 1 }}>
+              <div>Date</div><div>Period</div><div>Notes</div><div>Signature</div>
+            </div>
+            {all.map((s, i) => (
+              <div key={s.id || i} style={{ display: 'grid', gridTemplateColumns: '110px 60px 1fr 90px', gap: 8, alignItems: 'center', padding: '8px 0', borderBottom: i < all.length - 1 ? `1px solid ${C.border}` : 'none', fontSize: 12, color: C.text }}>
+                <div style={{ fontWeight: 700 }}>{new Date(s.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                <div style={{ fontWeight: 700, color: periodColors[s.pIdx] }}>P{s.pIdx + 1}</div>
+                <div style={{ color: C.sub, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.notes || '—'}</div>
+                <div>{s.sig ? <img src={s.sig} alt="signature" style={{ height: 28, maxWidth: 90, borderRadius: 4, border: `1px solid ${C.border}`, background: '#fff' }} /> : <span style={{ fontSize: 10, color: C.sub }}>Not signed</span>}</div>
+              </div>
+            ))}
+          </div>
+        )
+      })()}
 
       {/* Sign-In Modal */}
       {signModal !== null && (
